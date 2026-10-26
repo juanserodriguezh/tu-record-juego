@@ -69,6 +69,14 @@ Ejemplos de capturas:
 - El Ferrari F40 de ACPursuit (mod de Assetto Corsa) **no se integró**: el modelo viene protegido contra extracción. Su física (data.acd) está calculada; ver HANDOFF.md.
 
 ## Publicación
-La versión pública vive como artefacto de Claude (claude.ai). Desde Claude Code no se puede actualizar ese enlace. Hay dos opciones:
-- Abrir `dist/spa.html` y `dist/models/*` en la app de Claude y pedir que se publique sobre el mismo artefacto.
-- Alojar `dist/` en cualquier hosting estático (GitHub Pages, Netlify, Vercel), sirviendo `.wasm` como `application/wasm`.
+El juego público es el artefacto de Claude **https://claude.ai/artifact/Y3YH8j53hJtVGmR75KyzL7**. Se publica desde Claude Code con la herramienta Artifact:
+1. `node build.js` y verificar (capturas + `node tools/headless.js`).
+2. Artifact `publish` con `url` = ese enlace, `file_path` = `dist/spa.html` y `files` = `{ "models/pack0.wasm": "dist/models/pack0.wasm", …, "models/packN.wasm": "dist/models/packN.wasm" }`. Si no se pasan los packs, se conservan los ya publicados: pásalos solo si cambió algún `assets/*.glb`. Si el número de packs baja, borra los sobrantes con `null`.
+3. La publicación añade su propio envoltorio (`<!doctype html>…<head>` con estilos base y `</body></html>`); por eso el `index.html` publicado no es byte a byte igual a `dist/spa.html`, pero el contenido sí.
+
+**Regla de versiones:** cada versión publicada sube el número (v67, v68…). Se anota en `HANDOFF.md` (versión, fecha, qué cambió y cómo se verificó) y se hace commit con ese número en el mensaje. No se publica sin permiso explícito de Juanse.
+
+Alternativa: alojar `dist/` en cualquier hosting estático (GitHub Pages, Netlify, Vercel), sirviendo `.wasm` como `application/wasm`.
+
+## Fuentes originales (no están en el repo)
+Los modelos originales (zips de Sketchfab/vecarz) y los circuitos de Assetto Corsa **no están en el repo**; la carpeta local `fuentes/` está en `.gitignore`. En `assets/` solo están los GLB ya optimizados. Para rehacer un coche (p. ej. el redondeo de ruedas del RB22 o el MCL39) hay que pedirle a Juanse el zip original.

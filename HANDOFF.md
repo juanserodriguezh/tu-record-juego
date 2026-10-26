@@ -1,9 +1,13 @@
 # HANDOFF
 
 ## v66 (26-oct-2026) — proyecto pasado a Claude Code
-- Los fuentes se reconstruyeron desde la versión publicada v66. `node build.js` reproduce byte a byte el `index.html` y los 7 packs publicados; la trazada ideal recalculada también sale idéntica.
+- Los fuentes se reconstruyeron desde la versión publicada v66. `node build.js` reproduce byte a byte los 7 packs publicados, y el contenido del `index.html` (el publicado lleva además el envoltorio de publicación); la trazada ideal recalculada también sale idéntica.
 - `src/head.html` incluye ahora `<meta charset>`, viewport y `[hidden]{display:none!important}`. Antes los ponía el envoltorio de publicación; sin ellos, la página local se quedaba en la pantalla de carga.
 - Herramientas nuevas: `tools/serve.mjs`, `tools/shot.mjs` (capturas con Playwright) y `tools/headless.js` (aceleración y lado de las barreras).
+
+## Repo y publicación (26-oct-2026, sin cambios de código)
+- Proyecto subido a `juanserodriguezh/tu-record-juego` (main). Un clon limpio + `node build.js` reproduce los 7 packs publicados.
+- `CLAUDE.md`: procedimiento real de publicación con la herramienta Artifact (antes decía que desde Code no se podía), regla de versiones (v67, v68…) y nota de fuentes originales fuera del repo (`fuentes/` en `.gitignore`).
 
 ## Ferrari F40 ACPursuit (pendiente, no integrado)
 - El kn5 trae las texturas vaciadas (1×1 px) y la geometría alterada a propósito (protección del autor; la repara CSP). No se revierte.
