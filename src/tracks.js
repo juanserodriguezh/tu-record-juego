@@ -118,7 +118,7 @@ const TRACK_DEFS = {
     sub: 'Autodromo Nazionale Monza · 5,793 km · 11 curvas · el templo de la velocidad',
     raw: () => MONZA_RAW, nom: 5789, elev: MONZA_ELEV, corners: MONZA_CORNERS, sectors: [1960, 4250], runoff: MONZA_RUNOFF,
     widen: [[300, 380, 1000, 985, 7.6]],
-    tyres: [[900, 1010, 1], [2100, 2180, -1], [4000, 4120, -1], [5150, 5300, 1]],
+    tyres: [[900, 945, 1], [955, 1010, -1], [2100, 2162, -1], [2172, 2215, 1], [4000, 4110, 1], [5150, 5300, 1]],   // chicanes (Rettifilo, Roggia): one wall per corner, each on its outside
     straight: [5560, 380],
     pitTr: [[5480, 5560], [380, 470]],
     pit: [5475, 5575, 470, 380],
