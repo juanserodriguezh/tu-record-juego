@@ -14,6 +14,7 @@
 - Arreglo en `tracks.js`: Rettifilo pasa a ser un muro por curva, `[900,945,1]` por fuera de la T1 y `[955,1010,-1]` por fuera de la T2. Ascari pasa a `[4000,4110,1]`, detrás de la grava y por fuera del tramo de derechas.
 - `tools/headless.js tyres`: ya no mira solo el punto medio, porque en una chicane la curvatura cambia de signo justo ahí. Ahora pondera la curvatura de todo el tramo y exige que al menos el 75 % gire en sentido contrario al muro. Si algo falla, lo lista y sale con exit 1. La Roggia pasaba con un 85 %, pero su muro también seguía por dentro de la segunda curva (de derechas): se partió igual que el Rettifilo, `[2100,2162,-1]` por fuera de la primera y `[2172,2215,1]` por fuera de la segunda. Ahora los 6 muros de Monza están al 100 %.
 - Verificado: `tyres` da todo en verde (Monza 5/5 y el resto sin cambios). Capturas antes y después en el Rettifilo (vista aérea, entrada de la T1 y T2) en Ascari (vista aérea y entrada) y en la Roggia (vista aérea y salida).
+- Publicada el 26-oct-2026 como versión 67 del artefacto (id 1793055356-2f16). Solo cambió la página: los packs siguen como en v66. Se comprobó que el `index.html` publicado contiene `dist/spa.html` entero, con los muros nuevos.
 - Capturas en el contenedor en la nube: jsDelivr está bloqueado. Hay que bajar three con `npm pack three@0.160.0` y lanzar con `THREE_DIR=<carpeta>/package`. Playwright está en `/opt/node-tools`: hay que enlazarlo en `node_modules/` para que el `import` ESM lo encuentre.
 
 ## Ferrari F40 ACPursuit (pendiente, no integrado)
