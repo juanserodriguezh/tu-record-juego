@@ -1,0 +1,337 @@
+<div id="app">
+  <canvas id="gl" tabindex="-1" aria-label="Vista 3D del circuito"></canvas>
+
+  <div id="loading" class="loading">
+    <div class="load-card">
+      <div class="brand-mark big">SPA</div>
+      <div class="load-title">Tu récord en Spa</div>
+      <div class="load-bar"><span id="loadFill"></span></div>
+      <div id="loadMsg" class="load-msg">Cargando motor gráfico…</div>
+    </div>
+  </div>
+
+  <!-- ===================== MAIN MENU ===================== -->
+  <div id="menu" class="menu" hidden>
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">SPA</div>
+        <div class="brand-text">
+          <strong>Tu récord en Spa</strong>
+          <small>Circuit de Spa-Francorchamps · 7,004 km · 19 curvas · +102 m de desnivel</small>
+        </div>
+      </div>
+      <nav class="topnav">
+        <div class="track-tabs" id="trackTabs" role="group" aria-label="Circuito"><button type="button" data-k="spa" aria-pressed="true">Spa</button><button type="button" data-k="monza" aria-pressed="false">Monza</button><button type="button" data-k="albertpark" aria-pressed="false">Albert Park</button><button type="button" data-k="toca_largo" aria-pressed="false">Tocancipá</button></div>
+        <button class="ghost-btn icon-btn snd-toggle" id="btnSound" type="button" aria-label="Silenciar sonido" aria-pressed="false"><svg class="ic-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><svg class="ic-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16.5 9.5l5 5m0-5l-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+        <button class="ghost-btn" id="btnControls" type="button">Controles</button>
+        <button class="ghost-btn" id="btnSettings" type="button">Ajustes</button>
+      </nav>
+    </header>
+    <div class="track-tabs layout-tabs" id="layoutTabs" role="group" aria-label="Trazado" hidden></div>
+
+    <aside class="garage panel" aria-label="Garaje">
+      <div class="panel-head">
+        <span class="eyebrow">Garaje</span>
+        <span id="carCount" class="count"></span>
+      </div>
+      <div class="search"><input type="search" id="carSearch" placeholder="Buscar coche por nombre…" autocomplete="off" spellcheck="false" aria-label="Buscar coche por nombre"></div>
+      <div class="tabs" id="catTabs" role="tablist"></div>
+      <div class="brand-bar" id="brandBar" hidden><button type="button" id="brandBack" aria-label="Volver a las marcas">‹ Marcas</button><b id="brandName"></b></div>
+      <div class="brand-grid" id="brandGrid"></div>
+      <ul class="car-list" id="carList" hidden></ul>
+    </aside>
+
+    <section class="spec panel" aria-label="Ficha del coche">
+      <div class="spec-head">
+        <span class="eyebrow" id="specCat">Deportivo</span>
+        <h1 id="specName">Honda Civic Type R</h1>
+        <p id="specSub" class="sub">FL5 · 2.0 L turbo</p>
+      </div>
+      <dl class="stats" id="specStats"></dl>
+      <div class="best-row">
+        <div><span class="eyebrow">Mejor vuelta · seco</span><b id="bestDry">—</b></div>
+        <div><span class="eyebrow">Mejor vuelta · lluvia</span><b id="bestWet">—</b></div>
+      </div>
+
+      <div class="group">
+        <div class="group-title">Apariencia</div>
+        <div class="field">
+          <label for="col1">Color principal</label>
+          <div class="swatches" id="sw1"></div>
+          <input type="color" id="col1" value="#ffffff">
+        </div>
+        <div class="field">
+          <label for="col2">Color secundario</label>
+          <div class="swatches" id="sw2"></div>
+          <input type="color" id="col2" value="#111111">
+        </div>
+        <div class="field">
+          <span class="lbl">Decoración</span>
+          <div class="seg" id="segPattern"></div>
+        </div>
+        <div class="field two">
+          <div>
+            <span class="lbl">Acabado</span>
+            <div class="seg" id="segFinish"></div>
+          </div>
+          <div>
+            <span class="lbl">Llantas</span>
+            <div class="seg" id="segRim"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-title">Clima</div>
+        <div class="weather" id="weatherBtns"></div>
+      </div>
+    </section>
+
+    <footer class="startbar">
+      <div class="modes" id="modeTabs" role="tablist" aria-label="Modo de juego"></div>
+      <div class="quick" id="quickOpts" aria-label="Opciones rápidas de la sesión"></div>
+      <div class="startrow">
+        <button class="arrow" id="prevCar" type="button" aria-label="Coche anterior">‹</button>
+        <button class="start-btn" id="startBtn" type="button">
+          <span id="startLbl">Salir a pista</span>
+          <small id="startHint">Salida parada</small>
+        </button>
+        <button class="arrow" id="nextCar" type="button" aria-label="Coche siguiente">›</button>
+      </div>
+      <button class="link-btn" id="sessBtn" type="button">Opciones de sesión</button>
+    </footer>
+    <div class="drag-hint">Arrastra para girar el coche</div>
+  </div>
+
+  <!-- ===================== HUD ===================== -->
+  <div id="hud" class="hud" hidden>
+    <div class="tower">
+      <div class="tower-top">
+        <span class="eyebrow">Vuelta <b id="hLap">1</b><span id="hLapOf"></span></span>
+        <span class="chip ok" id="hValid">Válida</span>
+      </div>
+      <div class="lap-time" id="hTime">0:00.000</div>
+      <div class="tower-rows">
+        <div><span>Última</span><b id="hLast">—</b></div>
+        <div><span>Mejor</span><b id="hBest">—</b></div>
+      </div>
+    </div>
+
+    <div class="standings" id="standings" hidden>
+      <div class="st-head"><b id="hPos">P1</b><span id="hPosOf">/1</span><span class="st-sess" id="hSess"></span></div>
+      <ol id="stRows"></ol>
+    </div>
+
+    <div class="center-top">
+      <div class="lights" id="lights" hidden>
+        <i></i><i></i><i></i><i></i><i></i>
+      </div>
+      <div class="delta" id="hDelta" hidden>+0.000</div>
+      <div class="sectors">
+        <div class="sec" id="hS1"><span>S1</span><b>—</b></div>
+        <div class="sec" id="hS2"><span>S2</span><b>—</b></div>
+        <div class="sec" id="hS3"><span>S3</span><b>—</b></div>
+      </div>
+      <div class="corner" id="hCorner"></div>
+    </div>
+
+    <canvas id="minimap" class="minimap" width="220" height="260" aria-label="Mapa del circuito"></canvas>
+
+    <div class="cluster">
+      <div class="tyres" id="hTyre" hidden>
+        <div class="ty-badge" id="hTyB"><span>M</span></div>
+        <div class="ty-ax" id="hTyAx">
+          <div class="ty-row"><span>DEL</span><i><b id="hTyWF"></b></i><em id="hTyTF">—</em></div>
+          <div class="ty-row"><span>TRA</span><i><b id="hTyWR"></b></i><em id="hTyTR">—</em></div>
+        </div>
+        <div class="ty-info" id="hTyI"></div>
+      </div>
+      <div class="dmg" id="hDmg" hidden>
+        <svg viewBox="0 0 60 104" width="40" height="70" aria-label="Estado del coche">
+          <rect id="dmFw" x="12" y="1" width="36" height="5" rx="1.5"/>
+          <rect id="dmRw" x="12" y="98" width="36" height="5" rx="1.5"/>
+          <path id="dmBody" d="M23 8 Q30 3 37 8 L40 30 L42 38 L42 80 Q42 94 30 96 Q18 94 18 80 L18 38 L20 30 Z" class="dm-base"/>
+          <path id="dmF" d="M23 8 Q30 3 37 8 L40 30 L20 30 Z"/>
+          <path id="dmR" d="M18 78 L42 78 Q42 94 30 96 Q18 94 18 78 Z"/>
+          <rect id="dmL" x="18" y="32" width="6" height="44" rx="2"/>
+          <rect id="dmRt" x="36" y="32" width="6" height="44" rx="2"/>
+          <circle id="dmEng" cx="30" cy="22" r="5.5"/>
+          <rect id="dmGear" x="25" y="82" width="10" height="8" rx="2"/>
+          <rect id="dmFloor" x="26" y="42" width="8" height="30" rx="3"/>
+          <rect id="dmW0" x="6" y="14" width="9" height="17" rx="2.5"/><rect id="dmW1" x="45" y="14" width="9" height="17" rx="2.5"/>
+          <rect id="dmW2" x="6" y="68" width="9" height="19" rx="2.5"/><rect id="dmW3" x="45" y="68" width="9" height="19" rx="2.5"/>
+        </svg>
+        <div class="dmg-t"><b id="hDmgPct">0%</b><span id="hDmgTxt"></span></div>
+      </div>
+      <div class="rpm"><div class="rpm-fill" id="hRpm"></div><div class="shift" id="hShift"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+      <div class="cluster-main">
+        <div class="speed"><b id="hSpeed">0</b><span id="hUnit">km/h</span></div>
+        <div class="gear" id="hGear">N</div>
+      </div>
+      <div class="pedals"><div class="pedal thr"><i id="hThr"></i></div><div class="pedal brk"><i id="hBrk"></i></div></div>
+      <div class="assists" id="hAssist"></div>
+    </div>
+
+    <div class="aqua" id="hAqua" hidden>AQUAPLANING</div>
+    <div class="hints" id="hHints">
+      <span id="hCam">Cámara: 3.ª persona</span>
+      <span>C cámara · 1-0 mover cámara · R reiniciar · T neumáticos en boxes · B mirar atrás · M sonido · Esc pausa</span>
+    </div>
+
+    <div class="repair" id="hRepair" hidden><span id="hRepairT">Reparando…</span><div class="bar"><i id="hRepairBar"></i></div></div>
+    <div class="toast" id="toast" hidden></div>
+    <div class="banner" id="banner" hidden></div>
+    <button class="pause-btn" id="pauseBtn" type="button" aria-label="Pausa">II</button>
+    <button class="snd-btn snd-toggle" id="hSound" type="button" aria-label="Silenciar sonido" aria-pressed="false"><svg class="ic-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><svg class="ic-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16.5 9.5l5 5m0-5l-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+  </div>
+
+  <!-- touch controls -->
+  <div id="touch" class="touch" hidden>
+    <div class="t-left">
+      <button type="button" data-k="left" aria-label="Izquierda">◀</button>
+      <button type="button" data-k="right" aria-label="Derecha">▶</button>
+    </div>
+    <div class="t-right">
+      <button type="button" data-k="brake" class="t-brake" aria-label="Freno">Freno</button>
+      <button type="button" data-k="throttle" class="t-gas" aria-label="Acelerador">Gas</button>
+    </div>
+  </div>
+
+  <!-- ===================== PAUSE ===================== -->
+  <div id="pause" class="overlay" hidden>
+    <div class="modal">
+      <div class="modal-head"><span class="eyebrow">Sesión</span><h2>Pausa</h2></div>
+      <div class="pause-actions">
+        <button class="primary" id="pResume" type="button">Continuar</button>
+        <button id="pRestart" type="button">Reiniciar sesión</button>
+        <button id="pRepair" type="button" hidden>Reparar coche</button>
+        <div class="field pit-ty" id="pTyField"><span class="lbl">Neumáticos en la próxima parada en boxes</span><div class="seg" id="pTyres"></div></div>
+        <button id="pSettings" type="button">Ajustes</button>
+        <button id="pEnd" type="button" hidden>Terminar clasificación</button>
+        <button id="pMenu" type="button">Volver al garaje</button>
+      </div>
+      <div class="pause-sound">
+        <div class="ps-head"><span class="eyebrow">Sonido</span><button class="ghost-btn icon-btn snd-toggle" id="pSound" type="button" aria-label="Silenciar sonido" aria-pressed="false"><svg class="ic-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><svg class="ic-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16.5 9.5l5 5m0-5l-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button></div>
+        <div class="ps-grid">
+          <div class="field"><label for="pVol">General <b id="pVolVal">70%</b></label><input type="range" id="pVol" min="0" max="1" step="0.05"></div>
+          <div class="field"><label for="pVolEng">Motor <b id="pVolEngVal">100%</b></label><input type="range" id="pVolEng" min="0" max="1.5" step="0.05"></div>
+          <div class="field"><label for="pVolFx">Efectos <b id="pVolFxVal">80%</b></label><input type="range" id="pVolFx" min="0" max="1.5" step="0.05"></div>
+        </div>
+      </div>
+      <div class="laps-wrap">
+        <table class="laps">
+          <thead><tr><th>Vuelta</th><th>Tiempo</th><th>S1</th><th>S2</th><th>S3</th><th>Estado</th></tr></thead>
+          <tbody id="lapRows"><tr><td colspan="6" class="muted">Aún no has completado ninguna vuelta.</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== SESSION OPTIONS ===================== -->
+  <div id="session" class="overlay" hidden>
+    <div class="modal">
+      <div class="modal-head"><span class="eyebrow">Opciones de sesión</span><h2 id="sessTitle">Práctica</h2></div>
+      <div class="sess-fields" id="sessFields"></div>
+      <div class="modal-foot two"><button id="sessClose" type="button">Listo</button><button class="primary" id="sessGo" type="button">Empezar</button></div>
+    </div>
+  </div>
+
+  <!-- ===================== RESULTS ===================== -->
+  <div id="results" class="overlay" hidden>
+    <div class="modal wide">
+      <div class="modal-head"><span class="eyebrow" id="resEyebrow">Resultados</span><h2 id="resTitle">Clasificación</h2><p class="muted" id="resSub"></p></div>
+      <div class="laps-wrap"><table class="laps res"><thead id="resHead"></thead><tbody id="resRows"></tbody></table></div>
+      <div class="modal-foot two"><button id="resMenu" type="button">Volver al garaje</button><button class="primary" id="resNext" type="button">Empezar carrera</button></div>
+    </div>
+  </div>
+
+  <!-- ===================== MULTIPLAYER LOBBY ===================== -->
+  <div id="lobby" class="overlay" hidden>
+    <div class="modal">
+      <div class="modal-head"><span class="eyebrow">Multijugador</span><h2>Carrera con amigos</h2></div>
+      <p class="muted small" id="lobbyNote">Conectando…</p>
+      <div class="field"><label for="netName">Tu nombre de piloto</label><input type="text" id="netName" maxlength="16" autocomplete="off" spellcheck="false"></div>
+      <div id="lobbyJoin" class="lobby-join">
+        <button class="primary" id="netCreate" type="button">Crear sala</button>
+        <div class="join-row"><input type="text" id="netCode" maxlength="4" placeholder="Código" autocomplete="off" spellcheck="false" aria-label="Código de sala"><button id="netJoin" type="button">Unirse</button></div>
+      </div>
+      <div id="lobbyRoom" hidden>
+        <div class="room-code"><span class="eyebrow">Código de la sala</span><b id="netRoomCode">----</b><button id="netCopy" type="button">Copiar código</button><button id="netCopyLink" type="button" hidden>Copiar enlace</button></div>
+        <p class="muted small" id="netLinkText" hidden></p>
+        <ul class="players" id="netPlayers"></ul>
+        <div id="netHostCfg" class="field"><label for="netLaps">Vueltas <b id="netLapsVal">3</b></label><input type="range" id="netLaps" min="1" max="10" step="1"></div>
+        <p class="muted small" id="netStatus"></p>
+      </div>
+      <div class="modal-foot two"><button id="netLeave" type="button">Cerrar</button><button class="primary" id="netStart" type="button" hidden>Empezar carrera</button></div>
+    </div>
+  </div>
+
+  <!-- ===================== SETTINGS ===================== -->
+  <div id="settings" class="overlay" hidden>
+    <div class="modal wide">
+      <div class="modal-head"><span class="eyebrow">Configuración</span><h2>Ajustes</h2></div>
+      <div class="settings-grid">
+        <section>
+          <h3>Gráficos</h3>
+          <div class="field"><span class="lbl">Calidad</span><div class="seg" id="setQuality"></div></div>
+          <div class="field"><span class="lbl">Distancia de dibujado</span><div class="seg" id="setDraw"></div></div>
+          <div class="field"><label for="setFov">Campo de visión <b id="fovVal">60°</b></label><input type="range" id="setFov" min="50" max="90" step="1"></div>
+          <label class="check"><input type="checkbox" id="setFps"> Mostrar FPS</label>
+        </section>
+        <section>
+          <h3>Ayudas a la conducción</h3>
+          <label class="check"><input type="checkbox" id="setAbs"> ABS</label>
+          <label class="check"><input type="checkbox" id="setTc"> Control de tracción</label>
+          <label class="check"><input type="checkbox" id="setEsc"> Control de estabilidad</label>
+          <label class="check"><input type="checkbox" id="setAuto"> Cambio automático</label>
+          <label class="check"><input type="checkbox" id="setSteer"> Dirección asistida por velocidad</label>
+          <div class="field"><span class="lbl">Desgaste de neumáticos</span><div class="seg" id="setTyres"></div><span class="muted small">Desgaste y temperatura por eje (el delantero y el trasero se degradan distinto). Acelerado ×2.5: útil en carreras cortas. Compuestos mal elegidos para el estado de la pista se destruyen en pocas vueltas.</span></div>
+          <div class="field"><span class="lbl">Daños por choques</span><div class="seg" id="setDamage"></div><span class="muted small">Abolladuras, alerones, suspensión, motor y barreras deformables. Las reparaciones se hacen en boxes.</span></div>
+          <div class="field"><label for="setSens">Sensibilidad de dirección <b id="sensVal">1.0</b></label><input type="range" id="setSens" min="0.5" max="1.6" step="0.05"></div>
+        </section>
+        <section>
+          <h3>Pantalla y sonido</h3>
+          <label class="check"><input type="checkbox" id="setMap"> Minimapa</label>
+          <label class="check"><input type="checkbox" id="setLine"> Línea ideal de frenada</label>
+          <label class="check"><input type="checkbox" id="setGhost"> Coche fantasma (mejor vuelta)</label>
+          <div class="field"><span class="lbl">Unidades</span><div class="seg" id="setUnits"></div></div>
+          <div class="field"><label for="setVol">Volumen general <b id="volVal">70%</b></label><input type="range" id="setVol" min="0" max="1" step="0.05"></div>
+          <div class="field"><label for="setVolEng">Motor <b id="volEngVal">100%</b></label><input type="range" id="setVolEng" min="0" max="1.5" step="0.05"></div>
+          <div class="field"><label for="setVolFx">Neumáticos, viento y rivales <b id="volFxVal">80%</b></label><input type="range" id="setVolFx" min="0" max="1.5" step="0.05"></div>
+          <label class="check"><input type="checkbox" id="setMute"> Silenciar todo (tecla M)</label>
+          <div class="danger">
+            <button id="setReset" type="button">Borrar mis récords</button>
+            <span id="resetConfirm" hidden>¿Seguro? <button id="resetYes" type="button">Sí, borrar</button><button id="resetNo" type="button">Cancelar</button></span>
+          </div>
+        </section>
+      </div>
+      <p class="credits">Trazado: línea central y anchos de <a href="https://github.com/TUMFTM/racetrack-database" target="_blank" rel="noopener">TUMFTM racetrack-database</a> (LGPL-3.0). El perfil de elevación, el entorno y los datos técnicos de los coches son aproximados.</p>
+      <div class="modal-foot"><button class="primary" id="setClose" type="button">Listo</button></div>
+    </div>
+  </div>
+
+  <!-- ===================== CONTROLS ===================== -->
+  <div id="controls" class="overlay" hidden>
+    <div class="modal">
+      <div class="modal-head"><span class="eyebrow">Teclado y mando</span><h2>Controles</h2></div>
+      <table class="keys">
+        <tr><td><kbd>W</kbd> / <kbd>↑</kbd></td><td>Acelerar</td><td>Gatillo derecho</td></tr>
+        <tr><td><kbd>S</kbd> / <kbd>↓</kbd></td><td>Frenar · marcha atrás</td><td>Gatillo izquierdo</td></tr>
+        <tr><td><kbd>A</kbd> <kbd>D</kbd> / <kbd>←</kbd> <kbd>→</kbd></td><td>Girar</td><td>Stick izquierdo</td></tr>
+        <tr><td><kbd>Espacio</kbd></td><td>Freno de mano</td><td>A</td></tr>
+        <tr><td><kbd>E</kbd> / <kbd>Q</kbd></td><td>Subir / bajar marcha (manual)</td><td>RB / LB</td></tr>
+        <tr><td><kbd>C</kbd></td><td>Cambiar cámara</td><td>Y</td></tr>
+        <tr><td><kbd>B</kbd></td><td>Mirar atrás</td><td>B</td></tr>
+        <tr><td><kbd>1</kbd> <kbd>2</kbd> · <kbd>3</kbd> <kbd>4</kbd> · <kbd>5</kbd> <kbd>6</kbd></td><td>Mover la cámara actual: atrás / adelante · abajo / arriba · izquierda / derecha (se guarda por coche y por cámara)</td><td>—</td></tr>
+        <tr><td><kbd>7</kbd> <kbd>8</kbd> · <kbd>9</kbd> <kbd>0</kbd> · <kbd>Retroceso</kbd></td><td>Inclinar la cámara abajo / arriba · campo de visión menos / más · restablecer</td><td>—</td></tr>
+        <tr><td><kbd>T</kbd></td><td>Neumáticos para la próxima parada en boxes (cicla compuestos)</td><td>—</td></tr>
+        <tr><td><kbd>R</kbd></td><td>Reiniciar coche en pista</td><td>X</td></tr>
+        <tr><td><kbd>Esc</kbd> / <kbd>P</kbd></td><td>Pausa</td><td>Start</td></tr>
+      </table>
+      <p class="muted small">Los pianos cuentan como pista: la vuelta solo se invalida si el coche sale por completo de la pista y de los pianos. Reiniciar el coche o entrar a boxes también la invalida. En boxes el limitador (80 km/h) se activa solo.</p>
+      <div class="modal-foot"><button class="primary" id="ctlClose" type="button">Entendido</button></div>
+    </div>
+  </div>
+
+  <div id="fps" class="fps" hidden></div>
+</div>

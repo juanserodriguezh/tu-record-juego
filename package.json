@@ -1,0 +1,14 @@
+{
+  "name": "tu-record-en-spa",
+  "private": true,
+  "description": "Juego de carreras en el navegador (Spa, Monza, Albert Park, Tocancipá) con three.js",
+  "scripts": {
+    "build": "node build.js",
+    "build:single": "node build.js --single",
+    "serve": "node tools/serve.mjs",
+    "accel": "node tools/headless.js accel",
+    "check:tyres": "node tools/headless.js tyres",
+    "shot": "node tools/shot.mjs"
+  },
+  "devDependencies": { "playwright": "^1.48.0" }
+}

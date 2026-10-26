@@ -1,0 +1,8 @@
+<script>
+  // Friendly message if the 3D module cannot load (offline / blocked CDN / no module support)
+  setTimeout(function () {
+    var l = document.getElementById('loading'), m = document.getElementById('loadMsg');
+    if (l && !l.hidden && m && /motor gráfico/.test(m.textContent)) m.textContent = 'No se pudo cargar el motor 3D (Three.js). Revisa tu conexión y recarga la página.';
+  }, 12000);
+</script>
+

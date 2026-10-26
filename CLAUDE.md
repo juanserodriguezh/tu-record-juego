@@ -1,0 +1,74 @@
+# Tu récord — juego de carreras en el navegador
+
+Juego 3D con three.js 0.160 (cargado desde jsDelivr). Incluye 4 circuitos: Spa-Francorchamps, Monza, Albert Park y Tocancipá (6 trazados), 21 coches escaneados, IA, daños, neumáticos, clima, multijugador por sala y audio sintetizado.
+El resultado es una sola página `dist/spa.html` más los modelos en `dist/models/packN.wasm`.
+
+## Cómo trabajar con el usuario (Juanse)
+- Responde en español: directo, crítico y orientado a resultados. Si algo es incorrecto o mejorable, dilo y propón la alternativa. Sé honesto con las limitaciones.
+- **Verifica siempre con capturas** (`tools/shot.mjs`) y con medidas (`tools/headless.js`) antes de dar algo por terminado.
+- Después de cada cambio visible, deja una nota corta en `HANDOFF.md` (versión, causa, arreglo y cómo se verificó).
+
+## Comandos
+```bash
+npm install                 # solo para las capturas (playwright); el build no tiene dependencias
+npx playwright install chromium
+node build.js               # dist/spa.html + dist/models/packN.wasm
+node build.js --lines       # además recalcula la trazada ideal (~10 s); solo si cambió un circuito
+node build.js --single      # además dist/online/index.html con los modelos dentro (un solo archivo grande)
+npm run serve               # http://localhost:8000  (file:// no sirve: la página hace fetch de los .wasm)
+node tools/headless.js accel amg_gt3,w17   # 0-100 / 0-200 / 0-300 / vmax con la física real del juego
+node tools/headless.js tyres               # comprueba que las barreras de neumáticos quedan por fuera de la curva
+node tools/shot.mjs <prefijo> <pista> <coche> "<js>|||<js>" [ancho]   # capturas en shots/
+```
+Ejemplos de capturas:
+- `node tools/shot.mjs c3 toca_largo amg_gt3 "__spa.view(563,0,70,-40,0,70)"`: vista aérea de la curva 3.
+- `node tools/shot.mjs rueda w17 w17 "__spa.camAt([2.9,0.36,1.62],[0.78,0.355,1.62],30)"`: la rueda delantera izquierda.
+
+## Estructura
+`build.js` concatena los archivos **en este orden**. Comparten un único ámbito global de módulo, así que el orden importa.
+
+| Archivo | Contenido |
+|---|---|
+| `src/head.html`, `src/style.css`, `src/body.html`, `src/tail.html` | Página, CSS y la UI (menú, HUD, modales) |
+| `src/data_*.js` | Líneas centrales de los circuitos: `"x,y,anchoDer,anchoIzq;..."` en metros. En el juego, `pz = -y` |
+| `src/tracks.js` | `TRACK_DEFS`: curvas, sectores, boxes, tribunas, barreras de neumáticos, escapatorias, elevación y paisaje de cada trazado |
+| `src/cars.js` | `BODY_DEF` (valores por tipo), `ACCEL_CAL` (calibración a tiempos reales 0-100/0-200) y `CARS` (`mkCar(id, nombre, categoría, tipo, CV, kg, tracción, vmax, extras)`) |
+| `src/physics.js` | `buildTrack`, `computeRacingLine` y el modelo del vehículo `Vehicle` (neumáticos, aero, motor, caja). Lo usa también `tools/headless.js` |
+| `src/damage.js` | Modelo de daños por coche (`DMG_PROFILES`) y contacto entre coches |
+| `src/line_offs.js` | Trazada ideal precalculada (la genera `build.js`) |
+| `src/ai.js` | Pilotos IA |
+| `src/world.js` | Escenario: asfalto, pianos, muros, boxes, tribunas, terreno, árboles, cielo y clima |
+| `src/carmodel.js`, `src/body.js`, `src/hands.js`, `src/special.js` | Coches procedurales, cabina, volante y manos |
+| `src/glb.js` | Monta los modelos escaneados (GLB) sobre el coche: ruedas, cabina real, volante y piezas fijas |
+| `src/audio.js` | Motores sintetizados |
+| `src/main.js` | Arranque, garaje, modos de sesión, HUD, cámaras, red, `window.__spa` (ganchos de prueba) |
+| `assets/*.glb` | Modelos ya optimizados. `build.js` los empaqueta en `dist/models/packN.wasm` (≤ 8 MB cada uno) |
+
+## Convenciones importantes
+- **Coche:** +Z adelante, +X izquierda, +Y arriba, con el origen en el suelo bajo el centro de gravedad. Las ruedas de un GLB van en nodos `WHL_FL/FR/RL/RR` con el eje en X.
+- **Pista:** `s` es la distancia en metros nominales desde la línea de meta. `d` es el desplazamiento lateral: positivo a la izquierda, negativo a la derecha. El lado de tribunas y barreras (±1) sigue el mismo signo; `node tools/headless.js tyres` lo comprueba.
+- **Coordenadas de Assetto Corsa:** en Tocancipá el `y` crudo es `+z` (verificado contra el plano oficial con 0,0 m de error). En Monza se usó `y = -z` (verificado contra TUMFTM). Cada circuito nuevo se verifica superponiéndolo a un plano real.
+- **Campos útiles de un coche con GLB:**
+  - `glb`: nombre del archivo en assets.
+  - `cdx/cdy/cdz`: posición de la cabina procedural.
+  - `cabClip`: recorte de la cabina.
+  - `realCab`: usa el interior del modelo.
+  - `swAt [y,z,x]`: posición del volante.
+  - `onb [x,y,z,pitch]`: cámara onboard.
+  - `trueWheels`: el juego endereza las ruedas al cargar; `false` si el asset ya viene corregido.
+  - `wheelStat`: regex de piezas de rueda que no giran (conductos de freno).
+  - `series`: `'f1mod'` o `'gt3'` para la parrilla de su serie.
+- **Ajuste de cámara** en juego: teclas 1–0. Se guarda por coche y por vista.
+
+## Historial reciente y decisiones
+- **v66:** el edificio de boxes, el paddock y la torre de Tocancipá atravesaban la curva 3. En `world.js`, `farTrack`/`footHits` omiten cualquier edificio cuya planta quede a menos de semiancho + 3 m de otro tramo de pista.
+- **v65:** Tocancipá estaba en espejo. Se corrigió a `y = +z`, invirtiendo el lado de las barreras y las tribunas.
+- **v64:** ruedas del W17 corregidas en el asset: 2,5° de caída eliminados, llanta redondeada y ruedas excluidas de la simplificación. Por eso `trueWheels: false`.
+- **v62:** la escapatoria de la T1 de Monza es plana (rampa lineal) y el coche se apoya en ella.
+- El pipeline que optimizaba los GLB originales (gltf-transform + meshoptimizer, scripts `prep.mjs` por coche) **no está en este repo**. Para un coche nuevo hay que rehacerlo con gltf-transform (weld, simplify, textureCompress webp, quantize, meshopt) y dejar el resultado en `assets/`.
+- El Ferrari F40 de ACPursuit (mod de Assetto Corsa) **no se integró**: el modelo viene protegido contra extracción. Su física (data.acd) está calculada; ver HANDOFF.md.
+
+## Publicación
+La versión pública vive como artefacto de Claude (claude.ai). Desde Claude Code no se puede actualizar ese enlace. Hay dos opciones:
+- Abrir `dist/spa.html` y `dist/models/*` en la app de Claude y pedir que se publique sobre el mismo artefacto.
+- Alojar `dist/` en cualquier hosting estático (GitHub Pages, Netlify, Vercel), sirviendo `.wasm` como `application/wasm`.
