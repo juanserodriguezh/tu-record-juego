@@ -13,21 +13,24 @@ const AI_PROFILES = new Map();
 const AI_TUNE = { brake: 0.72, lat: 1.0 };
 // braking commitment grows with difficulty (later braking = faster, riskier)
 const aiBrake = (diff) => AI_TUNE.brake - 0.1 + 0.012 * (clamp(diff, 1, 10) - 1);
+// difficulty sets how close to the limit a driver takes the corners and the braking zones (1..10).
+// It must not cap the straights: a slower driver still runs flat out to the car's top speed,
+// otherwise power tracks (Monza) punish the AI far more than twisty ones.
+const aiPace = (diff) => 0.72 + 0.28 * (clamp(diff, 1, 10) - 1) / 9;
 function aiProfile(T, line, P, env, key, diff) {
-  const bk = diff != null ? aiBrake(diff) : AI_TUNE.brake;
-  const k = key + '|' + env.grip.toFixed(2) + '|' + bk.toFixed(3);
+  const c = diff != null ? aiPace(diff) : 1, bk = (diff != null ? aiBrake(diff) : AI_TUNE.brake) * c * c;
+  const k = key + '|' + env.grip.toFixed(2) + '|' + bk.toFixed(3) + '|' + c.toFixed(3);
   let p = AI_PROFILES.get(k);
-  if (!p) { p = qssProfile(T, line, P, env, { brake: bk, lat: AI_TUNE.lat }); AI_PROFILES.set(k, p); }
+  // corners at c x the limit speed (not grip x c^2: with downforce that would hit the winged cars harder)
+  if (!p) { p = qssProfile(T, line, P, env, { brake: bk, lat: AI_TUNE.lat, vk: c }); AI_PROFILES.set(k, p); }
   return p;
 }
-// speed factor over the quasi-steady-state limit for a difficulty 1..10
-const aiPace = (diff) => 0.8 + 0.2 * (clamp(diff, 1, 10) - 1) / 9;
 
 class AIDriver {
   constructor(veh, T, line, opts) {
     this.veh = veh; this.T = T; this.line = line;
     this.diff = opts.diff || 5; this.skill = (this.diff - 1) / 9;
-    this.k = aiPace(this.diff) + (opts.spread || 0);
+    this.k = 1 + (opts.spread || 0);   // the difficulty is already in the speed plan (aiProfile)
     this.off = 0; this.steerF = 0; this.stuckT = 0; this.wrongT = 0; this.passSide = 0;
     // reaction to lights out: ~0.2 s for the best, ~0.5 s for the slowest
     this.react = opts.react != null ? opts.react : 0.18 + (1 - this.skill) * 0.18 + Math.random() * 0.12;
@@ -162,8 +165,10 @@ class AIDriver {
     // off the racing line the corners are tighter (or wider): limit speed by the offset path curvature
     if (Math.abs(this.off) > 0.4) {
       for (const m of [0, 12, 25, 40, 60, 85]) {
-        const jj = (i + Math.round((m + 3) / T.ds)) % N, kc = T.k[jj], dd = line.off[jj] + this.off;
-        const kp = Math.abs(kc / Math.max(0.25, 1 - kc * dd)), kl = Math.max(Math.abs(line.k[jj]), 1e-4);
+        // curvature of the racing line shifted sideways by this.off (the line is not parallel to the centreline,
+        // so the centreline curvature over-states it where the line runs straight across a bend)
+        const jj = (i + Math.round((m + 3) / T.ds)) % N, kc = line.k[jj];
+        const kp = Math.abs(kc / Math.max(0.25, 1 - kc * this.off)), kl = Math.max(Math.abs(kc), 1e-4);
         if (kp > kl * 1.03 && kp > 1 / 900) {
           const vc = this.prof[jj] * kk * Math.sqrt(kl / kp);
           vt = Math.min(vt, Math.sqrt(vc * vc + 2 * 7.5 * m));
