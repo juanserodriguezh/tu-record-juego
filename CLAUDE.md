@@ -7,6 +7,8 @@ El resultado es una sola página `dist/spa.html` más los modelos en `dist/model
 - Responde en español: directo, crítico y orientado a resultados. Si algo es incorrecto o mejorable, dilo y propón la alternativa. Sé honesto con las limitaciones.
 - **Verifica siempre con capturas** (`tools/shot.mjs`) y con medidas (`tools/headless.js`) antes de dar algo por terminado.
 - Después de cada cambio visible, deja una nota corta en `HANDOFF.md` (versión, causa, arreglo y cómo se verificó).
+- **Publicar siempre (decisión de Juanse):** todo cambio del juego, una vez verificado, se fusiona a `main`, sube de versión (v67, v68…) y se publica en el artefacto **sin preguntar**. Ver «Publicación».
+- **Autor de los commits:** todos van a nombre de `Juanse <juanserodriguezh@gmail.com>`. En cada clon nuevo: `git config user.name "Juanse"` y `git config user.email "juanserodriguezh@gmail.com"`.
 
 ## Comandos
 ```bash
@@ -74,7 +76,7 @@ El juego público es el artefacto de Claude **https://claude.ai/artifact/Y3YH8j5
 2. Artifact `publish` con `url` = ese enlace, `file_path` = `dist/spa.html` y `files` = `{ "models/pack0.wasm": "dist/models/pack0.wasm", …, "models/packN.wasm": "dist/models/packN.wasm" }`. Si no se pasan los packs, se conservan los ya publicados: pásalos solo si cambió algún `assets/*.glb`. Si el número de packs baja, borra los sobrantes con `null`.
 3. La publicación añade su propio envoltorio (`<!doctype html>…<head>` con estilos base y `</body></html>`); por eso el `index.html` publicado no es byte a byte igual a `dist/spa.html`, pero el contenido sí.
 
-**Regla de versiones:** cada versión publicada sube el número (v67, v68…). Se anota en `HANDOFF.md` (versión, fecha, qué cambió y cómo se verificó) y se hace commit con ese número en el mensaje. No se publica sin permiso explícito de Juanse.
+**Regla de versiones:** cada versión publicada sube el número (v67, v68…). Se anota en `HANDOFF.md` (versión, fecha, qué cambió y cómo se verificó) y se hace commit con ese número en el mensaje. Cada cambio verificado se fusiona a `main` y se publica sin pedir permiso (decisión de Juanse, 26-oct-2026); si el cambio va por PR, el PR se fusiona antes de publicar.
 
 Alternativa: alojar `dist/` en cualquier hosting estático (GitHub Pages, Netlify, Vercel), sirviendo `.wasm` como `application/wasm`.
 
