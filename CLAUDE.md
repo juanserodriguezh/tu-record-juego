@@ -79,4 +79,5 @@ El juego público es el artefacto de Claude **https://claude.ai/artifact/Y3YH8j5
 Alternativa: alojar `dist/` en cualquier hosting estático (GitHub Pages, Netlify, Vercel), sirviendo `.wasm` como `application/wasm`.
 
 ## Fuentes originales (no están en el repo)
-Los modelos originales (zips de Sketchfab/vecarz) y los circuitos de Assetto Corsa **no están en el repo**; la carpeta local `fuentes/` está en `.gitignore`. En `assets/` solo están los GLB ya optimizados. Para rehacer un coche (p. ej. el redondeo de ruedas del RB22 o el MCL39) hay que pedirle a Juanse el zip original.
+Los 28 archivos originales (zips de coches de Sketchfab/vecarz, circuitos de Assetto Corsa, el F40 y Tocancipá en `.rar`; 2,1 GB, verificados por sha256) **no están en el repo**: viven en el Mac de Juanse, en `~/Documents/juego-carreras/fuentes/` (`fuentes/` está en `.gitignore`). En `assets/` solo están los GLB ya optimizados.
+Para rehacer un coche (p. ej. el redondeo de ruedas del RB22 o el MCL39) se usan desde esa carpeta, en un hilo con acceso al dispositivo. Solo si el archivo no está ahí, se le pide a Juanse.
