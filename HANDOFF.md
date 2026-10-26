@@ -25,6 +25,7 @@
 - Medido (mejor vuelta, IA sola): Monza GT3 nivel 5: 2:01,94 → 1:55,70 (punta 243 → 271 km/h); nivel 1: 2:23,4 → 2:05,7; el nivel 10 no cambia (1:49,29). En Spa, Albert Park y Tocancipá los niveles 1-5 bajan entre un 0 y un 15 %, y el nivel 10 queda idéntico en los 6 trazados × 4 coches (GT3, W17, Chiron, Duster). La escala queda monótona (Monza GT3: 2:05,7 / 2:00,1 / 1:55,7 / 1:52,6 / 1:49,3 en los niveles 1/3/5/7/10).
 - Carrera en el navegador (Monza, 12 GT3, nivel 5, 4 vueltas): rivales en 1:54,5–1:58,9 (antes 2:00,6–2:03,7), sin errores de página ni coches atascados.
 - Límite que queda: el nivel 10 en Monza da 1:49,3 y el plan teórico 1:47,1, frente a 1:45,1 real. Esa diferencia es de la física del coche (afecta también al jugador), no de la IA. Previo y sin tocar: el Chiron se queda atascado en Tocancipá Corto con nivel 10.
+- Publicada el 26-oct-2026 como versión 68 del artefacto (id 1793057115-51d5). Solo cambió la página; los packs siguen como en v66.
 
 ## Ferrari F40 ACPursuit (pendiente, no integrado)
 - El kn5 trae las texturas vaciadas (1×1 px) y la geometría alterada a propósito (protección del autor; la repara CSP). No se revierte.
