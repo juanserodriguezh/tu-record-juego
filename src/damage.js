@@ -1035,7 +1035,7 @@ function collideCars(A, B) {
 //  Quasi-steady-state lap estimate (used for the ideal-line colours + checks)
 // ---------------------------------------------------------------------------
 function qssProfile(T, line, P, env, opt) {
-  const N = T.N, vmaxA = new Float64Array(N), bk = opt && opt.brake || 1, lk = opt && opt.lat || 1;
+  const N = T.N, vmaxA = new Float64Array(N), bk = opt && opt.brake || 1, lk = opt && opt.lat || 1, vk = opt && opt.vk || 1;
   const g = env.grip;
   const aLatAt = (v, i) => {
     const Fz = P.m * clamp(G + v * v * T.vc[i], 0.35 * G, 3 * G) + 0.5 * RHO * P.clA * v * v;
@@ -1048,7 +1048,7 @@ function qssProfile(T, line, P, env, opt) {
     if (k > 1e-5) {
       v = 20;
       for (let it = 0; it < 30; it++) v = Math.sqrt(aLatAt(v, i) / k);
-      v = Math.min(v, P.vmax * 1.2);
+      v = Math.min(v * vk, P.vmax * 1.2);   // vk < 1: a driver below the limit (AI difficulty)
     }
     vmaxA[i] = v;
   }

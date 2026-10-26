@@ -19,6 +19,7 @@ node build.js --lines       # además recalcula la trazada ideal (~10 s); solo s
 node build.js --single      # además dist/online/index.html con los modelos dentro (un solo archivo grande)
 npm run serve               # http://localhost:8000  (file:// no sirve: la página hace fetch de los .wasm)
 node tools/headless.js accel amg_gt3,w17   # 0-100 / 0-200 / 0-300 / vmax con la física real del juego
+node tools/headless.js ailap monza amg_gt3,w17 5   # vueltas de la IA sola (pista, coches, nivel 1-10)
 node tools/headless.js tyres               # comprueba que las barreras de neumáticos quedan por fuera de la curva
 node tools/shot.mjs <prefijo> <pista> <coche> "<js>|||<js>" [ancho]   # capturas en shots/
 ```
@@ -63,6 +64,7 @@ Ejemplos de capturas:
 - **Ajuste de cámara** en juego: teclas 1–0. Se guarda por coche y por vista.
 
 ## Historial reciente y decisiones
+- **v68:** la dificultad de la IA ya no limita la velocidad en recta: escala el paso por curva y la frenada (`aiProfile` en `ai.js`, `vk` en `qssProfile`). El nivel 10 no cambió.
 - **v66:** el edificio de boxes, el paddock y la torre de Tocancipá atravesaban la curva 3. En `world.js`, `farTrack`/`footHits` omiten cualquier edificio cuya planta quede a menos de semiancho + 3 m de otro tramo de pista.
 - **v65:** Tocancipá estaba en espejo. Se corrigió a `y = +z`, invirtiendo el lado de las barreras y las tribunas.
 - **v64:** ruedas del W17 corregidas en el asset: 2,5° de caída eliminados, llanta redondeada y ruedas excluidas de la simplificación. Por eso `trueWheels: false`.

@@ -17,6 +17,15 @@
 - Publicada el 26-oct-2026 como versión 67 del artefacto (id 1793055356-2f16). Solo cambió la página: los packs siguen como en v66. Se comprobó que el `index.html` publicado contiene `dist/spa.html` entero, con los muros nuevos.
 - Capturas en el contenedor en la nube: jsDelivr está bloqueado. Hay que bajar three con `npm pack three@0.160.0` y lanzar con `THREE_DIR=<carpeta>/package`. Playwright está en `/opt/node-tools`: hay que enlazarlo en `node_modules/` para que el `import` ESM lo encuentre.
 
+## v68 (26-oct-2026) — ritmo de la IA (Monza y resto)
+- Causa: la dificultad multiplicaba todo el perfil de velocidad de la IA (`prof × aiPace`, 0,8 a 1,0), también en las rectas. En nivel 5 (0,889) un GT3 no pasaba de 243 km/h en Monza (puede 270) y daba 2:02, frente a 1:45,1 de pole real (GTWC Europe 2025, Q3). Monza, el circuito con más recta, era el más castigado.
+- Segundo fallo: en `ai.js`, el límite de velocidad por ir fuera de la trazada medía la curvatura del eje de la pista, no la de la trazada desplazada. Donde la trazada cruza recta una curva (salida de Lesmo 2, Ascari), un desvío de 0,45 m hacía frenar de 225 a 155 km/h. Afectaba a los niveles bajos (que ondulan) y a cualquier IA al adelantar. Ahora se usa `line.k / (1 - line.k × off)` (comprobado: predice la curvatura real con 1 m de desvío).
+- Arreglo: la dificultad entra en el plan (`aiProfile`): velocidad de paso por curva × `aiPace` (`qssProfile` acepta `vk`) y frenada × `aiPace²`. La recta queda libre: todos los niveles llegan a la punta del coche. `aiPace` pasa a 0,72–1,0 para no comprimir la escala. `this.k` queda solo para la dispersión entre pilotos y los daños.
+- Herramienta nueva: `node tools/headless.js ailap <pista> <coches> [nivel] [vueltas]` (vueltas lanzadas de una IA sola, en seco).
+- Medido (mejor vuelta, IA sola): Monza GT3 nivel 5: 2:01,94 → 1:55,70 (punta 243 → 271 km/h); nivel 1: 2:23,4 → 2:05,7; el nivel 10 no cambia (1:49,29). En Spa, Albert Park y Tocancipá los niveles 1-5 bajan entre un 0 y un 15 %, y el nivel 10 queda idéntico en los 6 trazados × 4 coches (GT3, W17, Chiron, Duster). La escala queda monótona (Monza GT3: 2:05,7 / 2:00,1 / 1:55,7 / 1:52,6 / 1:49,3 en los niveles 1/3/5/7/10).
+- Carrera en el navegador (Monza, 12 GT3, nivel 5, 4 vueltas): rivales en 1:54,5–1:58,9 (antes 2:00,6–2:03,7), sin errores de página ni coches atascados.
+- Límite que queda: el nivel 10 en Monza da 1:49,3 y el plan teórico 1:47,1, frente a 1:45,1 real. Esa diferencia es de la física del coche (afecta también al jugador), no de la IA. Previo y sin tocar: el Chiron se queda atascado en Tocancipá Corto con nivel 10.
+
 ## Ferrari F40 ACPursuit (pendiente, no integrado)
 - El kn5 trae las texturas vaciadas (1×1 px) y la geometría alterada a propósito (protección del autor; la repara CSP). No se revierte.
 - Física descifrada del data.acd:
@@ -29,7 +38,6 @@
 
 ## Ideas pendientes que ya se mencionaron
 - Aplicar el redondeo de ruedas del W17 al Red Bull RB22 y al McLaren MCL39. Hay que rehacer el pipeline de GLB.
-- Ritmo de la IA en Monza: más lento que los tiempos reales (GT3 ~2:00).
 - Tocancipá Largo: si se quiere la numeración del plano oficial, mover la línea de meta.
 
 ## Revisión 26-oct-2026 (Cowork, sin cambios de código)
@@ -39,7 +47,7 @@
 
 ## Orden sugerido de pendientes
 1. ~~Barreras de Monza~~: hecho en v67.
-2. Ritmo de la IA en Monza (objetivo GT3 ~2:00).
+2. ~~Ritmo de la IA en Monza~~: hecho en v68.
 3. Tocancipá Largo: línea de meta según la numeración del plano oficial (si Juanse lo confirma).
 4. Pipeline GLB (gltf-transform) y redondeo de ruedas del RB22 y el MCL39.
 5. Ferrari F40: bloqueado hasta tener un modelo sin protección.
