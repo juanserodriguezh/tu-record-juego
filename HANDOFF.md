@@ -9,6 +9,13 @@
 - Proyecto subido a `juanserodriguezh/tu-record-juego` (main). Un clon limpio + `node build.js` reproduce los 7 packs publicados.
 - `CLAUDE.md`: procedimiento real de publicación con la herramienta Artifact (antes decía que desde Code no se podía), regla de versiones (v67, v68…) y nota de fuentes originales fuera del repo (`fuentes/` en `.gitignore`).
 
+## v67 (26-oct-2026, sin publicar) — barreras de neumáticos de Monza
+- Causa: dos muros de neumáticos estaban por dentro de la curva. En la Variante Ascari ([4000,4120,-1]), todo el muro quedaba a la derecha, por dentro del tramo central (que es de derechas) y detrás de la hierba; la grava estaba en el otro lado. En el Rettifilo ([900,1010,+1]), el muro iba bien por fuera de la T1, pero seguía por la izquierda en la T2 (de izquierdas) y quedaba pegado al vértice, en la isleta junto al salchichón amarillo.
+- Arreglo en `tracks.js`: Rettifilo pasa a ser un muro por curva, `[900,945,1]` por fuera de la T1 y `[955,1010,-1]` por fuera de la T2. Ascari pasa a `[4000,4110,1]`, detrás de la grava y por fuera del tramo de derechas.
+- `tools/headless.js tyres`: ya no mira solo el punto medio, porque en una chicane la curvatura cambia de signo justo ahí. Ahora pondera la curvatura de todo el tramo y exige que al menos el 75 % gire en sentido contrario al muro. Si algo falla, lo lista y sale con exit 1. El margen más bajo que queda es la Roggia, con un 85 %.
+- Verificado: `tyres` da todo en verde (Monza 5/5 y el resto sin cambios). Capturas antes y después en el Rettifilo (vista aérea, entrada de la T1 y T2) y en Ascari (vista aérea y entrada).
+- Capturas en el contenedor en la nube: jsDelivr está bloqueado. Hay que bajar three con `npm pack three@0.160.0` y lanzar con `THREE_DIR=<carpeta>/package`. Playwright está en `/opt/node-tools`: hay que enlazarlo en `node_modules/` para que el `import` ESM lo encuentre.
+
 ## Ferrari F40 ACPursuit (pendiente, no integrado)
 - El kn5 trae las texturas vaciadas (1×1 px) y la geometría alterada a propósito (protección del autor; la repara CSP). No se revierte.
 - Física descifrada del data.acd:
@@ -30,7 +37,7 @@
 - `headless.js tyres` sale con código 0 aunque falle: debería salir con 1 para que sirva como comprobación.
 
 ## Orden sugerido de pendientes
-1. Barreras de Monza (Rettifilo, Ascari): captura, decidir si falla el test o la barrera y arreglar. Hacer que `tyres` falle con exit 1.
+1. ~~Barreras de Monza~~: hecho en v67.
 2. Ritmo de la IA en Monza (objetivo GT3 ~2:00).
 3. Tocancipá Largo: línea de meta según la numeración del plano oficial (si Juanse lo confirma).
 4. Pipeline GLB (gltf-transform) y redondeo de ruedas del RB22 y el MCL39.

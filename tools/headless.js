@@ -14,10 +14,15 @@ if (cmd === 'accel') {   // standing-start acceleration on the Spa straight: 0-1
     let t = 0, a = 0, b = 0, c = 0; while (t < 60) { V.step(1 / 240, { throttle: 1, brake: 0, steer: 0 }, env); t += 1 / 240; const k = V.u * 3.6; if (!a && k >= 100) a = t; if (!b && k >= 200) b = t; if (!c && k >= 300) c = t; }
     console.log(id.padEnd(14), String(sp.hp).padStart(5), 'CV', String(sp.kg).padStart(5), 'kg  0-100', a ? a.toFixed(2) : '-', ' 0-200', b ? b.toFixed(1) : '-', ' 0-300', c ? c.toFixed(1) : '-', ' vmax', (V.u * 3.6).toFixed(0), '/', sp.vmax); }
 }
-if (cmd === 'tyres') {   // tyre barriers must sit on the outside of the corner (sign of the curvature)
+if (cmd === 'tyres') {   // tyre barriers must sit on the outside of the corner: curvature-weighted share of the stretch that bends away from the wall
+  let bad = 0;
   for (const id of Object.keys(M.TRACK_DEFS)) { const def = M.TRACK_DEFS[id]; if (!def.tyres || !def.tyres.length) continue; const T = M.buildTrack(id);
-    const N = T.x.length, ds = T.L / N; let ok = 0;
-    for (const [a, b, sd] of def.tyres) { const i = Math.round(((a + b) / 2 % T.L) / ds) % N, i0 = (i - 4 + N) % N, i2 = (i + 4) % N;
-      const cr = (T.x[i] - T.x[i0]) * (T.z[i2] - T.z[i]) - (T.z[i] - T.z[i0]) * (T.x[i2] - T.x[i]); if (Math.sign(cr) === sd) ok++; }
-    console.log(id.padEnd(14), 'tyre barriers on the outside:', ok, '/', def.tyres.length); }
+    const N = T.x.length, ds = T.L / N, k = T.L / def.nom; let ok = 0; const miss = [];
+    for (const [a, b, sd] of def.tyres) { let on = 0, all = 0;   // a chicane flips sign inside the stretch, so the midpoint alone says little
+      for (let i0 = Math.round(a * k / ds), i1 = Math.round(b * k / ds), j = i0; j <= i1; j++) { const i = j % N, ia = (i - 4 + N) % N, ib = (i + 4) % N;
+        const cr = (T.x[i] - T.x[ia]) * (T.z[ib] - T.z[i]) - (T.z[i] - T.z[ia]) * (T.x[ib] - T.x[i]); all += Math.abs(cr); if (Math.sign(cr) === sd) on += Math.abs(cr); }
+      const f = all ? on / all : 0; if (f >= 0.75) ok++; else miss.push(`[${a},${b},${sd}] ${(f * 100).toFixed(0)} %`); }
+    bad += miss.length;
+    console.log(id.padEnd(14), 'tyre barriers on the outside:', ok, '/', def.tyres.length, miss.length ? '  FAIL ' + miss.join('  ') : ''); }
+  if (bad) { console.log(bad, 'tyre barrier(s) on the inside of the corner'); process.exit(1); }
 }
