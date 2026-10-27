@@ -21,6 +21,7 @@ npm run serve               # http://localhost:8000  (file:// no sirve: la pági
 node tools/headless.js accel amg_gt3,w17   # 0-100 / 0-200 / 0-300 / vmax con la física real del juego
 node tools/headless.js ailap monza amg_gt3,w17 5   # vueltas de la IA sola (pista, coches, nivel 1-10)
 node tools/headless.js tyres               # comprueba que las barreras de neumáticos quedan por fuera de la curva
+node tools/headless.js pits                # tribunas, boxes y postes no se pisan entre sí ni con la pista (exit 1 si falla)
 node tools/shot.mjs <prefijo> <pista> <coche> "<js>|||<js>" [ancho]   # capturas en shots/
 ```
 Ejemplos de capturas:
@@ -61,9 +62,11 @@ Ejemplos de capturas:
   - `trueWheels`: el juego endereza las ruedas al cargar; `false` si el asset ya viene corregido.
   - `wheelStat`: regex de piezas de rueda que no giran (conductos de freno).
   - `series`: `'f1mod'` o `'gt3'` para la parrilla de su serie.
+- **Boxes:** la calle de boxes va a la derecha de la recta. Con `pitSide: 1` en `TRACK_DEFS` va a la izquierda (en Tocancipá, el Largo, la Ampliación y los Mixtos: los boxes están por fuera). Las tribunas de la recta van en el lado contrario.
 - **Ajuste de cámara** en juego: teclas 1–0. Se guarda por coche y por vista.
 
 ## Historial reciente y decisiones
+- **v69:** boxes y tribunas. En Tocancipá la tribuna principal estaba encima de la calle de boxes, y los boxes cambiaban de lado según el trazado. Se añadió `pitSide` y el chequeo `headless.js pits`.
 - **v68:** la dificultad de la IA ya no limita la velocidad en recta: escala el paso por curva y la frenada (`aiProfile` en `ai.js`, `vk` en `qssProfile`). El nivel 10 no cambió.
 - **v66:** el edificio de boxes, el paddock y la torre de Tocancipá atravesaban la curva 3. En `world.js`, `farTrack`/`footHits` omiten cualquier edificio cuya planta quede a menos de semiancho + 3 m de otro tramo de pista.
 - **v65:** Tocancipá estaba en espejo. Se corrigió a `y = +z`, invirtiendo el lado de las barreras y las tribunas.

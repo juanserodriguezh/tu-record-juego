@@ -406,10 +406,11 @@ class World {
     const sNom = (i) => ((i % N) + N) % N * T.ds / this.sc;
     const isStraight = (i) => T.isStraightN(sNom(i));
     const hasBand = (i) => T.pitC[((i % N) + N) % N] === T.pitC[((i % N) + N) % N];
+    const ps = T.pitSide;   // pit lane side: -1 right, +1 left
     const barD = (side, i) => {
-      const k = ((i % N) + N) % N;
-      if (side > 0) return T.barL[k];
-      return hasBand(k) ? Math.min(-T.barR[k], T.pitC[k] - T.pitHW) : -T.barR[k];
+      const k = ((i % N) + N) % N, b = side > 0 ? T.barL[k] : -T.barR[k];
+      if (side !== ps || !hasBand(k)) return b;
+      return ps * Math.max(ps * b, ps * T.pitC[k] + T.pitHW);
     };
     this.armco = {}; this.barDf = barD;
     for (const side of [1, -1]) {
@@ -455,19 +456,19 @@ class World {
     // pit wall (only where the pit lane is separated from the circuit)
     for (let i = 0; i < N; i++) {
       if (!T.pitSep[i] || !T.pitSep[(i + 1) % N]) continue;
-      const i2 = i + 1, d0 = -T.barR[i], d1 = -T.barR[i2 % N];
+      const i2 = i + 1, d0 = ps * T.pitBar[i], d1 = ps * T.pitBar[i2 % N];
       const a0 = this.P(i, d0, -0.3), a1 = this.P(i2, d1, -0.3), b0 = this.P(i, d0, 1.1), b1 = this.P(i2, d1, 1.1);
-      const c0 = this.P(i, d0 - 0.45, 1.1), c1 = this.P(i2, d1 - 0.45, 1.1), e0 = this.P(i, d0 - 0.45, -0.3), e1 = this.P(i2, d1 - 0.45, -0.3);
+      const c0 = this.P(i, d0 + ps * 0.45, 1.1), c1 = this.P(i2, d1 + ps * 0.45, 1.1), e0 = this.P(i, d0 + ps * 0.45, -0.3), e1 = this.P(i2, d1 + ps * 0.45, -0.3);
       const cc = (Math.floor(i / 6) % 2) ? col3('#e9ebed') : col3('#c8201a');
       wb.quad(a0, a1, b1, b0, cc); wb.quad(b0, b1, c1, c0, col3('#bfc2c5')); wb.quad(e1, e0, c0, c1, col3('#d8dadc'));
-      const f0 = this.P(i, d0 - 0.2, 1.1), f1 = this.P(i2, d1 - 0.2, 1.1);
+      const f0 = this.P(i, d0 + ps * 0.2, 1.1), f1 = this.P(i2, d1 + ps * 0.2, 1.1);
       const u0 = i * T.ds / 3, u1 = i2 * T.ds / 3;
       pwFence.quad(f0, f1, [f1[0], f1[1] + 2.6, f1[2]], [f0[0], f0[1] + 2.6, f0[2]], white, [[u0, 0], [u1, 0], [u1, 1], [u0, 1]]);
     }
     // pit wall noses (impact absorbers) at both ends
     for (const iN of [T.pitSepFrom, T.pitSepTo]) {
       if (iN < 0) continue;
-      const p = this.P(iN, -T.barR[iN] - 0.25, 0);
+      const p = this.P(iN, ps * (T.pitBar[iN] + 0.25), 0);
       wb.box(p[0], T.e[iN] - 0.3, p[2], 1.6, 1.3, 2.4, T.hd[iN], col3('#f2c230'));
     }
     for (const g of ag) { const am = new THREE.Mesh(g, armcoMat); am.frustumCulled = true; this.group.add(am); }
@@ -483,15 +484,15 @@ class World {
     const pitB = pitA + pitLen - 1;
     this.pitRange = [pitA, pitB];
     const pitMat = new THREE.MeshLambertMaterial({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
-    const pIn = (i) => { const k = i % N; return Math.min(T.pitC[k] + T.pitHW, -T.wr[k] - 0.05); };
-    const pOut = (i) => { const k = i % N; return Math.min(T.pitC[k] - T.pitHW, pIn(i) - 0.01); };
+    const pIn = (i) => { const k = i % N; return ps * Math.max(ps * T.pitC[k] - T.pitHW, T.pitW[k] + 0.05); };
+    const pOut = (i) => { const k = i % N; return ps * Math.max(ps * T.pitC[k] + T.pitHW, ps * pIn(i) + 0.01); };
     this.group.add(ribbon(pitA, pitB, pIn, pOut, -0.015, -0.015, (i) => col3((Math.floor(i / 3) % 7 === 0) ? '#5d6166' : '#53575c').multiplyScalar(0.95 + 0.1 * vnoise(i * 0.2, 1)), 0, pitMat));
     const plb = new GeoBuilder(false), yel = col3('#f2c230');
     const lineAt = (i, d, w, col) => { const a0 = this.P(i, d - w, 0.004), a1 = this.P(i, d + w, 0.004), b0 = this.P(i + 1, d - w, 0.004), b1 = this.P(i + 1, d + w, 0.004); plb.quad(a0, a1, b1, b0, col); };
     for (let i = pitA; i < pitB; i++) {
       const k = i % N;
-      if (T.pitSep[k]) lineAt(i, T.pitC[k] - 0.5, 0.1, white);              // fast lane / working lane
-      else if (T.pitC[k] - T.pitHW < -T.wr[k] - 0.4) lineAt(i, -T.wr[k] - 0.35, 0.12, white); // pit entry / exit line
+      if (T.pitSep[k]) lineAt(i, T.pitC[k] + ps * 0.5, 0.1, white);              // fast lane / working lane
+      else if (ps * T.pitC[k] + T.pitHW > T.pitW[k] + 0.4) lineAt(i, ps * (T.pitW[k] + 0.35), 0.12, white); // pit entry / exit line
     }
     // speed-limit lines across the lane
     for (const iN of [T.pitSepFrom, T.pitSepTo]) {
@@ -506,7 +507,7 @@ class World {
     const boxEnd = (T.pitSepTo < T.pitSepFrom ? T.pitSepTo + N : T.pitSepTo) * T.ds - 25;
     for (let s = boxS0; s < boxEnd && this.pitBoxes.length < 24; s += boxGap) {
       const sw = s % T.L, k = Math.floor(sw / T.ds) % N;
-      const d = T.pitC[k] - T.pitHW + 2.6;
+      const d = T.pitC[k] + ps * (T.pitHW - 2.6);
       this.pitBoxes.push({ s: sw, d });
       const mk = (ss, dd) => { const p = trackPoint(T, ss, dd); return [p.x, p.e + 0.006, p.z]; };
       const hw = 1.3, hl = 2.8, w = 0.12;
@@ -613,7 +614,8 @@ class World {
         if (d < dist[k]) {
           dist[k] = d; eNear[k] = T.e[i]; iNear[k] = i;
           const side = (px - T.x[i]) * T.nx[i] + (pz - T.z[i]) * T.nz[i];
-          barNear[k] = side >= 0 ? T.barL[i] + standDepthL[i] : Math.max(T.barR[i] + standDepthR[i], T.pitC[i] === T.pitC[i] ? -(T.pitC[i] - T.pitHW) + 55 : 0);
+          const sd = side >= 0 ? 1 : -1, pitB = sd === T.pitSide && T.pitC[i] === T.pitC[i] ? sd * T.pitC[i] + T.pitHW + 55 : 0;
+          barNear[k] = Math.max(sd > 0 ? T.barL[i] + standDepthL[i] : T.barR[i] + standDepthR[i], pitB);
         }
       }
     }
@@ -782,45 +784,46 @@ class World {
     };
     for (const g of this.D.stands) grandstand(...g);
 
-    // ---- pit building + paddock (right of main straight)
+    // ---- pit building + paddock (beside the main straight, behind the pit lane; ps: -1 right, +1 left)
+    const ps = T.pitSide;
     // a footprint must stay clear of every OTHER part of the circuit (tight venues such as Tocancipa run a section right behind the pits)
     const farTrack = (x, z, kSelf, pad) => { const skip = Math.ceil(70 / T.ds);
       for (let i = 0; i < N; i++) { let di = Math.abs(i - (kSelf % N)) % N; di = Math.min(di, N - di); if (di < skip) continue;
         const dx = x - T.x[i], dz = z - T.z[i], lim = Math.max(T.wl[i], T.wr[i]) + pad; if (dx * dx + dz * dz < lim * lim) return true; } return false; };
-    const footHits = (k, i0, i1, dA, dB, pad) => { for (let u = i0; u <= i1; u++) for (let d = dA; d >= dB - 0.01; d -= Math.max(1.5, (dA - dB) / 6)) { const p = this.P((k + u + N) % N, d, 0); if (farTrack(p[0], p[2], k, pad)) return true; } return false; };
+    const footHits = (k, i0, i1, dA, dB, pad) => { if (dA < dB) [dA, dB] = [dB, dA]; for (let u = i0; u <= i1; u++) for (let d = dA; d >= dB - 0.01; d -= Math.max(1.5, (dA - dB) / 6)) { const p = this.P((k + u + N) % N, d, 0); if (farTrack(p[0], p[2], k, pad)) return true; } return false; };
     let iF = T.pitSepFrom, iT = T.pitSepTo; if (iT < iF) iT += N;
     const TEAM = ['#c8120c', '#1b3a6b', '#f28c28', '#0f5c4a', '#2f63b8', '#f4f4f4', '#5b1a8f', '#1f9a3a', '#f6c21c', '#2a2d31'];
     for (let i = iF + 2; i < iT - 2; i += 4) {
       const k = i % N, h = T.hd[k];
-      const dOut = T.pitC[k] - T.pitHW - 0.4;
-      const p = this.P(k + 2, dOut - 9, 0), len = T.ds * 4 + 0.2;
+      const dOut = T.pitC[k] + ps * (T.pitHW + 0.4);
+      const p = this.P(k + 2, dOut + ps * 9, 0), len = T.ds * 4 + 0.2;
       const base = T.e[k] - 0.3;
-      if (!footHits(k, 0, 4, dOut, dOut - 19.5, 3)) {
+      if (!footHits(k, 0, 4, dOut, dOut + ps * 19.5, 3)) {
         B.box(p[0], base, p[2], 18, 4.6, len, h, C.white);
         B.box(p[0], base + 4.6, p[2], 18, 3.2, len, h, C.glass);
         B.box(p[0], base + 7.8, p[2], 20.5, 0.5, len + 0.1, h, C.roof);
         addFP(p[0], p[2], 20); }
-      const pd = this.P(k + 2, dOut - 42, 0);
-      if (i % 12 === 0 && !footHits(k, 1, 3, dOut - 35, dOut - 49, 3)) { B.box(pd[0], base, pd[2], 14, 4 + (i % 2), 11, h + 0.1, (i % 24 === 0) ? C.white : col3('#c9ccd0')); addFP(pd[0], pd[2], 26); }
+      const pd = this.P(k + 2, dOut + ps * 42, 0);
+      if (i % 12 === 0 && !footHits(k, 1, 3, dOut + ps * 35, dOut + ps * 49, 3)) { B.box(pd[0], base, pd[2], 14, 4 + (i % 2), 11, h + 0.1, (i % 24 === 0) ? C.white : col3('#c9ccd0')); addFP(pd[0], pd[2], 26); }
     }
     // garage openings behind each pit box (team colour header)
     (this.pitBoxes || []).forEach((bx, n) => {
       const k = Math.floor(bx.s / T.ds) % N, h = T.hd[k];
-      const dOut = T.pitC[k] - T.pitHW - 0.4;
-      const p = trackPoint(T, bx.s, dOut + 0.05), base = T.e[k] - 0.3;
+      const dOut = T.pitC[k] + ps * (T.pitHW + 0.4);
+      const p = trackPoint(T, bx.s, dOut - ps * 0.05), base = T.e[k] - 0.3;
       B.box(p.x, base, p.z, 0.2, 3.9, 8.5, h, C.dark);
-      const p2 = trackPoint(T, bx.s, dOut + 0.12);
+      const p2 = trackPoint(T, bx.s, dOut - ps * 0.12);
       B.box(p2.x, base + 3.95, p2.z, 0.2, 0.55, 9.5, h, col3(TEAM[Math.floor(n / 2) % TEAM.length]));
     });
     // race control tower
-    { const k = this.idx(60); const p = this.P(k, T.pitC[k] - T.pitHW - 12, 0); if (!footHits(k, -2, 2, T.pitC[k] - T.pitHW - 4, T.pitC[k] - T.pitHW - 20, 3)) { B.box(p[0], T.e[k] - 0.3, p[2], 16, 17, 22, T.hd[k], C.white); B.box(p[0], T.e[k] + 12, p[2], 16.4, 3.5, 22.4, T.hd[k], C.glass); } }
+    { const k = this.idx(60), o = T.pitC[k] + ps * T.pitHW, u = Math.ceil(11 / T.ds); const p = this.P(k, o + ps * 12, 0); if (!footHits(k, -u, u, o + ps * 4, o + ps * 20, 3)) { B.box(p[0], T.e[k] - 0.3, p[2], 16, 17, 22, T.hd[k], C.white); B.box(p[0], T.e[k] + 12, p[2], 16.4, 3.5, 22.4, T.hd[k], C.glass); } }
     // pit exit traffic light
     {
-      const k = T.pitSepTo, p = this.P(k, -T.barR[k] - 0.3, 0);
+      const k = T.pitSepTo, p = this.P(k, ps * (T.pitBar[k] + 0.3), 0);
       B.box(p[0], T.e[k] - 0.3, p[2], 0.3, 3.2, 0.3, T.hd[k], C.steel);
       this.pitLightMat = new THREE.MeshBasicMaterial({ color: 0x18c040 });
       const m = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.9, 0.3), this.pitLightMat);
-      const q = this.P(k, -T.barR[k] - 0.3, 3.3); m.position.set(q[0], q[1], q[2]); m.rotation.y = T.hd[k];
+      const q = this.P(k, ps * (T.pitBar[k] + 0.3), 3.3); m.position.set(q[0], q[1], q[2]); m.rotation.y = T.hd[k];
       this.group.add(m);
     }
     // ---- start gantry with lights (over the start line, ahead of the finish line)
@@ -852,7 +855,8 @@ class World {
     // ---- Bus Stop: banner bridge over the braking zone (the white line is painted under it)
     if (this.D.brakeBanner) {
       const sB = this.busBrakeS, k = Math.round(sB / T.ds) % N;
-      const pl = trackPoint(T, sB, T.barL[k] + 1.2), pr = trackPoint(T, sB, -(T.barR[k] + 1.2)), y0 = T.e[k];
+      const band = T.pitC[k] === T.pitC[k], pit = (side, bar) => band && side === ps ? bar - 1.4 : bar;   // the pillar on the pit side stands on the pit-wall line, not in the pit lane
+      const pl = trackPoint(T, sB, pit(1, T.barL[k]) + 1.2), pr = trackPoint(T, sB, -(pit(-1, T.barR[k]) + 1.2)), y0 = T.e[k];
       for (const pp of [pl, pr]) { B.box(pp.x, y0 - 1, pp.z, 0.7, 8.2, 0.7, pp.h, C.steel); B.box(pp.x, y0 - 1, pp.z, 1.4, 0.9, 1.4, pp.h, C.concrete); }
       const mx = (pl.x + pr.x) / 2, mz = (pl.z + pr.z) / 2, len = Math.hypot(pr.x - pl.x, pr.z - pl.z), ang = Math.atan2(pr.x - pl.x, pr.z - pl.z);
       B.box(mx, y0 + 7.0, mz, 0.35, 0.3, len + 0.7, ang, C.steel); B.box(mx, y0 + 4.9, mz, 0.35, 0.3, len + 0.7, ang, C.steel);
@@ -887,6 +891,7 @@ class World {
     // ---- marshal posts
     for (let s = 150; s < T.nom; s += 330) {
       const k = this.idx(s), side = (Math.floor(s / 330) % 2) ? 1 : -1;
+      if (side === ps && T.pitC[k] === T.pitC[k]) continue;   // never in the pit lane
       const bar = side > 0 ? T.barL[k] : T.barR[k];
       const p = this.P(k, side * (bar + 2.2), 0);
       B.box(p[0], T.e[k] - 0.3, p[2], 2.2, 2.6, 2.2, T.hd[k], C.white, col3('#e67e22'));

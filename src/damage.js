@@ -502,7 +502,7 @@ class Vehicle {
   inBand(q, d) { return q.pc === q.pc && d <= q.pc + q.phw && d >= q.pc - q.phw; }
   surfaceAt(q, d) {
     const T = this.T, i = q.i;
-    if (d < -q.wr - 0.2 && this.inBand(q, d)) return 'pitlane';
+    if (T.pitSide * d > (T.pitSide > 0 ? q.wl : q.wr) + 0.2 && this.inBand(q, d)) return 'pitlane';
     if (d >= 0) {
       if (d <= q.wl) return 'asphalt';
       if (T.kerbL[i] && d <= q.wl + 1.3) return 'kerb';

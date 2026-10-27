@@ -41,3 +41,52 @@ if (cmd === 'ailap') {   // flying laps of one AI driver alone, dry: node tools/
     const fly = laps.slice(1), best = fly.length ? Math.min(...fly) : 0;
     console.log(tid.padEnd(12), id.padEnd(13), 'diff', diff, ' qss', fmt(ai.profObj.time), ' laps', laps.map(fmt).join(' '), ' best', fmt(best), ' vmax', (vtop * 3.6).toFixed(0), resets ? ' STUCK' : ''); }
 }
+if (cmd === 'pits') {   // grandstands, pit lane and pit buildings must not overlap the circuit or each other: node tools/headless.js pits [track]
+  let bad = 0;
+  for (const id of process.argv[3] ? [process.argv[3]] : Object.keys(M.TRACK_DEFS)) {
+    const D = M.TRACK_DEFS[id], T = M.buildTrack(id), N = T.N, sc = T.L / D.nom, ds = T.ds, md = i => ((i % N) + N) % N;
+    const idx = sN => md(Math.round(sN * sc / ds)), sOf = i => Math.round(md(i) * ds / sc), gapI = (a, b) => { const d = Math.abs(md(a) - md(b)); return Math.min(d, N - d); };
+    const ps = T.pitSide, hasPit = i => T.pitC[md(i)] === T.pitC[md(i)], dOut = i => T.pitC[md(i)] + ps * (T.pitHW + 0.4), span = (a, b) => [Math.min(a, b), Math.max(a, b)];
+    // same rule as world.js: a pit-building footprint is dropped when it comes within half-width + pad of another part of the circuit
+    const farTrack = (x, z, kSelf, pad) => { const skip = Math.ceil(70 / ds);
+      for (let i = 0; i < N; i++) { if (gapI(i, kSelf) < skip) continue; const dx = x - T.x[i], dz = z - T.z[i], lim = Math.max(T.wl[i], T.wr[i]) + pad; if (dx * dx + dz * dz < lim * lim) return true; } return false; };
+    const P = (i, d) => { i = md(i); return [T.x[i] + T.nx[i] * d, T.z[i] + T.nz[i] * d]; };
+    const footHits = (k, i0, i1, dA, dB, pad) => { if (dA < dB) [dA, dB] = [dB, dA]; for (let u = i0; u <= i1; u++) for (let d = dA; d >= dB - 0.01; d -= Math.max(1.5, (dA - dB) / 6)) { const p = P(k + u, d); if (farTrack(p[0], p[1], k, pad)) return true; } return false; };
+    // footprints: { name, kind, lo[i], hi[i] } over a set of samples (lateral interval, + left)
+    const F = [], band = (name, kind, iA, iB, f) => { const lo = new Map(), hi = new Map(); for (let i = iA; i <= iB; i++) { const r = f(md(i)); if (r) { lo.set(md(i), r[0]); hi.set(md(i), r[1]); } } F.push({ name, kind, lo, hi }); };
+    band('circuit', 'track', 0, N - 1, i => [-T.barR[i], T.barL[i]]);
+    let pA = 0; while (!hasPit(pA) || hasPit(pA - 1)) pA++; let pB = pA; while (hasPit(pB + 1)) pB++;
+    band('pit lane', 'pit', pA, pB, i => span(T.pitC[i] + ps * T.pitHW, ps * Math.max(ps * T.pitC[i] - T.pitHW, T.pitW[i])));
+    let iF = T.pitSepFrom, iT = T.pitSepTo; if (iT < iF) iT += N;
+    const gar = new Set(); for (let i = iF + 2; i < iT - 2; i += 4) if (!footHits(i, 0, 4, dOut(i), dOut(i) + ps * 19.5, 3)) for (let u = 0; u <= 4; u++) gar.add(md(i + u));
+    band('pit building', 'garage', iF, iT, i => gar.has(i) ? span(dOut(i), dOut(i) + ps * 18) : null);
+    { const k = idx(60), o = T.pitC[k] + ps * T.pitHW, u = Math.ceil(11 / ds); if (!footHits(k, -u, u, o + ps * 4, o + ps * 20, 3)) band('control tower', 'garage', k - u, k + u, i => span(o + ps * 4, o + ps * 20)); }
+    D.stands.forEach(([sA, sB, side, gap, tiers]) => { const iA = idx(sA), iB = idx(sB) + (sB < sA ? N : 0);
+      band(`stand [${sA},${sB},${side}]`, 'stand', iA, iB, i => { const bar = side > 0 ? T.barL[i] : T.barR[i], a = side * (bar + gap - 0.7), b = side * (bar + gap + tiers * 0.95 + 1.0); return [Math.min(a, b), Math.max(a, b)]; }); });
+    // small pieces beside the track (same placement rules as world.js): marshal posts, banner pillars
+    for (let s = 150; s < D.nom; s += 330) { const k = idx(s), side = (Math.floor(s / 330) % 2) ? 1 : -1; if (side === ps && hasPit(k)) continue;
+      const d = side * ((side > 0 ? T.barL[k] : T.barR[k]) + 2.2); band(`marshal post s${s}`, 'post', k, k, () => [d - 1.1, d + 1.1]); }
+    if (D.brakeBanner) { const k = idx(D.brakeBanner.s), pit = (side, bar) => hasPit(k) && side === ps ? bar - 1.4 : bar;
+      for (const side of [1, -1]) { const d = side * (pit(side, side > 0 ? T.barL[k] : T.barR[k]) + 1.2); band(`banner pillar ${side > 0 ? 'L' : 'R'}`, 'post', k, k, () => [d - 0.7, d + 0.7]); } }
+    // does point (x,z) fall inside footprint c? (projected on c's own samples near it)
+    const inside = (c, x, z, from, local) => { const cx = Math.floor(x / T.cell), cz = Math.floor(z / T.cell);
+      for (let a = -3; a <= 3; a++) for (let b = -3; b <= 3; b++) { const arr = T.hash.get((cx + a) + ',' + (cz + b)); if (!arr) continue;
+        for (const j of arr) { if (!c.lo.has(j)) continue; const g = gapI(j, from); if (local === 'far' && g * ds < 120) continue;
+          const dx = x - T.x[j], dz = z - T.z[j], al = dx * T.tx[j] + dz * T.tz[j]; if (Math.abs(al) > ds * 0.75) continue;
+          const lat = dx * T.nx[j] + dz * T.nz[j]; if (lat > c.lo.get(j) + 0.3 && lat < c.hi.get(j) - 0.3) return j; } } return -1; };
+    const out = [];
+    for (const a of F) { if (a.kind === 'track') continue;
+      for (const c of F) { if (c === a) continue;
+        // stands: nothing at all may overlap them; pit lane / buildings: only other parts of the circuit; posts: track and pit lane
+        const rule = a.kind === 'stand' ? 'any' : a.kind === 'post' ? (c.kind === 'pit' || c.kind === 'garage' ? 'any' : c.kind === 'track' ? 'far' : 'skip') : c.kind === 'track' ? 'far' : 'skip';
+        if (rule === 'skip' || (a.kind === 'stand' && c.kind === 'stand' && F.indexOf(c) < F.indexOf(a))) continue;
+        let n = 0, sMin = 1e9, sMax = -1e9, cS = null;
+        for (const [i, lo] of a.lo) { if (i % 2 && a.kind !== 'post') continue; const hi = a.hi.get(i);
+          for (let d = lo; d <= hi + 0.01; d += Math.max(0.75, (hi - lo) / 12)) { const [x, z] = P(i, d), j = inside(c, x, z, i, rule); if (j >= 0) { n++; const s = sOf(i); sMin = Math.min(sMin, s); sMax = Math.max(sMax, s); cS = sOf(j); } } }
+        if (n) out.push(`${a.name} overlaps ${c.name}${c.kind === 'track' ? ' (s≈' + cS + ')' : ''} around s ${sMin}-${sMax} (${n} pts)`); } }
+    const garN = [...gar].length, sepLen = ((T.pitSepTo - T.pitSepFrom + N) % N) * ds / sc;
+    console.log(id.padEnd(14), `pit lane ${Math.round(((pB - pA + N) % N) * ds / sc)} m (separated ${Math.round(sepLen)} m), buildings ${Math.round(garN * ds / sc)} m`, out.length ? '  FAIL' : '  ok');
+    for (const o of out) console.log('   ', o);
+    bad += out.length; }
+  if (bad) { console.log(bad, 'overlap(s)'); process.exit(1); }
+}

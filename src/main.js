@@ -1048,7 +1048,7 @@ function playerTiming(dt) {
   if (pe.pitHold) { R.prevS = car.q.s; return; }
   const s = car.q.s, prev = R.prevS;
   const wrapped = prev > L - 150 && s < 150;
-  const inBand = car.inBand(car.q, car.q.d) && car.q.d < -car.q.wr;
+  const inBand = car.inBand(car.q, car.q.d) && T.pitSide * car.q.d > (T.pitSide > 0 ? car.q.wl : car.q.wr);
   if (!R.started) {
     if (wrapped && !inBand) {
       const frac = (L - prev) / Math.max(1e-6, (s + L - prev));
@@ -1144,7 +1144,7 @@ function completeLap(lapTime, crossT) {
     else banner(`<div class="time">${fmtTime(lapTime)}</div>${deltaTxt}`, 3);
   }
   R.lapNum++; R.lapStart = crossT; R.valid = true; R.clean = true; R.cp = [false, false]; R.lap1 = false;
-  R.inPitLap = car.inPit || (car.inBand(car.q, car.q.d) && car.q.d < -car.q.wr); if (R.inPitLap) R.valid = false;
+  R.inPitLap = car.inPit || (car.inBand(car.q, car.q.d) && T.pitSide * car.q.d > (T.pitSide > 0 ? car.q.wl : car.q.wr)); if (R.inPitLap) R.valid = false;
   R.sectorsCur = []; R.lastSectorT = 0; R.trace.fill(-1); R.trace[0] = 0; R.ghostRec = []; R.ghostNext = 0; R.secShowT = 3;
   setValidChip();
   if (R.kind === 'quali' && R.flag && !R.resultsShown) endQuali();

@@ -151,8 +151,8 @@ class AIDriver {
     // ---- steering: pure pursuit on (racing line + offset)
     const Ld = Math.min(45, Math.max(7, 4 + u * 0.32)), j = (i + Math.round(Ld / T.ds)) % N;
     let dj = line.off[j] + this.off;
-    const inPitLane = q.pc === q.pc && q.d < -T.wr[i] - 0.5 && q.d > q.pc - q.phw - 0.5;
-    if (inPitLane) { const pc = T.pitC[j]; dj = pc === pc ? Math.min(pc, -T.wr[j] - 0.5 - myW / 2 + (T.pitSep[j] ? 0 : 3)) : line.off[j]; this.off = dj - line.off[j]; }
+    const ps = T.pitSide, inPitLane = q.pc === q.pc && ps * q.d > T.pitW[i] + 0.5 && ps * q.d < ps * q.pc + q.phw + 0.5;
+    if (inPitLane) { const pc = T.pitC[j]; dj = pc === pc ? ps * Math.max(ps * pc, T.pitW[j] + 0.5 + myW / 2 - (T.pitSep[j] ? 0 : 3)) : line.off[j]; this.off = dj - line.off[j]; }
     else if (Math.abs(this.off) > 0.05) { const m = myW / 2 + 0.25; dj = clamp(dj, Math.min(line.off[j], -(T.wr[j] - m)), Math.max(line.off[j], T.wl[j] - m)); }
     const tx = T.x[j] + T.nx[j] * dj - v.x, tz = T.z[j] + T.nz[j] * dj - v.z;
     const fx = Math.sin(v.h), fz = Math.cos(v.h), lx = Math.cos(v.h), lz = -Math.sin(v.h);

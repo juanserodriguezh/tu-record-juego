@@ -126,11 +126,11 @@ function buildTrack(def) {
         if (o[2] === 'R' || o[2] === 'B') { rr = o[3]; tr = o[4]; pr = o[5] || 0; }
       }
     }
-    // main straight: pit wall on the right, grandstand wall on the left
-    const [stA, stB] = def.straight;
-    if (!def.exactStraight && (s > stA || s < stB)) { rr = 2.6; tr = 'tarmac'; rl = Math.min(rl, 6); tl = 'tarmac'; }   // exactStraight: the measured run-off table already describes the pit straight
+    // main straight: pit wall on the pit side (right unless def.pitSide = 1), grandstand wall on the other
+    const [stA, stB] = def.straight, pitL = def.pitSide > 0;
+    if (!def.exactStraight && (s > stA || s < stB)) { if (pitL) { rl = 2.6; rr = Math.min(rr, 6); } else { rr = 2.6; rl = Math.min(rl, 6); } tr = 'tarmac'; tl = 'tarmac'; }   // exactStraight: the measured run-off table already describes the pit straight
     // pit entry / exit transitions: the pit-lane band emerges from a close barrier
-    if (!def.exactStraight) for (const [a, b] of def.pitTr) if (s >= a && s <= b) { rr = 3; tr = 'tarmac'; }
+    if (!def.exactStraight) for (const [a, b] of def.pitTr) if (s >= a && s <= b) { if (pitL) { rl = 3; tl = 'tarmac'; } else { rr = 3; tr = 'tarmac'; } }
     T.runL[i] = rl; T.runR[i] = rr; T.tarL[i] = pl; T.tarR[i] = pr; T.typL.push(tl); T.typR.push(tr);
   }
   { const [stA, stB] = def.straight; T.isStraightN = (sN) => sN > stA || sN < stB; }
@@ -187,18 +187,20 @@ function buildTrack(def) {
   for (let i = 0; i < N; i++) { T.tarL[i] = Math.min(T.tarL[i], Math.max(0, T.runL[i] - 2)); T.tarR[i] = Math.min(T.tarR[i], Math.max(0, T.runR[i] - 2)); }
   for (let i = 0; i < N; i++) { T.barL[i] = T.wl[i] + T.runL[i]; T.barR[i] = T.wr[i] + T.runR[i]; }
 
-  // ---- pit lane: a band right of the main straight (entry after the chicane, exit before La Source)
+  // ---- pit lane: a band beside the main straight, on the right (pitSide -1, default) or the left (pitSide 1)
+  const ps = T.pitSide = def.pitSide > 0 ? 1 : -1;
+  T.pitW = ps > 0 ? T.wl : T.wr; T.pitBar = ps > 0 ? T.barL : T.barR;   // track half-width / barrier on the pit side
   T.pitC = new Float64Array(N).fill(NaN); T.pitSep = new Uint8Array(N); T.pitHW = 5.0;
   for (let i = 0; i < N; i++) {
     const sN = i * ds * NOM / L, [pa0, pa1, pb0, pb1] = def.pit;
     if (!(sN >= pa0 || sN <= pb0)) continue;
-    const full = def.exactStraight ? -(T.barR[i] + 0.6 + T.pitHW) : -(T.wr[i] + 2.6 + 0.6 + T.pitHW);
-    const inner = -(T.wr[i] - 4.0);
+    const full = ps * (def.exactStraight ? T.pitBar[i] + 0.6 + T.pitHW : T.pitW[i] + 2.6 + 0.6 + T.pitHW);
+    const inner = ps * (T.pitW[i] - 4.0);
     let u = 1;
     if (sN >= pa0) u = smoothstep(pa0, pa1, sN);
     else if (sN >= pb1) u = smoothstep(pb0, pb1, sN);
     T.pitC[i] = lerp(inner, full, u);
-    if (T.pitC[i] + T.pitHW < -(T.barR[i] + 0.35)) T.pitSep[i] = 1;
+    if (ps * T.pitC[i] - T.pitHW > T.pitBar[i] + 0.35) T.pitSep[i] = 1;
   }
   T.pitSepFrom = -1; T.pitSepTo = -1;
   for (let i = 0; i < N; i++) { if (T.pitSep[i] && !T.pitSep[(i - 1 + N) % N]) T.pitSepFrom = i; if (T.pitSep[i] && !T.pitSep[(i + 1) % N]) T.pitSepTo = i; }
@@ -220,13 +222,14 @@ function buildBarriers(T, def, ds, NOM, L) {
   for (let i = 0; i < N; i++) {
     const sN = i * ds * NOM / L, straight = T.isStraightN(sN);
     if (straight && !def.exactStraight) { T.btL[i] = 1; T.btR[i] = 1; continue; }
-    if (T.pitSep[i]) T.btR[i] = 1;
+    if (T.pitSep[i]) (T.pitSide > 0 ? T.btL : T.btR)[i] = 1;
     for (const [a, b, side] of def.conc || []) if (sN >= a && sN <= b) (side > 0 ? T.btL : T.btR)[i] = 1;   // concrete wall stretches measured on the 3D model
     for (const [a, b, side] of def.tyres || []) {
       if (sN < a - 8 || sN > b + 8) continue;
       const w = TYRE_WALL_W * sm(a - 8, a + 4, sN) * (1 - sm(b - 4, b + 8, sN));
       if (w <= 0.05) continue;
-      if (side > 0) { T.btL[i] = 2; T.twL0[i] = w; } else if (!T.pitSep[i]) { T.btR[i] = 2; T.twR0[i] = w; }
+      if (T.pitSep[i] && side === T.pitSide) continue;
+      if (side > 0) { T.btL[i] = 2; T.twL0[i] = w; } else { T.btR[i] = 2; T.twR0[i] = w; }
     }
   }
   T.twL = T.twL0.slice(); T.twR = T.twR0.slice();
