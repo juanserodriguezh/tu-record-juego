@@ -105,3 +105,4 @@
 - Cambio: título de la pestaña (`head.html`), pantalla de carga y cabecera del menú (`body.html`) y el `title` de los 9 trazados en `tracks.js` («ARMK Racing · Spa», «ARMK Racing · Tocancipá»…). También el encabezado de `README.md` y `CLAUDE.md`.
 - No cambia: el repo (`tu-record-juego`), las claves de `localStorage` (`spa_rec_*`, así no se pierden récords ni ajustes), el prefijo de salas multijugador (`spa-record-v1-`, para no romper salas entre versiones) ni las frases de juego «tu récord» / «¡Nuevo récord!», que hablan de la mejor vuelta y no del nombre.
 - Verificado: build sin errores; capturas de la pantalla de carga y del menú en Spa y Tocancipá Largo (`document.title` y cabecera dicen «ARMK Racing · <circuito>»), sin errores de página. Solo cambia la página; los packs siguen igual.
+- Publicada el 27-oct-2026 como versión 74 del artefacto (id 1793128908-b0d2).
