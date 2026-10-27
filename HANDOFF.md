@@ -70,6 +70,7 @@
   4. HUD: los valores por frame (tiempo, velocidad, marcha, barras, luces de cambio) solo se escriben si cambian.
 - Medido (mismo frame congelado, 1280 px, LOD apagado/encendido con `__spa.lod`): parrilla 2,55 M → 2,41 M triángulos; vista hacia atrás 2,68 M → 2,58 M; diferencia de imagen en 0,01-0,02 % de los píxeles (coches lejanos, a 4× no se distingue). Honesto: con el umbral estricto de calidad el LOD ahorra poco (3,5-5,5 %) en esta escena; con normales y UVs fuera del criterio ahorraba un 21 % pero se veían cambios de reflejo en coches a 8-20 m, así que se descartó. El ahorro grande es el límite de FPS en pantallas de más de 60 Hz (la mitad de frames) y el tráfico de memoria del postproceso.
 - No medible aquí: tiempo de GPU real (el Chromium sin GPU del contenedor rasteriza en CPU a ~1 FPS). Pendiente que Juanse confirme temperatura/ventilador en su equipo.
+- Publicada el 27-oct-2026 como versión 73 del artefacto (id 1793106630-e9e2). Solo cambió la página.
 - Ganchos de prueba nuevos: `__spa.freeze(true)` + `__spa.redraw()` (frame congelado para comparar píxel a píxel), `__spa.lod(on)`, `__spa.lodFlush()`.
 
 ## Ferrari F40 ACPursuit (pendiente, no integrado)
