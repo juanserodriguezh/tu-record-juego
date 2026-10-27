@@ -133,6 +133,7 @@
         <div class="sec" id="hS3"><span>S3</span><b>—</b></div>
       </div>
       <div class="corner" id="hCorner"></div>
+      <div class="coach" id="hCoach" hidden></div>
     </div>
 
     <canvas id="minimap" class="minimap" width="220" height="260" aria-label="Mapa del circuito"></canvas>
@@ -175,7 +176,7 @@
     <div class="aqua" id="hAqua" hidden>AQUAPLANING</div>
     <div class="hints" id="hHints">
       <span id="hCam">Cámara: 3.ª persona</span>
-      <span>C cámara · 1-0 mover cámara · R reiniciar · T neumáticos en boxes · B mirar atrás · M sonido · Esc pausa</span>
+      <span>C cámara · 1-0 mover cámara · R reiniciar · T neumáticos en boxes · L línea de frenada · B mirar atrás · M sonido · Esc pausa</span>
     </div>
 
     <div class="repair" id="hRepair" hidden><span id="hRepairT">Reparando…</span><div class="bar"><i id="hRepairBar"></i></div></div>
@@ -292,7 +293,7 @@
         <section>
           <h3>Pantalla y sonido</h3>
           <label class="check"><input type="checkbox" id="setMap"> Minimapa</label>
-          <label class="check"><input type="checkbox" id="setLine"> Línea ideal de frenada</label>
+          <div class="field"><span class="lbl">Línea de frenada</span><div class="seg" id="setLineMode"></div><span class="muted small">Verde acelera, amarillo prepárate, rojo frena. Adaptativa: se colorea según tu velocidad y tu coche, aprende de tus vueltas (marca en blanco dónde frenar y en naranja dónde frenaste), avisa antes donde sueles frenar tarde y se retira de las curvas que ya dominas. Tecla L en pista.</span><button id="setLineForget" type="button">Olvidar lo aprendido</button></div>
           <label class="check"><input type="checkbox" id="setGhost"> Coche fantasma (mejor vuelta)</label>
           <div class="field"><span class="lbl">Unidades</span><div class="seg" id="setUnits"></div></div>
           <div class="field"><label for="setVol">Volumen general <b id="volVal">70%</b></label><input type="range" id="setVol" min="0" max="1" step="0.05"></div>

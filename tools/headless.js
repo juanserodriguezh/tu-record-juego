@@ -1,9 +1,9 @@
 // Headless game core (tracks + cars + physics, no browser): node tools/headless.js accel [ids]  |  node tools/headless.js tyres
 const fs = require('fs'), path = require('path');
 const SRC = path.join(__dirname, '..', 'src');
-const files = ['data_spa', 'data_monza', 'data_albertpark', 'data_toca', 'tracks', 'cars', 'physics', 'damage', 'line_offs', 'ai'];
+const files = ['data_spa', 'data_monza', 'data_albertpark', 'data_toca', 'tracks', 'cars', 'physics', 'damage', 'line_offs', 'ai', 'coach'];
 const src = files.map(f => fs.readFileSync(path.join(SRC, f + '.js'), 'utf8').replace(/if \(typeof module[^\n]*\n/, '')).join('\n');
-const M = new Function(src + '\nreturn { buildTrack, Vehicle, CARS, TRACK_DEFS, ACCEL_CAL, LINE_OFFS, lineFromOffsets, wxInit, AIDriver, AI_PROFILES, qssProfile, aiProfile, newDamage, pitStopPlan, PIT_CREW };')();
+const M = new Function(src + '\nreturn { buildTrack, Vehicle, CARS, TRACK_DEFS, ACCEL_CAL, LINE_OFFS, lineFromOffsets, wxInit, AIDriver, AI_PROFILES, qssProfile, aiProfile, newDamage, pitStopPlan, PIT_CREW, Coach, coachPlan, COACH, DMG };')();
 const cmd = process.argv[2] || 'accel';
 if (cmd === 'accel') {   // standing-start acceleration on the Spa straight: 0-100 / 0-200 / 0-300 km/h and top speed
   const T = M.buildTrack('spa');
@@ -40,6 +40,44 @@ if (cmd === 'ailap') {   // flying laps of one AI driver alone, dry: node tools/
       if (ps > T.L * 0.8 && V.q.s < T.L * 0.2) { if (tl != null) laps.push(t - tl); tl = t; } ps = V.q.s; }
     const fly = laps.slice(1), best = fly.length ? Math.min(...fly) : 0;
     console.log(tid.padEnd(12), id.padEnd(13), 'diff', diff, ' qss', fmt(ai.profObj.time), ' laps', laps.map(fmt).join(' '), ' best', fmt(best), ' vmax', (vtop * 3.6).toFixed(0), resets ? ' STUCK' : ''); }
+}
+if (cmd === 'coach') {   // adaptive line: zones and how it judges three drivers (late / good / early): node tools/headless.js coach [track] [car] [laps=4]
+  const tid = process.argv[3] || 'monza', id = process.argv[4] || 'amg_gt3', nl = +(process.argv[5] || 4);
+  const D = M.TRACK_DEFS[tid], T = M.buildTrack(D), offs = (M.LINE_OFFS[D.id] || '').split(',').map(v => +v / 100);
+  const LINE = M.lineFromOffsets(T, Float64Array.from(offs.length === T.N ? offs : new Array(T.N).fill(0))); M.wxInit(T, LINE, D);
+  const sp = M.CARS.find(c => c.id === id), P = new M.Vehicle(sp, T).P;
+  let t0 = Date.now(); const vel = M.coachPlan(T, LINE, P, 1); const tPlan = Date.now() - t0;
+  t0 = Date.now(); const C0 = new M.Coach(T, vel, {}); const tBuild = Date.now() - t0;
+  t0 = Date.now(); for (let k = 0; k < 20; k++) C0.rebuild(); const tReb = (Date.now() - t0) / 20;
+  console.log(tid, id, '·', C0.zones.length, 'braking zones:', C0.zones.map(z => `${z.name} ${Math.round(vel[z.b] * 3.6)}→${Math.round(vel[z.a] * 3.6)}`).join(', '));
+  console.log(`cost: plan ${tPlan} ms, coach ${tBuild} ms, rebuild after a corner ${tReb.toFixed(1)} ms`);
+  let fail = 0; M.DMG.scale = 0;   // no damage: a crash would leave a slower car and blur the next corners
+  // late: AI level 10 that keeps the throttle 40 m past its own braking point in every zone; good: AI level 10; early: AI level 1
+  for (const [name, diff, late, want] of [['late', 10, 40, 'late'], ['good', 10, 0, 'good'], ['early', 1, 0, 'early']]) {
+    const V = new M.Vehicle(sp, T); V.reset(T.L - 150 * T.L / D.nom, 0); V.u = 0;
+    const ai = new M.AIDriver(V, T, LINE, { diff, react: 0 }); ai.setEnv({ grip: 1, wet: 0, water: 0, dryLine: 0 }, id); ai.startRolling();
+    const miss = [], C = new M.Coach(T, vel, {}), cnt = { late: 0, good: 0, early: 0 }, laps = []; let t = 0, ps = V.q.s, lap = 0, hidden = [];
+    const self = { id: 'me' }, dt = 1 / 120;
+    let zk = -1, s0 = null;
+    while (lap <= nl && t < 900) { let inp = ai.drive(dt, [self], self, { hold: false });
+      if (late) { const k = C.zEval[V.q.i]; if (k !== zk) { zk = k; s0 = null; }
+        if (k >= 0 && inp.brake > 0.05 && s0 == null) s0 = V.q.s;
+        if (s0 != null && s0 >= 0 && ((V.q.s - s0 + T.L) % T.L) < late) inp = Object.assign({}, inp, { brake: 0, throttle: 1 }); else if (s0 != null) s0 = -1; }
+      V.step(dt, inp, ai.env); t += dt;
+      if (ai.needReset) { V.reset(V.q.s, LINE.off[V.q.i], true); V.u = 10; ai.needReset = false; ai.stuckT = 0; ai.startRolling(); C.obs = null; }
+      const q = V.q, off = Math.abs(q.d) > (q.d >= 0 ? q.wl : q.wr) + 1.3 + 0.95;
+      const ev = C.observe(q.i, Math.abs(V.u), inp.brake, off, V.impactT > 0.45 && V.lastImpact > 4, dt);
+      if (ev) { cnt[ev.kind]++; if (ev.kind !== want) miss.push(ev.zone.name + ' ' + ev.kind + ' (' + ev.err + ' m, ' + (ev.ratio * 100).toFixed(0) + ' %)'); }
+      if (ps > T.L * 0.8 && q.s < T.L * 0.2) { lap++; hidden.push(C.zones.filter(z => z.hidden).length); } ps = q.s; }
+    // the plan keeps a braking margin, so braking 40 m late still makes some corners (more on fast tracks): those
+    // are fine (good), and one that brakes at the red but then over-slows is told so (early). A late braker must get
+    // mostly late verdicts and few early ones (<15 % of the late ones); the other two need 90 %.
+    const tot = cnt.late + cnt.good + cnt.early, share = tot ? cnt[want] / tot : 0;
+    if (want === 'late' ? !cnt.late || cnt.early > 0.15 * cnt.late : share < 0.9) fail++;
+    console.log(`${name.padEnd(6)} late ${cnt.late}  good ${cnt.good}  early ${cnt.early}  -> ${(share * 100).toFixed(0)} % as expected · corners withdrawn after each lap: ${hidden.join(' ')}`);
+    if (miss.length) console.log('    other verdicts:', [...new Set(miss)].slice(0, 6).join(' · '));
+  }
+  if (fail) { console.log(fail, 'driver(s) misjudged'); process.exit(1); }
 }
 if (cmd === 'pits') {   // grandstands, pit lane and pit buildings must not overlap the circuit or each other: node tools/headless.js pits [track]
   let bad = 0;
