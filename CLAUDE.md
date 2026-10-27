@@ -23,6 +23,7 @@ node tools/headless.js ailap monza amg_gt3,w17 5   # vueltas de la IA sola (pist
 node tools/headless.js tyres               # comprueba que las barreras de neumáticos quedan por fuera de la curva
 node tools/headless.js pits                # tribunas, boxes y postes no se pisan entre sí ni con la pista (exit 1 si falla)
 node tools/headless.js pitstop             # tiempo de parada por categoría y daño
+node tools/headless.js coach monza amg_gt3   # línea adaptativa: zonas y juicio de 3 pilotos IA (exit 1 si falla)
 node tools/shot.mjs <prefijo> <pista> <coche> "<js>|||<js>" [ancho]   # capturas en shots/
 LOD=1 node tools/perf.mjs spa amg_gt3 race medio 8 960   # coste por frame: draw calls, triángulos (todas las pasadas), ms de JS
 ```
@@ -43,6 +44,7 @@ Ejemplos de capturas:
 | `src/damage.js` | Modelo de daños por coche (`DMG_PROFILES`) y contacto entre coches |
 | `src/line_offs.js` | Trazada ideal precalculada (la genera `build.js`) |
 | `src/ai.js` | Pilotos IA |
+| `src/coach.js` | Línea de frenada adaptativa: plan alcanzable, juicio por curva, retirada de ayuda; `CoachLine` la dibuja |
 | `src/world.js` | Escenario: asfalto, pianos, muros, boxes, tribunas, terreno, árboles, cielo y clima |
 | `src/carmodel.js`, `src/body.js`, `src/hands.js`, `src/special.js` | Coches procedurales, cabina, volante y manos |
 | `src/glb.js` | Monta los modelos escaneados (GLB) sobre el coche: ruedas, cabina real, volante y piezas fijas |
@@ -70,6 +72,7 @@ Ejemplos de capturas:
 - **Ajuste de cámara** en juego: teclas 1–0. Se guarda por coche y por vista.
 
 ## Historial reciente y decisiones
+- **v71:** línea de frenada adaptativa (`coach.js`): colores según tu velocidad, aprende por curva, marcas de frenada y se retira de las curvas dominadas.
 - **v70:** salida de boxes de Spa después de La Source; tiempo de parada según la categoría y el daño.
 - **v69:** boxes y tribunas. En Tocancipá la tribuna principal estaba encima de la calle de boxes, y los boxes cambiaban de lado según el trazado. Se añadió `pitSide` y el chequeo `headless.js pits`.
 - **v68:** la dificultad de la IA ya no limita la velocidad en recta: escala el paso por curva y la frenada (`aiProfile` en `ai.js`, `vk` en `qssProfile`). El nivel 10 no cambió.
