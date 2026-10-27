@@ -65,11 +65,12 @@ Ejemplos de capturas:
   - `trueWheels`: el juego endereza las ruedas al cargar; `false` si el asset ya viene corregido.
   - `wheelStat`: regex de piezas de rueda que no giran (conductos de freno).
   - `series`: `'f1mod'` o `'gt3'` para la parrilla de su serie.
-- **Boxes:** la calle de boxes va a la derecha de la recta. Con `pitSide: 1` en `TRACK_DEFS` va a la izquierda (en Tocancipá, el Largo, la Ampliación y los Mixtos: los boxes están por fuera). Las tribunas de la recta van en el lado contrario.
+- **Boxes:** la calle de boxes va a la derecha de la recta. Con `pitSide: 1` en `TRACK_DEFS` va a la izquierda. En Tocancipá los boxes están por dentro (foto aérea, v72): `pitSide: 1` en el Largo inverso y el Corto inverso. Las tribunas de la recta van en el lado contrario.
 - **Parada en boxes:** `pitStopPlan` en `damage.js`. Usa `PIT_CREW` (tiempos reales de neumáticos y factor del equipo por tipo de coche) y `PIT_REPAIR` (cada pieza escala con su daño). En Spa la salida de boxes es una vía propia (`escape` con `pit: true`).
 - **Ajuste de cámara** en juego: teclas 1–0. Se guarda por coche y por vista.
 
 ## Historial reciente y decisiones
+- **v72:** Tocancipá con las referencias de la foto aérea (`buildToca`, marco fijo `TOCA_VENUE`): pórtico Mobil, garajes bajos, paddock de contenedores, llantas, eucaliptos, montañas y chimeneas. Los boxes van **por dentro** (entre la recta y la vía de vuelta de la horquilla) y la tribuna por fuera, como en la foto; esto corrige la v69.
 - **v71:** línea de frenada adaptativa (`coach.js`): colores según tu velocidad, aprende por curva, marcas de frenada y se retira de las curvas dominadas.
 - **v70:** salida de boxes de Spa después de La Source; tiempo de parada según la categoría y el daño.
 - **v69:** boxes y tribunas. En Tocancipá la tribuna principal estaba encima de la calle de boxes, y los boxes cambiaban de lado según el trazado. Se añadió `pitSide` y el chequeo `headless.js pits`.
