@@ -51,6 +51,7 @@
 - Rendimiento: una sola malla como antes; por cuadro solo cambian 3 uniforms. Por paso de simulación, una consulta de tabla. Al terminar cada curva, 0,5 ms. Recalcular el plan (cambio de agarre): ~20 ms.
 - Herramienta nueva: `node tools/headless.js coach [pista] [coche] [vueltas]` (zonas, coste y cómo juzga a tres pilotos IA: bueno = nivel 10, lento = nivel 1, tardío = nivel 10 que frena 40 m tarde; exit 1 si falla). En 9 trazados × 4 coches (GT3, W17, Duster, Chiron): bueno y lento al 100 %; el tardío recibe sobre todo «tarde» y algún «bien» (el plan deja margen) o «lento» si después frena de más.
 - Verificado en el navegador (Monza, GT3, piloto automático): verde en la recta a 246 km/h, rojo frenando en el cartel de 100, curva dominada sin línea a 252 km/h, marcas blanca y naranja en la Roggia y mensaje «Lesmo 2 · te saliste o tocaste el muro: frena antes» cuando el piloto automático se estrelló allí (la línea no toca la física). `tyres` y `pits` en verde, sin errores de página.
+- Publicada el 27-oct-2026 como versión 71 del artefacto (id 1793104558-f5a7). Solo cambió la página.
 
 ## Ferrari F40 ACPursuit (pendiente, no integrado)
 - El kn5 trae las texturas vaciadas (1×1 px) y la geometría alterada a propósito (protección del autor; la repara CSP). No se revierte.
