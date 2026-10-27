@@ -24,6 +24,7 @@ node tools/headless.js tyres               # comprueba que las barreras de neum�
 node tools/headless.js pits                # tribunas, boxes y postes no se pisan entre sí ni con la pista (exit 1 si falla)
 node tools/headless.js pitstop             # tiempo de parada por categoría y daño
 node tools/shot.mjs <prefijo> <pista> <coche> "<js>|||<js>" [ancho]   # capturas en shots/
+LOD=1 node tools/perf.mjs spa amg_gt3 race medio 8 960   # coste por frame: draw calls, triángulos (todas las pasadas), ms de JS
 ```
 Ejemplos de capturas:
 - `node tools/shot.mjs c3 toca_largo amg_gt3 "__spa.view(563,0,70,-40,0,70)"`: vista aérea de la curva 3.
@@ -65,6 +66,7 @@ Ejemplos de capturas:
   - `series`: `'f1mod'` o `'gt3'` para la parrilla de su serie.
 - **Boxes:** la calle de boxes va a la derecha de la recta. Con `pitSide: 1` en `TRACK_DEFS` va a la izquierda (en Tocancipá, el Largo, la Ampliación y los Mixtos: los boxes están por fuera). Las tribunas de la recta van en el lado contrario.
 - **Parada en boxes:** `pitStopPlan` en `damage.js`. Usa `PIT_CREW` (tiempos reales de neumáticos y factor del equipo por tipo de coche) y `PIT_REPAIR` (cada pieza escala con su daño). En Spa la salida de boxes es una vía propia (`escape` con `pit: true`).
+- **Rendimiento (v72):** los coches escaneados rivales cambian a mallas simplificadas por distancia (`glbLod*` en `glb.js`, meshoptimizer en `src/meshopt_simplifier.js`, calculado en un worker). Cada malla usa el nivel más simple cuyo error geométrico en pantalla es < 0,3 px (`LOD_PX`); el coche del jugador siempre lleva el modelo completo. `__spa.lod(false)` lo apaga para comparar; `__spa.freeze(true)` + `__spa.redraw()` congelan un frame para comparar píxel a píxel. Límite de FPS en ajustes (60 por defecto, `paceSkip` en `main.js`). En el postproceso solo la pasada de escena lleva MSAA.
 - **Ajuste de cámara** en juego: teclas 1–0. Se guarda por coche y por vista.
 
 ## Historial reciente y decisiones

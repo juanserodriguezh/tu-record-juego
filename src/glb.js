@@ -42,6 +42,7 @@ async function loadGlbs(progress) {
       // single-sided scans (919, Valkyrie, Valkyrie LM): shells look see-through from inside the cockpit
       if (['p919', 'valk', 'valklm'].includes(id)) gltf.scene.traverse(o => { if (o.isMesh) for (const m of (Array.isArray(o.material) ? o.material : [o.material])) if (m && !m.transparent) { m.side = THREE.DoubleSide; } });
       if (id !== 'sw') await mergeStatic(gltf.scene);
+      glbLodTag(gltf.scene);
       GLBS[id] = gltf.scene;
     } catch (e) { console.warn('GLB failed', id, e); }
     i++;
@@ -173,6 +174,92 @@ function applyGlb(out, spec) {
     const p = wg.getWorldPosition(new THREE.Vector3()); out.body.worldToLocal(p);
     const e = out.eye, R = 0.185;
     out.swClip = [0.2, p.y - R, p.y + R, e.z - (p.z - 0.06), (p.z + 0.075) - e.z]; }
+  // 5) distance LODs (glbLod): each mesh with its scale relative to the car, simplified levels built in the background
+  out.root.updateMatrixWorld(true); const rinv = new THREE.Matrix4().copy(out.root.matrixWorld).invert(), Ms = new THREE.Matrix4();
+  out.lodMeshes = []; out.root.traverse(o => { if (o.isMesh && o.geometry && o.geometry.userData.lodSrc) out.lodMeshes.push({ m: o, g0: o.geometry, s: Ms.multiplyMatrices(rinv, o.matrixWorld).getMaxScaleOnAxis() }); });
+  glbLodQueue(src);
+}
+
+// ---- Distance LODs of the scanned cars. A GT3 scan is ~250k triangles and the grid draws a dozen of them (and again in the shadow map)
+// even 60 m away, where the car is 40 px tall. Every mesh gets coarser index buffers over the same vertices (meshoptimizer), so
+// materials, UVs and paint are untouched, and each frame a car's mesh takes the coarsest level whose geometric error projects to
+// under a third of a pixel on screen at that distance: the image does not change, the triangles do.
+const LOD_STEPS = [[0.3, 0.003], [0.1, 0.01], [0.03, 0.03]];   // [target share of triangles, max error relative to the mesh size]
+const LOD_PX = 0.3;   // largest error allowed on screen, in pixels
+const LOD_ATTW = [1, 1, 1, 2, 2];   // the simplifier also keeps normals (shading, reflections) and UVs (liveries): their error counts too
+const LOD_JOBS = []; let LOD_BUSY = false, LOD_ON = true, LOD_MS = 0, LOD_W = null, LOD_LIB = null;
+function glbLodTag(root) { root.traverse(o => { const g = o.geometry; if (o.isMesh && !o.isSkinnedMesh && !o.isInstancedMesh && g && g.index && g.index.count >= 1500 && !g.groups.length && !g.morphAttributes.position && !Array.isArray(o.material)) g.userData.lodSrc = 1; }); }
+function glbLodQueue(src) {
+  if (src.userData.lodQ) return; src.userData.lodQ = 1;
+  src.traverse(o => { if (o.isMesh && o.geometry.userData.lodSrc && !o.geometry.userData.lod) LOD_JOBS.push(o.geometry); });
+  glbLodRun();
+}
+// simplified index buffers of one mesh (pure: it also runs inside the worker). Returns [{ ix, err (mesh units) }], fine to coarse.
+function lodLevels(MS, idx, pos, att, steps) {
+  const scale = MS.getScale(pos, 3), out = []; let prev = idx.length;
+  for (const [f, e] of steps) {
+    const r = MS.simplifyWithAttributes(idx, pos, 3, att, 5, LOD_ATTW, null, Math.floor(idx.length * f / 3) * 3, e, ['LockBorder']), ix = r[0];
+    if (!ix.length || ix.length > prev * 0.6) continue;   // not worth a level
+    out.push({ ix, err: Math.max(r[1], 1e-6) * scale }); prev = ix.length;
+  }
+  return out;
+}
+function lodInput(g) {
+  const P = g.attributes.position, n = P.count, pos = new Float32Array(n * 3);
+  const N = g.attributes.normal, U = g.attributes.uv, att = new Float32Array(n * 5);
+  for (let i = 0; i < n; i++) { pos[i * 3] = P.getX(i); pos[i * 3 + 1] = P.getY(i); pos[i * 3 + 2] = P.getZ(i);
+    if (N) { att[i * 5] = N.getX(i); att[i * 5 + 1] = N.getY(i); att[i * 5 + 2] = N.getZ(i); } if (U) { att[i * 5 + 3] = U.getX(i); att[i * 5 + 4] = U.getY(i); } }
+  return { idx: g.index.array.slice(), pos, att };
+}
+function lodApply(g, levels) {
+  if (!g.boundingSphere) g.computeBoundingSphere(); if (!g.boundingBox) g.computeBoundingBox();
+  g.userData.lod = levels.map(l => { const lg = new THREE.BufferGeometry();
+    for (const k in g.attributes) lg.setAttribute(k, g.attributes[k]);
+    lg.setIndex(new THREE.BufferAttribute(l.ix, 1)); lg.boundingSphere = g.boundingSphere; lg.boundingBox = g.boundingBox;
+    return { g: lg, err: l.err }; });
+}
+// the simplifier runs in a worker made from its own source, so the main thread never stalls; inline (one mesh per task) if workers are blocked
+function lodWorker() {
+  if (LOD_W !== null) return LOD_W;
+  try {
+    const src = meshoptSimplifierLib.toString() + '\n' + lodLevels.toString() + '\nconst LOD_ATTW = ' + JSON.stringify(LOD_ATTW) + ';' + '\nconst MS = meshoptSimplifierLib();\n' +
+      'onmessage = async (ev) => { await MS.ready; const d = ev.data, t = performance.now(); let out = [];' +
+      ' try { out = lodLevels(MS, d.idx, d.pos, d.att, d.steps); } catch (e) { } postMessage({ id: d.id, out, ms: performance.now() - t }, out.map(l => l.ix.buffer)); };';
+    const w = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+    w.pend = new Map(); w.seq = 0;
+    w.onmessage = (ev) => { const g = w.pend.get(ev.data.id); w.pend.delete(ev.data.id); LOD_MS += ev.data.ms; if (g) lodApply(g, ev.data.out); };
+    w.onerror = () => { LOD_W = false; for (const g of w.pend.values()) LOD_JOBS.push(g); w.pend.clear(); w.terminate(); glbLodRun(); };
+    LOD_W = w;
+  } catch (e) { LOD_W = false; }
+  return LOD_W;
+}
+async function glbLodRun() {
+  if (LOD_BUSY) return; LOD_BUSY = true;
+  try {
+    while (LOD_JOBS.length) {
+      const g = LOD_JOBS.shift(); if (g.userData.lod) continue;
+      const w = lodWorker(), inp = lodInput(g);
+      if (w) { const id = ++w.seq; w.pend.set(id, g); w.postMessage({ id, idx: inp.idx, pos: inp.pos, att: inp.att, steps: LOD_STEPS }, [inp.idx.buffer, inp.pos.buffer, inp.att.buffer]); }
+      else {
+        if (!LOD_LIB) { LOD_LIB = meshoptSimplifierLib(); await LOD_LIB.ready; }
+        const t0 = performance.now();
+        try { lodApply(g, lodLevels(LOD_LIB, inp.idx, inp.pos, inp.att, LOD_STEPS)); } catch (e) { g.userData.lod = []; }
+        LOD_MS += performance.now() - t0;
+      }
+      await new Promise(r => setTimeout(r, 0));   // one mesh per task
+    }
+  } catch (e) { console.warn('LOD', e); }
+  LOD_BUSY = false;
+}
+// pxPerM: pixels per metre at 1 m (drawing-buffer height / (2 tan(fov/2)))
+function glbLodUpdate(model, cam, pxPerM) {
+  const L = model && model.lodMeshes; if (!L || !L.length) return;
+  const k = LOD_ON ? pxPerM / Math.max(0.5, model.root.position.distanceTo(cam.position)) : 0;
+  for (const e of L) {
+    const lod = e.g0.userData.lod; let g = e.g0;
+    if (lod && k) for (const l of lod) { if (l.err * e.s * k < LOD_PX) g = l.g; else break; }
+    if (e.m.geometry !== g) e.m.geometry = g;
+  }
 }
 
 // The shared steering wheel (+ gloves) must sweep freely inside the scanned cockpit: every car's tub is a different shape, so measure the

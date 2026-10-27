@@ -22,7 +22,7 @@ const RIMNAMES = { plata: 'Plata', negro: 'Negro', oro: 'Oro', bronce: 'Bronce' 
 const SWATCHES = ['#f4f4f4', '#9aa0a6', '#2a2d31', '#0e0f11', '#c8120c', '#e3342c', '#f28c28', '#f6c21c', '#b5e61d', '#1f9a3a', '#0f5c4a', '#6fc3df', '#2f63b8', '#1b3a6b', '#5b1a8f', '#c9a24a'];
 const MODES = { practica: 'Práctica', rapida: 'Carrera rápida', completa: 'Carrera completa', multi: 'Multijugador' };
 const DIFFN = (d) => d <= 2 ? 'Novato' : d <= 4 ? 'Aficionado' : d <= 6 ? 'Intermedio' : d <= 8 ? 'Experto' : d === 9 ? 'Profesional' : 'Leyenda';
-const DEFAULTS = { quality: 'medio', draw: 'normal', fov: 62, fps: false, abs: true, tc: true, esc: true, autoShift: true, steerAssist: true, steerSens: 1.0, minimap: true, idealLine: false, ghost: true, units: 'kmh', volume: 0.7, volEngine: 1, volFx: 0.8, muted: false, damage: 'real', tyres: 'normal' };
+const DEFAULTS = { quality: 'medio', draw: 'normal', fov: 62, fps: false, fpsCap: '60', abs: true, tc: true, esc: true, autoShift: true, steerAssist: true, steerSens: 1.0, minimap: true, idealLine: false, ghost: true, units: 'kmh', volume: 0.7, volEngine: 1, volFx: 0.8, muted: false, damage: 'real', tyres: 'normal' };
 const GAME_DEFAULTS = { mode: 'practica', start: 'grid', rivals: false, nRivals: 12, diff: 5, rivalCars: 'mismo', laps: 3, gridPos: 'medio', qualiMin: 10, name: '', tyre: 'auto' };
 const S = {
   // phones start on the light graphics preset (it can be raised in Ajustes)
@@ -58,7 +58,8 @@ async function boot() {
     setProgress(0.04, 'Cargando tipografías…');
     try { await Promise.race([Promise.all([document.fonts.load("800 40px 'Saira Condensed'"), document.fonts.load("600 20px 'Saira Condensed'")]), new Promise(r => setTimeout(r, 1800))]); } catch (e) { }
     const q = S.settings.quality;
-    renderer = new THREE.WebGLRenderer({ canvas: $('gl'), antialias: q !== 'bajo', powerPreference: 'high-performance' });
+    // medio / alto draw through the composer, whose scene target has its own MSAA: a multisampled canvas would only resolve one quad
+    renderer = new THREE.WebGLRenderer({ canvas: $('gl'), antialias: false, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, q === 'alto' ? 2 : q === 'medio' ? 1.25 : 0.75));
     renderer.setSize(window.innerWidth, window.innerHeight, false);
     renderer.shadowMap.enabled = q !== 'bajo'; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -596,6 +597,7 @@ function initSettings() {
   const save = () => store.set('settings', st);
   segButtons($('setQuality'), QUAL, st.quality, (k) => { st.quality = k; save(); applyQuality(true); });
   segButtons($('setDraw'), DRAW, st.draw, (k) => { st.draw = k; save(); applyWeather(); });
+  segButtons($('setFpsCap'), { 30: '30', 60: '60', no: 'Sin límite' }, st.fpsCap, (k) => { st.fpsCap = k; save(); });
   segButtons($('setDamage'), { off: 'Desactivado', low: 'Reducido', real: 'Realista' }, st.damage, (k) => { st.damage = k; save(); syncEnv(); });
   segButtons($('setTyres'), { off: 'Desactivado', normal: 'Normal', fast: 'Acelerado ×2.5' }, st.tyres, (k) => { st.tyres = k; save(); syncEnv(); });
   segButtons($('setUnits'), { kmh: 'km/h', mph: 'mph' }, st.units, (k) => { st.units = k; save(); renderSpec(); });
@@ -1284,6 +1286,14 @@ function updateOthers(dt) {
     if (vis) poseModel(e.model, e.veh, 0, e.ai.inp.brake > 0.05, dt);
   }
 }
+// rivals, remote cars and the ghost: coarser meshes by distance (glbLodUpdate), never off by more than a third of a pixel on screen.
+// The player's own car always keeps the full model.
+const _lodSz = new THREE.Vector2();
+function lodFrame() {
+  const pxPerM = renderer.getDrawingBufferSize(_lodSz).y / (2 * Math.tan(camera.fov * Math.PI / 360));
+  if (ghost && ghost.root.visible) glbLodUpdate(ghost, camera, pxPerM);
+  if (SES) for (const e of SES.entries) if (!e.isPlayer && e.model && e.model.root.visible) glbLodUpdate(e.model, camera, pxPerM);
+}
 function updateGhost() {
   if (!ghost || !SES || !SES.best || !S.settings.ghost || SES.state !== 'run' || !SES.started || !SES.best.ghost) { if (ghost) ghost.root.visible = false; return; }
   const g = SES.best.ghost, lapT = SES.t - SES.lapStart, f = lapT * 10, i = Math.floor(f), n = g.length / 4;
@@ -1520,13 +1530,17 @@ function renderStandings() {
   $('stRows').innerHTML = html;
 }
 let hudT = 0, fpsAcc = 0, fpsN = 0;
+// the per-frame HUD values are written only when they change (each write makes the browser restyle and re-lay out the HUD)
+const HUDV = new Map();
+const hudTxt = (id, v) => { v = String(v); if (HUDV.get(id) !== v) { HUDV.set(id, v); $(id).textContent = v; } };
+const hudW = (id, v) => { const k = id + '.w'; if (HUDV.get(k) !== v) { HUDV.set(k, v); $(id).style.width = v; } };
 function updateHUD(dt) {
   const R = SES; if (!R) return;
   const st = S.settings;
   const lapT = R.state === 'run' && R.started ? R.t - R.lapStart : 0;
-  $('hTime').textContent = fmtTime(lapT);
-  $('hLap').textContent = R.kind === 'race' ? clamp(R.player.lap + 1, 1, R.raceLaps) : R.lapNum;
-  $('hLapOf').textContent = R.kind === 'race' ? '/' + R.raceLaps : '';
+  hudTxt('hTime', fmtTime(lapT));
+  hudTxt('hLap', R.kind === 'race' ? clamp(R.player.lap + 1, 1, R.raceLaps) : R.lapNum);
+  hudTxt('hLapOf', R.kind === 'race' ? '/' + R.raceLaps : '');
   const dEl = $('hDelta');
   if (R.best && R.best.trace && R.state === 'run' && R.started && !R.lap1 && car.q.s > 30 && car.q.s < T.L - 5 && R.valid) {
     const f = car.q.s / 10, k = Math.floor(f), tr = R.best.trace;
@@ -1537,15 +1551,15 @@ function updateHUD(dt) {
   } else dEl.hidden = true;
   if (R.secShowT > 0) { R.secShowT -= dt; if (R.secShowT <= 0) for (const id of ['hS1', 'hS2', 'hS3']) { $(id).className = 'sec'; $(id).querySelector('b').textContent = '—'; } }
   const mph = st.units === 'mph';
-  $('hSpeed').textContent = Math.round(Math.abs(car.u) * (mph ? 2.23694 : 3.6));
-  $('hUnit').textContent = mph ? 'mph' : 'km/h';
-  $('hGear').textContent = car.gear === -1 ? 'R' : (R.state === 'lights' || R.player.pitHold ? 'N' : car.gear);
+  hudTxt('hSpeed', Math.round(Math.abs(car.u) * (mph ? 2.23694 : 3.6)));
+  hudTxt('hUnit', mph ? 'mph' : 'km/h');
+  hudTxt('hGear', car.gear === -1 ? 'R' : (R.state === 'lights' || R.player.pitHold ? 'N' : car.gear));
   const x = clamp(car.rpm / car.P.red, 0, 1);
-  $('hRpm').style.width = (x * 100).toFixed(1) + '%';
+  hudW('hRpm', (x * 100).toFixed(1) + '%');
   const lamps = $('hShift').children, lit = Math.round(clamp((x - 0.72) / 0.26, 0, 1) * 8);
-  for (let i = 0; i < 8; i++) lamps[i].className = i < lit ? (lit >= 8 ? 'b' : i < 3 ? 'g' : 'r') : '';
-  $('hThr').style.width = Math.round(INPUT.throttle * 100) + '%';
-  $('hBrk').style.width = Math.round(INPUT.brake * 100) + '%';
+  for (let i = 0; i < 8; i++) { const c = i < lit ? (lit >= 8 ? 'b' : i < 3 ? 'g' : 'r') : ''; if (lamps[i].className !== c) lamps[i].className = c; }
+  hudW('hThr', Math.round(INPUT.throttle * 100) + '%');
+  hudW('hBrk', Math.round(INPUT.brake * 100) + '%');
   hudT += dt;
   if (hudT > 0.1) {
     hudT = 0;
@@ -2187,8 +2201,25 @@ function crashTest(kmh, ang, side, sNom) {
   car.h = Math.atan2(T.tx[i], T.tz[i]) + side * (ang || 20) * Math.PI / 180; car.u = kmh / 3.6;
   return 'ok';
 }
+// frame pacing: with the FPS cap (60 by default) a 120/144 Hz screen gets an even 60/72 FPS instead of redrawing the whole scene
+// 120-144 times a second (the GPU's heat). The physics runs on its own fixed step either way. A still pause screen is drawn at 15 FPS.
+let FREEZE = null;   // test hook: everything stands still, __spa.redraw() draws the same frame again
+const PACE = { prev: 0, draw: 0, min: 1e9, ref: 16.7, t0: 0 };
+function paceSkip(now) {
+  // display refresh = shortest rAF interval of the last second (skipped refreshes cost nothing, so they show it)
+  const iv = now - PACE.prev; PACE.prev = now;
+  if (iv > 2) PACE.min = Math.min(PACE.min, iv);
+  if (now - PACE.t0 > 1000) { PACE.t0 = now; if (PACE.min < 1e9) PACE.ref = PACE.min; PACE.min = 1e9; }
+  const still = S.mode === 'pause' && !(SES && SES.mode === 'multi');
+  const cap = still ? 15 : +S.settings.fpsCap || 0;
+  // draw every k-th refresh (a whole number, so the pacing stays even): 120 Hz -> 60, 144 Hz -> 72, 90 / 100 Hz -> every refresh
+  if (cap) { const k = Math.max(1, Math.floor(1000 / cap / PACE.ref + 0.25)); if (now - PACE.draw < (k - 0.5) * PACE.ref) return true; }
+  PACE.draw = now; return false;
+}
 function frame(now) {
   requestAnimationFrame(frame);
+  if (FREEZE) { if (FREEZE.draw) { FREEZE.draw = false; lodFrame(); if (POST.ready && S.settings.quality !== 'bajo') POST.comp.render(0); else renderer.render(scene, camera); } return; }
+  if (paceSkip(now)) return;
   let dt = (now - last) / 1000; last = now;
   if (!(dt > 0)) dt = 0.016; dt = Math.min(dt, 0.1);
   const running = SES && (S.mode === 'race' || (S.mode === 'results' && SES.kind === 'race') || (S.mode === 'pause' && SES.mode === 'multi'));
@@ -2209,6 +2240,7 @@ function frame(now) {
   updateCamera(dt);
   if (DFX.shake > 0.01 && S.mode === 'race') { camera.position.x += jit() * 0.09 * DFX.shake; camera.position.y += jit() * 0.07 * DFX.shake; camera.rotation.z += jit() * 0.012 * DFX.shake; }
   updateOthers(dt);
+  lodFrame();
   damageFrame(dt);
   tyreFrame(dt);
   sky.update(dt, camera, model ? model.root.position : null);
@@ -2239,28 +2271,33 @@ const SANITIZE = {
       c.rgb = min(c.rgb, vec3(64.0)); c.a = (c.a < 1.0 && c.a >= 0.0) ? c.a : 1.0;
       gl_FragColor = c; }`
 };
+// light grade (saturation, contrast, warmth, vignette) appended to the output pass (tone mapping + sRGB): one full-screen pass, not two
 const GRADE = {
-  uniforms: { tDiffuse: { value: null }, uSat: { value: 1.08 }, uCon: { value: 1.05 }, uVig: { value: 0.32 }, uWarm: { value: 0.012 } },
-  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-  fragmentShader: `uniform sampler2D tDiffuse; uniform float uSat, uCon, uVig, uWarm; varying vec2 vUv;
-    void main(){ vec4 c = texture2D(tDiffuse, vUv); vec3 col = c.rgb; float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
+  uniforms: { uSat: { value: 1.08 }, uCon: { value: 1.05 }, uVig: { value: 0.32 }, uWarm: { value: 0.012 } },
+  pars: 'uniform float uSat, uCon, uVig, uWarm;',
+  main: `{ vec3 col = gl_FragColor.rgb; float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
       col = mix(vec3(l), col, uSat); col = (col - 0.5) * uCon + 0.5; col += vec3(uWarm, uWarm * 0.4, -uWarm) * (1.0 - l);
       vec2 d = vUv - 0.5; col *= 1.0 - uVig * smoothstep(0.18, 0.75, dot(d, d) * 2.0);
-      gl_FragColor = vec4(clamp(col, 0.0, 1.0), c.a); }`
+      gl_FragColor = vec4(clamp(col, 0.0, 1.0), gl_FragColor.a); }`
 };
 async function initPost() {
   if (POST.ready || POST.loading || POST.failed) return; POST.loading = true;
   try {
     const [m1, m2, m3, m4, m5] = await Promise.all(['EffectComposer', 'RenderPass', 'UnrealBloomPass', 'OutputPass', 'ShaderPass'].map(n => import('three/addons/postprocessing/' + n + '.js')));
     const sz = renderer.getDrawingBufferSize(new THREE.Vector2());
-    const rt = new THREE.WebGLRenderTarget(sz.x, sz.y, { type: THREE.HalfFloatType, samples: renderer.capabilities.isWebGL2 ? 4 : 0 });
+    const rt = new THREE.WebGLRenderTarget(sz.x, sz.y, { type: THREE.HalfFloatType });
     const comp = new m1.EffectComposer(renderer, rt);
+    // only the scene needs MSAA: RenderPass draws into the composer's first read buffer (renderTarget2); the full-screen passes after it
+    // write to the plain renderTarget1 (sanitize, then bloom on top) and the output pass reads that one
+    comp.renderTarget2.samples = renderer.capabilities.isWebGL2 ? 4 : 0;
     comp.addPass(new m2.RenderPass(scene, camera));
     comp.addPass(new m5.ShaderPass(SANITIZE));
     const bloom = new m3.UnrealBloomPass(new THREE.Vector2(sz.x, sz.y), 0.22, 0.5, 1.05);
-    comp.addPass(bloom); comp.addPass(new m4.OutputPass());
-    const grade = new m5.ShaderPass(GRADE); comp.addPass(grade);
-    Object.assign(POST, { comp, bloom, grade, ready: true }); postSize();
+    const out = new m4.OutputPass();
+    Object.assign(out.uniforms, GRADE.uniforms);
+    out.material.fragmentShader = out.material.fragmentShader.replace('varying vec2 vUv;', 'varying vec2 vUv;\n' + GRADE.pars).replace(/\}\s*$/, GRADE.main + '\n}');
+    comp.addPass(bloom); comp.addPass(out);
+    Object.assign(POST, { comp, bloom, grade: out, ready: true }); postSize();
   } catch (e) { console.warn('post-processing unavailable', e); POST.failed = true; }
   POST.loading = false;
 }
@@ -2280,7 +2317,7 @@ function nanScan() {
   for (let i = 0; i < buf.length; i++) { const e = (buf[i] >> 10) & 31; if (e === 31) { if (buf[i] & 1023) nan++; else inf++; if (!first) first = [(i >> 2) % sz.x, sz.y - 1 - Math.floor((i >> 2) / sz.x)]; } else if (e >= 29) big++; }
   return { nan, inf, big, first, w: sz.x, h: sz.y };
 }
-window.__spa = { S, nanScan, get INPUT() { return INPUT; }, switchTrack, post: () => POST.ready, get TRACK() { return TRACK; }, audioLab: { CarAudio, EngineVoice, engineProfile, engineWave }, get car() { return car; }, get model() { return model; }, get race() { return SES; }, get world() { return world; }, get skids() { return skids; }, get camera() { return camera; }, get T() { return T; }, get DFX() { return DFX; }, crashTest, startSession, selectCar, cycleCam, netDbg: () => ({ code: NET.code, host: NET.host, off: NET.offset, seen: NET.cfgSeen, peers: NET.peers.map(p => [p.peer, p.sameTab, pres(p).code, pres(p).host, pres(p).ph, pres(p).cfg && pres(p).cfg.seq, pres(p).cfg && pres(p).cfg.startAt - Date.now()]) }), setAuto(k) { AUTO = k != null ? { k } : null; }, renderer: () => renderer, menu: MENU, setWeather, WXS, TYRES, tyreRequestCycle, startFromMenu, endQuali,
+window.__spa = { S, nanScan, freeze(on) { FREEZE = on ? { draw: false } : null; return 'ok'; }, redraw() { if (FREEZE) FREEZE.draw = true; return 'ok'; }, lod(on) { if (on != null) LOD_ON = on !== false; return { on: LOD_ON, jobs: LOD_JOBS.length, ms: Math.round(LOD_MS) }; }, async lodFlush() { for (let k = 0; k < 600 && (LOD_JOBS.length || (LOD_W && LOD_W.pend.size)); k++) await new Promise(r => setTimeout(r, 100)); return { worker: !!LOD_W, left: LOD_JOBS.length, ms: Math.round(LOD_MS) }; }, get INPUT() { return INPUT; }, switchTrack, post: () => POST.ready, get TRACK() { return TRACK; }, audioLab: { CarAudio, EngineVoice, engineProfile, engineWave }, get car() { return car; }, get model() { return model; }, get race() { return SES; }, get world() { return world; }, get skids() { return skids; }, get camera() { return camera; }, get T() { return T; }, get DFX() { return DFX; }, crashTest, startSession, selectCar, cycleCam, netDbg: () => ({ code: NET.code, host: NET.host, off: NET.offset, seen: NET.cfgSeen, peers: NET.peers.map(p => [p.peer, p.sameTab, pres(p).code, pres(p).host, pres(p).ph, pres(p).cfg && pres(p).cfg.seq, pres(p).cfg && pres(p).cfg.startAt - Date.now()]) }), setAuto(k) { AUTO = k != null ? { k } : null; }, renderer: () => renderer, menu: MENU, setWeather, WXS, TYRES, tyreRequestCycle, startFromMenu, endQuali,
   view(sN, d, h, back, lookD, fov) { $('menu').hidden = true; const s = ((sN + T.nom) % T.nom) * T.L / T.nom; const p = trackPoint(T, s - (back || 0), d), t = trackPoint(T, s, lookD != null ? lookD : d); DEBUGCAM = [p.x, p.e + h, p.z, t.x, t.e + 1, t.z, fov || 60]; return 'ok'; }, noview() { DEBUGCAM = null; }, cam(a, b, c, d, e, f, g) { $('menu').hidden = true; DEBUGCAM = [a, b, c, d, e, f, g || 60]; return 'ok'; },
   camAt(p, t, fov) { $('menu').hidden = true; model.root.updateMatrixWorld(true); const a = model.body.localToWorld(new THREE.Vector3(p[0], p[1], p[2])), b = model.body.localToWorld(new THREE.Vector3(t[0], t[1], t[2])); DEBUGCAM = [a.x, a.y, a.z, b.x, b.y, b.z, fov || 40]; return 'ok'; },
   orbit(ang, dist, h, fov) { $('menu').hidden = true; const a = car.h + ang, y = car.y; DEBUGCAM = [car.x + Math.sin(a) * dist, y + h, car.z + Math.cos(a) * dist, car.x, y + 0.55, car.z, fov || 35]; return 'ok'; },
