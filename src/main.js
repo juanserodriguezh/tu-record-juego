@@ -22,7 +22,7 @@ const RIMNAMES = { plata: 'Plata', negro: 'Negro', oro: 'Oro', bronce: 'Bronce' 
 const SWATCHES = ['#f4f4f4', '#9aa0a6', '#2a2d31', '#0e0f11', '#c8120c', '#e3342c', '#f28c28', '#f6c21c', '#b5e61d', '#1f9a3a', '#0f5c4a', '#6fc3df', '#2f63b8', '#1b3a6b', '#5b1a8f', '#c9a24a'];
 const MODES = { practica: 'Práctica', rapida: 'Carrera rápida', completa: 'Carrera completa', multi: 'Multijugador' };
 const DIFFN = (d) => d <= 2 ? 'Novato' : d <= 4 ? 'Aficionado' : d <= 6 ? 'Intermedio' : d <= 8 ? 'Experto' : d === 9 ? 'Profesional' : 'Leyenda';
-const DEFAULTS = { quality: 'medio', draw: 'normal', fov: 62, fps: false, abs: true, tc: true, esc: true, autoShift: true, steerAssist: true, steerSens: 1.0, minimap: true, idealLine: false, ghost: true, units: 'kmh', volume: 0.7, volEngine: 1, volFx: 0.8, muted: false, damage: 'real', tyres: 'normal' };
+const DEFAULTS = { quality: 'medio', draw: 'normal', fov: 62, fps: false, abs: true, tc: true, esc: true, autoShift: true, steerAssist: true, steerSens: 1.0, minimap: true, lineMode: 'off', ghost: true, units: 'kmh', volume: 0.7, volEngine: 1, volFx: 0.8, muted: false, damage: 'real', tyres: 'normal' };
 const GAME_DEFAULTS = { mode: 'practica', start: 'grid', rivals: false, nRivals: 12, diff: 5, rivalCars: 'mismo', laps: 3, gridPos: 'medio', qualiMin: 10, name: '', tyre: 'auto' };
 const S = {
   // phones start on the light graphics preset (it can be raised in Ajustes)
@@ -32,6 +32,9 @@ const S = {
   times: store.get('times', {}), mode: 'loading', camIdx: 0, cat: 'todos', brand: null, lookBack: false, search: ''
 };
 if (!CARS.find(c => c.id === S.carId)) S.carId = 'amg_gt3';
+const LINE_MODES = { off: 'Desactivada', fija: 'Fija', activa: 'Adaptativa' };
+if (!LINE_MODES[S.settings.lineMode]) S.settings.lineMode = 'off';
+if (store.get('settings', {}).lineMode == null && S.settings.idealLine) S.settings.lineMode = 'activa';   // the old ideal-line switch
 if (!WEATHER[S.weather]) S.weather = 'soleado';
 if (!MODES[S.game.mode]) S.game.mode = 'practica';
 S.game.rivals = S.game.rivals === true || S.game.rivals === 'true';
@@ -598,11 +601,17 @@ function initSettings() {
   segButtons($('setDraw'), DRAW, st.draw, (k) => { st.draw = k; save(); applyWeather(); });
   segButtons($('setDamage'), { off: 'Desactivado', low: 'Reducido', real: 'Realista' }, st.damage, (k) => { st.damage = k; save(); syncEnv(); });
   segButtons($('setTyres'), { off: 'Desactivado', normal: 'Normal', fast: 'Acelerado ×2.5' }, st.tyres, (k) => { st.tyres = k; save(); syncEnv(); });
+  segButtons($('setLineMode'), LINE_MODES, st.lineMode, (k) => setLineMode(k, false));
+  $('setLineForget').addEventListener('click', () => {
+    try { for (const k of Object.keys(localStorage)) if (k.startsWith('spa_rec_coach_')) localStorage.removeItem(k); } catch (e) { }
+    if (COACH_ST) { COACH_ST.key = null; refreshIdeal(); }
+    $('setLineForget').textContent = 'Olvidado';
+  });
   segButtons($('setUnits'), { kmh: 'km/h', mph: 'mph' }, st.units, (k) => { st.units = k; save(); renderSpec(); });
-  const chk = { setFps: 'fps', setAbs: 'abs', setTc: 'tc', setEsc: 'esc', setAuto: 'autoShift', setSteer: 'steerAssist', setMap: 'minimap', setLine: 'idealLine', setGhost: 'ghost' };
+  const chk = { setFps: 'fps', setAbs: 'abs', setTc: 'tc', setEsc: 'esc', setAuto: 'autoShift', setSteer: 'steerAssist', setMap: 'minimap', setGhost: 'ghost' };
   for (const [id, k] of Object.entries(chk)) {
     const el = $(id); el.checked = !!st[k];
-    el.addEventListener('change', () => { st[k] = el.checked; save(); syncEnv(); if (k === 'idealLine') refreshIdeal(); if (k === 'fps') $('fps').hidden = !st.fps; if (k === 'minimap') $('minimap').hidden = !st.minimap; });
+    el.addEventListener('change', () => { st[k] = el.checked; save(); syncEnv(); if (k === 'fps') $('fps').hidden = !st.fps; if (k === 'minimap') $('minimap').hidden = !st.minimap; });
   }
   const rng = (id, k, lbl, fmt) => { const el = $(id); el.value = st[k]; $(lbl).textContent = fmt(st[k]); el.addEventListener('input', () => { st[k] = +el.value; $(lbl).textContent = fmt(st[k]); save(); if (k === 'fov') camera.fov = st.fov; if (k === 'volume' && audio) audio.setVolume(st.volume); }); };
   rng('setFov', 'fov', 'fovVal', v => v + '°');
@@ -637,6 +646,7 @@ window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyC') cycleCam();
     if (e.code === 'KeyR') resetCar();
     if (e.code === 'KeyT') tyreRequestCycle();
+    if (e.code === 'KeyL') { const ks = Object.keys(LINE_MODES); setLineMode(ks[(ks.indexOf(S.settings.lineMode) + 1) % ks.length], true); }
     if (e.code === 'KeyE' || e.code === 'ShiftRight') INPUT.shiftUp = true;
     if (e.code === 'KeyQ' || e.code === 'ControlRight') INPUT.shiftDown = true;
     if (e.code === 'Escape' || e.code === 'KeyP') pause();
@@ -877,12 +887,42 @@ function leaveSession() {
   if (SES && SES.mode === 'multi') netLeaveRace();
   disposeEntries(); SES = null; enterMenu();
 }
+// ---------------------------------------------------------------------------
+//  Braking line (coach.js): off / fixed colours / adaptive (live colours, learns per corner,
+//  saved per track, car and dry/wet)
+// ---------------------------------------------------------------------------
+let COACH_ST = null;   // { coach, line, key, grip, t }
+const coachKey = () => 'coach_' + TRACK.id + '|' + S.carId + '|' + (env.wet ? 'wet' : 'dry');
+const coachGrip = () => Math.max(0.3, Math.round(env.grip * (car.ty ? tyreGripEst(car.ty, env.water || 0, env) : 1) / 0.02) * 0.02);
 function refreshIdeal() {
   if (!world) return;
-  if (S.settings.idealLine && S.mode !== 'loading') {
-    const q = qssProfile(T, LINE, car.P, env);
-    world.buildIdealLine(q.vel);
-  } else if (world.ideal) { world.group.remove(world.ideal); world.ideal = null; }
+  if (S.settings.lineMode === 'off' || S.mode === 'loading' || !SES) { if (COACH_ST) { COACH_ST.line.remove(); COACH_ST = null; } return; }
+  const key = coachKey(), grip = coachGrip();
+  if (COACH_ST && COACH_ST.key === key && COACH_ST.grip === grip) return;
+  const coach = new Coach(T, coachPlan(T, LINE, car.P, grip), store.get(key, {}));
+  if (!COACH_ST) COACH_ST = { line: new CoachLine(world), t: 0 };
+  Object.assign(COACH_ST, { coach, key, grip });
+  COACH_ST.line.build(coach);
+}
+function setLineMode(k, announce) {
+  S.settings.lineMode = k; store.set('settings', S.settings);
+  segButtons($('setLineMode'), LINE_MODES, k, (m) => setLineMode(m, false));
+  refreshIdeal(); if (k !== 'activa') $('hCoach').hidden = true;
+  if (announce && SES) toast('Línea de frenada: ' + LINE_MODES[k], 1.6);
+}
+// every simulation step: judge the braking zones and keep the plan in step with grip (rain, tyres)
+function coachStep(dt) {
+  const C = COACH_ST, R = SES, pe = R.player;
+  if (!C || S.settings.lineMode !== 'activa') return;
+  if ((C.t += dt) > 2) { C.t = 0; if (coachKey() !== C.key || coachGrip() !== C.grip) { refreshIdeal(); return; } }
+  if (pe.pitHold || (pe.fin && pe.ai) || car.inPit || R.state === 'lights') { C.coach.obs = null; return; }
+  const q = car.q, half = (car.spec.wid || 1.9) / 2, left = q.d >= 0;
+  const edge = (left ? q.wl : q.wr) + ((left ? T.kerbL[q.i] : T.kerbR[q.i]) ? 1.3 : 0);
+  const hit = (car.impactT > 0.45 && car.lastImpact > 4) || (car.carT > 0.45 && car.lastCar > 3);
+  const ev = C.coach.observe(q.i, Math.abs(car.u), INPUT.brake, Math.abs(q.d) > edge + half + 0.05, hit, dt);
+  if (!ev) return;
+  store.set(C.key, C.coach.state()); C.line.update(C.coach);
+  if (ev.msg) { const el = $('hCoach'); el.textContent = ev.msg; el.className = 'coach ' + ev.kind; el.hidden = false; R.coachT = 3.2; }
 }
 function enterMenu() {
   S.mode = 'menu';
@@ -890,8 +930,7 @@ function enterMenu() {
   if (audio) audio.mute();
   const sp = carById(S.carId); car = new Vehicle(sp, T); car.reset(GRID_S(), GRID_D);
   placeModel(); updateModelTransform(0);
-  if (world.ideal) { world.group.remove(world.ideal); world.ideal = null; }
-  SES = null;
+  SES = null; refreshIdeal(); $('hCoach').hidden = true;
   S.times = store.get('times', {});
   renderGarage(); renderSpec();
   for (const m of world.lightMats) m.color.setHex(0x2a0606);
@@ -974,6 +1013,7 @@ function sessionStep(dt) {
   collisions();
   for (const e of R.entries) trackProgress(e, dt);
   playerTiming(dt);
+  coachStep(dt);
   pitRepair(dt);
   if (R.mode === 'multi') netTick();
   // ---- session end conditions
@@ -1566,6 +1606,7 @@ function updateHUD(dt) {
   }
   if (R.msgT > 0) { R.msgT -= dt; if (R.msgT <= 0) $('toast').hidden = true; }
   if (R.bannerT > 0) { R.bannerT -= dt; if (R.bannerT <= 0) $('banner').hidden = true; }
+  if (R.coachT > 0) { R.coachT -= dt; if (R.coachT <= 0) $('hCoach').hidden = true; }
   if (R.hintT > 0) { R.hintT -= dt; if (R.hintT <= 0) $('hHints').style.opacity = 0.25; }
 }
 
@@ -2213,6 +2254,7 @@ function frame(now) {
   tyreFrame(dt);
   sky.update(dt, camera, model ? model.root.position : null);
   world.updateLOD(camera.position, dt); world.updateEscape(dt);
+  if (COACH_ST && SES) COACH_ST.line.frame(Math.abs(car.u), car.q.i, S.settings.lineMode === 'activa');
   if (SES && (S.mode === 'race' || S.mode === 'pause' || S.mode === 'results')) updateHUD(S.mode === 'pause' ? 0 : dt);
   if (SES && SES.kind === 'race' && SES.resultsShown && !$('results').hidden) { resT += dt; if (resT > 1) { resT = 0; showRaceResults(); } }
   if (POST.ready && S.settings.quality !== 'bajo') POST.comp.render(dt); else renderer.render(scene, camera);
@@ -2280,7 +2322,7 @@ function nanScan() {
   for (let i = 0; i < buf.length; i++) { const e = (buf[i] >> 10) & 31; if (e === 31) { if (buf[i] & 1023) nan++; else inf++; if (!first) first = [(i >> 2) % sz.x, sz.y - 1 - Math.floor((i >> 2) / sz.x)]; } else if (e >= 29) big++; }
   return { nan, inf, big, first, w: sz.x, h: sz.y };
 }
-window.__spa = { S, nanScan, get INPUT() { return INPUT; }, switchTrack, post: () => POST.ready, get TRACK() { return TRACK; }, audioLab: { CarAudio, EngineVoice, engineProfile, engineWave }, get car() { return car; }, get model() { return model; }, get race() { return SES; }, get world() { return world; }, get skids() { return skids; }, get camera() { return camera; }, get T() { return T; }, get DFX() { return DFX; }, crashTest, startSession, selectCar, cycleCam, netDbg: () => ({ code: NET.code, host: NET.host, off: NET.offset, seen: NET.cfgSeen, peers: NET.peers.map(p => [p.peer, p.sameTab, pres(p).code, pres(p).host, pres(p).ph, pres(p).cfg && pres(p).cfg.seq, pres(p).cfg && pres(p).cfg.startAt - Date.now()]) }), setAuto(k) { AUTO = k != null ? { k } : null; }, renderer: () => renderer, menu: MENU, setWeather, WXS, TYRES, tyreRequestCycle, startFromMenu, endQuali,
+window.__spa = { S, nanScan, get INPUT() { return INPUT; }, switchTrack, post: () => POST.ready, get TRACK() { return TRACK; }, audioLab: { CarAudio, EngineVoice, engineProfile, engineWave }, get car() { return car; }, get model() { return model; }, get race() { return SES; }, get world() { return world; }, get skids() { return skids; }, get camera() { return camera; }, get T() { return T; }, get DFX() { return DFX; }, get coach() { return COACH_ST; }, setLineMode, crashTest, startSession, selectCar, cycleCam, netDbg: () => ({ code: NET.code, host: NET.host, off: NET.offset, seen: NET.cfgSeen, peers: NET.peers.map(p => [p.peer, p.sameTab, pres(p).code, pres(p).host, pres(p).ph, pres(p).cfg && pres(p).cfg.seq, pres(p).cfg && pres(p).cfg.startAt - Date.now()]) }), setAuto(k) { AUTO = k != null ? { k } : null; }, renderer: () => renderer, menu: MENU, setWeather, WXS, TYRES, tyreRequestCycle, startFromMenu, endQuali,
   view(sN, d, h, back, lookD, fov) { $('menu').hidden = true; const s = ((sN + T.nom) % T.nom) * T.L / T.nom; const p = trackPoint(T, s - (back || 0), d), t = trackPoint(T, s, lookD != null ? lookD : d); DEBUGCAM = [p.x, p.e + h, p.z, t.x, t.e + 1, t.z, fov || 60]; return 'ok'; }, noview() { DEBUGCAM = null; }, cam(a, b, c, d, e, f, g) { $('menu').hidden = true; DEBUGCAM = [a, b, c, d, e, f, g || 60]; return 'ok'; },
   camAt(p, t, fov) { $('menu').hidden = true; model.root.updateMatrixWorld(true); const a = model.body.localToWorld(new THREE.Vector3(p[0], p[1], p[2])), b = model.body.localToWorld(new THREE.Vector3(t[0], t[1], t[2])); DEBUGCAM = [a.x, a.y, a.z, b.x, b.y, b.z, fov || 40]; return 'ok'; },
   orbit(ang, dist, h, fov) { $('menu').hidden = true; const a = car.h + ang, y = car.y; DEBUGCAM = [car.x + Math.sin(a) * dist, y + h, car.z + Math.cos(a) * dist, car.x, y + 0.55, car.z, fov || 35]; return 'ok'; },

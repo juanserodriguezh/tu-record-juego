@@ -1343,23 +1343,6 @@ class World {
     }
     this.group.add(grp);
   }
-  buildIdealLine(vel) {
-    if (this.ideal) { this.group.remove(this.ideal); this.ideal.geometry.dispose(); }
-    const T = this.T, N = T.N, L = this.line;
-    const b = new GeoBuilder(false);
-    const g = col3('#2fd27a'), y = col3('#f6c21c'), r = col3('#e3342c');
-    for (let i = 0; i < N; i++) {
-      const i2 = (i + 1) % N;
-      const dv = vel[(i + 3) % N] - vel[i];
-      const c = dv < -0.35 ? r : dv < -0.05 ? y : g;
-      const a0 = this.P(i, L.off[i] - 0.28, 0.02), a1 = this.P(i, L.off[i] + 0.28, 0.02);
-      const b0 = this.P(i2, L.off[i2] - 0.28, 0.02), b1 = this.P(i2, L.off[i2] + 0.28, 0.02);
-      if (i % 3 === 2) continue; // dashed
-      b.quad(a0, b0, b1, a1, c);
-    }
-    this.ideal = new THREE.Mesh(b.build(), new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.8, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, depthWrite: false }));
-    this.group.add(this.ideal);
-  }
 }
 
 // ---------------------------------------------------------------------------

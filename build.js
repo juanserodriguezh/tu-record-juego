@@ -8,7 +8,7 @@ const stripMod = (s) => s.replace(/if \(typeof module[^\n]*\n/, '');
 // order matters: later files use globals from earlier ones
 const DATA = ['data_spa.js', 'data_monza.js', 'data_albertpark.js', 'data_toca.js'];
 const CORE = ['tracks.js', 'cars.js', 'physics.js', 'damage.js'];
-const GAME = ['ai.js', 'world.js', 'carmodel.js', 'body.js', 'hands.js', 'special.js', 'glb.js', 'audio.js', 'main.js'];
+const GAME = ['ai.js', 'world.js', 'coach.js', 'carmodel.js', 'body.js', 'hands.js', 'special.js', 'glb.js', 'audio.js', 'main.js'];
 
 // 1) racing lines (precomputed so the page does not solve them on load)
 let lineOffs = rd('line_offs.js');
