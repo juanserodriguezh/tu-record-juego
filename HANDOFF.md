@@ -36,6 +36,13 @@
 - Verificado: `pits` pasa en los 9 trazados (antes fallaban 7, con 22 solapes) y `tyres` sigue en verde. Capturas antes y después en el Largo (aéreas y a ras de pista desde los dos lados), el Corto, la Ampliación y el Óvalo. Salida de boxes con el piloto automático (clasificación) en el Largo: el coche sale por la izquierda a d = +15 m y entra en pista sin golpes. En Spa y el Largo inverso, el piloto automático se sale en la vuelta de salida en el mismo punto antes y después del cambio, así que ese fallo ya existía y no lo causa este cambio.
 - Publicada el 27-oct-2026 como versión 69 del artefacto (id 1793059691-03d8). Solo cambió la página; los packs siguen como en v66.
 
+## v70 (27-oct-2026) — salida de boxes de Spa y tiempo de parada
+- Spa: la salida de boxes estaba antes de La Source (la banda volvía a la recta en s 215-315). Ahora, como en el circuito real, la calle de boxes acaba en s = 210 y sigue una vía propia que cruza por dentro de La Source y se incorpora por la derecha en la bajada a Eau Rouge (s ≈ 600). Se reutiliza la escapatoria (`escape` con `pit: true`, que arranca en el centro de la calle de boxes). En esa vía el limitador sigue activo hasta el 85 % del recorrido, la superficie es la de boxes, no salta el aviso de atajo y la IA sigue la vía. Con `pit [a0, a1, b, b]`, la banda acaba en b sin fundido.
+- `headless.js pits` comprueba también que la vía de salida no pisa el circuito, las tribunas ni los edificios antes de la zona de incorporación.
+- Tiempo de parada: antes, cambiar neumáticos costaba 3,4 s en todos los coches y cada reparación tenía un tiempo fijo, sin importar el daño. Ahora `pitStopPlan` (`damage.js`) usa la categoría (`PIT_CREW`, con tiempos reales de neumáticos: F1 2,4 s, IndyCar 5,5 s, NASCAR 9,5 s, Hypercar 14 s, GT3 16 s; los coches de calle, 18-30 s) y el daño de cada pieza: dura entre el 40 y el 100 % de `PIT_REPAIR` × el factor del equipo. Neumáticos, morro y carrocería se hacen a la vez; alerón trasero, fondo, suspensión, motor, refrigeración y caja van después, una tras otra. El HUD muestra la tarea en curso y la cuenta atrás. Al entrar a boxes se anuncia la parada prevista, y al empezar, el desglose.
+- Herramienta nueva: `node tools/headless.js pitstop` (tabla por categoría: neumáticos / alerón leve / alerón roto / suspensión / choque fuerte).
+- Verificado: `pits` y `tyres` en verde. En el navegador, con el W17: 2,40 s (solo neumáticos), 8,05 s (alerón roto) y 22,9 s (alerón y suspensión media). Con el GT3: 16,0 / 22,0 / 63,0 s, igual que en `pitstop`. Salida de boxes de Spa con el piloto automático: de d = −16 a −35 por la vía, se incorpora en s ≈ 600 a 78 km/h y a 670 ya va por la pista a 120 km/h, sin daños (el choque posterior en Raidillon ya existía). Capturas aéreas y a ras de pista de la salida.
+
 ## Ferrari F40 ACPursuit (pendiente, no integrado)
 - El kn5 trae las texturas vaciadas (1×1 px) y la geometría alterada a propósito (protección del autor; la repara CSP). No se revierte.
 - Física descifrada del data.acd:
@@ -58,7 +65,7 @@
 ## Orden sugerido de pendientes
 1. ~~Barreras de Monza~~: hecho en v67.
 2. ~~Ritmo de la IA en Monza~~: hecho en v68.
-2b. ~~Boxes y tribunas~~: hecho en v69. Pendiente de confirmar: la salida de boxes real de Spa (¿después de La Source?).
+2b. ~~Boxes y tribunas~~: hecho en v69. Salida de boxes de Spa: hecha en v70.
 3. Tocancipá Largo: línea de meta según la numeración del plano oficial (si Juanse lo confirma).
 4. Pipeline GLB (gltf-transform) y redondeo de ruedas del RB22 y el MCL39.
 5. Ferrari F40: bloqueado hasta tener un modelo sin protección.

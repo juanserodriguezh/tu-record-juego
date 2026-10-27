@@ -237,6 +237,38 @@ function dmgRepairPlan(D) {
   add('eng', D.eng, REPAIR_T.eng); add('cool', D.cool, REPAIR_T.cool); add('gear', D.gear, REPAIR_T.gear);
   return plan;
 }
+// pit stop: stationary time by body type, from real races. tyres = four new tyres with that series' usual crew (s);
+// crew = factor on the repair times (an F1 crew swaps a nose in seconds, an endurance or road-car crew works slower)
+const PIT_CREW = {
+  f1h: { tyres: 2.4, crew: 0.8 },    // F1 2022-25: usually 2.2-2.6 s (record 1.80 s); a new nose ~8-10 s
+  f1: { tyres: 3.0, crew: 0.8 },     // F1 2004, tyres only (the refuelling stops lasted 6-8 s)
+  indy: { tyres: 5.5, crew: 1.0 },   // IndyCar: tyres and fuel 6-7 s
+  stock: { tyres: 9.5, crew: 1.2 },  // NASCAR Cup: four tyres, single lug nut, ~9-10 s
+  fe: { tyres: 12, crew: 1.5 },      // Formula E: no tyre stops in a race; garage crew
+  lmp: { tyres: 14, crew: 2.0 },     // WEC Hypercar: two mechanics change the tyres, ~12-15 s; a new nose takes ~20-40 s
+  gt3: { tyres: 16, crew: 2.2 },     // GT World Challenge / IMSA GTD: ~14-18 s
+  track: { tyres: 18, crew: 2.5 }, hyper: { tyres: 24, crew: 3 }, hatch: { tyres: 30, crew: 3 }   // road cars: no race crew
+};
+const PIT_REPAIR = { fw: 10, rw: 20, floor: 15, body: 8, sus: 30, eng: 40, cool: 20, gear: 25 };   // s for a fully damaged part, crew factor 1
+const PIT_LABEL = { tyres: 'Neumáticos', fw: 'Alerón delantero', rw: 'Alerón trasero', floor: 'Fondo', body: 'Carrocería', sus: 'Suspensión', eng: 'Motor', cool: 'Refrigeración', gear: 'Caja de cambios' };
+const PIT_QUICK = { tyres: 1, fw: 1, body: 1 };   // done at the same time by the crew around the car; the rest one after another, car on the jacks
+// the whole stop: each job's duration grows with how damaged the part is; returns { jobs: [{ part, label, dur, t (finish) }], tot, dmg }
+function pitStopPlan(D, body, tyreChange) {
+  const C = PIT_CREW[body] || PIT_CREW.gt3, amt = {};
+  if (D) { amt.tyres = Math.max(...D.tyre); amt.fw = D.fw; amt.rw = D.rw; amt.floor = D.floor; amt.body = Math.min(1, (D.body.f + D.body.r + D.body.l + D.body.rt) / 2);
+    amt.sus = Math.min(1, Math.max(...D.sus, ...D.lost)); amt.eng = D.eng; amt.cool = D.cool; amt.gear = D.gear; }
+  const jobs = []; let quick = 0, dmg = false;
+  for (const part of Object.keys(PIT_LABEL)) {
+    const a = amt[part] || 0, tyre = part === 'tyres';
+    if (!(a > 0.02) && !(tyre && tyreChange)) continue;
+    if (a > 0.02) dmg = true;
+    const dur = tyre ? C.tyres : PIT_REPAIR[part] * C.crew * (0.4 + 0.6 * Math.min(1, a));
+    jobs.push({ part, label: PIT_LABEL[part], dur, quick: !!PIT_QUICK[part] });
+  }
+  for (const j of jobs) if (j.quick) { j.t0 = 0; j.t = j.dur; quick = Math.max(quick, j.dur); }
+  let t = quick; for (const j of jobs) if (!j.quick) { j.t0 = t; t += j.dur; j.t = t; }
+  return { jobs, tot: t, dmg };
+}
 function dmgRepairPart(V, part) {
   const D = V.dmg;
   if (part === 'tyres') D.tyre = [0, 0, 0, 0];
@@ -543,7 +575,7 @@ class Vehicle {
     const dotFN = fx * q.nx + fz * q.nz;
     const dF = q.d + P.a * dotFN, dR = q.d - P.b * dotFN;
     let sF = this.surfaceAt(q, dF), sR = this.surfaceAt(q, dR);
-    if (T.inEscape) { if (sF !== 'asphalt' && T.inEscape(this.x + fx * P.a, this.z + fz * P.a)) sF = 'tarmac'; if (sR !== 'asphalt' && T.inEscape(this.x - fx * P.b, this.z - fz * P.b)) sR = 'tarmac'; }
+    if (T.inEscape) { const eS = T.esc.pit ? 'pitlane' : 'tarmac'; if (sF !== 'asphalt' && T.inEscape(this.x + fx * P.a, this.z + fz * P.a)) sF = eS; if (sR !== 'asphalt' && T.inEscape(this.x - fx * P.b, this.z - fz * P.b)) sR = eS; }
     this.surfF = sF; this.surfR = sR;
     // which wheels ride on a kerb (kerb ridges make the car buzz)
     {
@@ -562,6 +594,7 @@ class Vehicle {
       else if (this.sausT > 0) { this.sausT -= dt; if (this.sausT <= 0) { this.sausT = 0; this.sausN = 0; } }
     }
     this.inPit = q.sep === 1 && this.inBand(q, q.d);
+    if (!this.inPit && T.esc && T.esc.pit && T.inEscape(this.x, this.z)) this.inPit = T.esc.near(this.x, this.z)[1] < T.esc.pts.length * 0.85;   // pit exit road: limiter up to the blend line
     const SF = SURF[sF], SR = SURF[sR];
     let u = this.u, v = this.v, r = this.r;
     const au = Math.abs(u), spd = Math.hypot(u, v);

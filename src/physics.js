@@ -198,7 +198,7 @@ function buildTrack(def) {
     const inner = ps * (T.pitW[i] - 4.0);
     let u = 1;
     if (sN >= pa0) u = smoothstep(pa0, pa1, sN);
-    else if (sN >= pb1) u = smoothstep(pb0, pb1, sN);
+    else if (sN >= pb1 && pb0 > pb1) u = smoothstep(pb0, pb1, sN);   // pb0 = pb1: the band ends there (a pit exit road takes over)
     T.pitC[i] = lerp(inner, full, u);
     if (ps * T.pitC[i] - T.pitHW > T.pitBar[i] + 0.35) T.pitSep[i] = 1;
   }
@@ -264,9 +264,11 @@ function buildBarriers(T, def, ds, NOM, L) {
 function buildEscape(T, def) {
   T.esc = null; T.inEscape = null;
   if (!def.escape) return;
-  const { from, to, rejoin, hw, blocks } = def.escape, N = T.N, k = T.L / def.nom;
+  const { from, to, rejoin, hw, blocks, pit } = def.escape, N = T.N, k = T.L / def.nom;
   const iA = Math.round(from * k / T.ds) % N, iB = Math.round(to * k / T.ds) % N;
-  const P0 = [T.x[iA], T.z[iA]], P3 = [T.x[iB] + T.nx[iB] * rejoin, T.z[iB] + T.nz[iB] * rejoin];
+  // pit: the lane is the pit exit road, starting at the end of the pit-lane band (its centre line)
+  let d0 = 0; if (pit) for (let q = 0; q < 8; q++) { const c = T.pitC[(iA - q + N) % N]; if (c === c) { d0 = c; break; } }
+  const P0 = [T.x[iA] + T.nx[iA] * d0, T.z[iA] + T.nz[iA] * d0], P3 = [T.x[iB] + T.nx[iB] * rejoin, T.z[iB] + T.nz[iB] * rejoin];
   const D = Math.hypot(P3[0] - P0[0], P3[1] - P0[1]);
   const P1 = [P0[0] + T.tx[iA] * D * 0.62, P0[1] + T.tz[iA] * D * 0.62], P2 = [P3[0] - T.tx[iB] * D * 0.38, P3[1] - T.tz[iB] * D * 0.38];
   const pts = [], M = 90;
@@ -279,7 +281,7 @@ function buildEscape(T, def) {
   // projection jumps to another part of the lap)
   { const eA = T.e[iA], eB = T.e[iB]; for (let j = 0; j <= M; j++) pts[j][2] = eA + (eB - eA) * j / M; }
   let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; for (const p of pts) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[1]); z1 = Math.max(z1, p[1]); }
-  const E = T.esc = { pts, hw, box: [x0 - hw, x1 + hw, z0 - hw, z1 + hw], blocks: [], hits: 0 };
+  const E = T.esc = { pts, hw, pit: !!pit, box: [x0 - hw, x1 + hw, z0 - hw, z1 + hw], blocks: [], hits: 0 };
   // nearest point of the lane: [dist, segment, t]
   E.near = (x, z) => {
     let best = 1e18, bj = 0, bt = 0;

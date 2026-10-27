@@ -1078,12 +1078,12 @@ function playerTiming(dt) {
     }
   }
   // pit lane: the lap does not count
-  if (inBand && !R.inPitLap) { R.inPitLap = true; if (R.valid) { R.valid = false; setValidChip(); } toast('Entrada a boxes · limitador 80 km/h', 2.2); }
+  if (inBand && !R.inPitLap) { R.inPitLap = true; if (R.valid) { R.valid = false; setValidChip(); } { const P = pitPlanNow(); toast('Entrada a boxes · limitador 80 km/h' + (P.jobs.length ? ' · parada prevista ' + fmtStop(P.tot) : ''), 2.6); } }
   // track limits: kerbs count as track; only a car completely beyond them is out
   const half = (car.spec.wid || 1.9) / 2;
   const i = car.q.i, left = car.q.d >= 0;
   const edge = (left ? car.q.wl : car.q.wr) + ((left ? T.kerbL[i] : T.kerbR[i]) ? 1.3 : 0);
-  { const inEsc = T.inEscape && Math.abs(car.q.d) > Math.max(car.q.wl, car.q.wr) + 1 && T.inEscape(car.x, car.z);
+  { const inEsc = T.inEscape && !T.esc.pit && Math.abs(car.q.d) > Math.max(car.q.wl, car.q.wr) + 1 && T.inEscape(car.x, car.z);
     if (inEsc) R.escMin = Math.min(R.escMin == null ? 1e9 : R.escMin, Math.abs(car.u));
     else if (R.escMin != null) { if (R.escMin > 70 / 3.6 && R.valid && !R.lap1) { R.valid = false; setValidChip(); toast('Atajo por la escapatoria sin frenar · vuelta invalidada'); } R.escMin = null; } }
   if (car.blockHits && car.blockHits !== R.blockHitsSeen) { R.blockHitsSeen = car.blockHits; if (R.valid && !R.lap1) { R.valid = false; setValidChip(); toast('Derribaste los bloques de la escapatoria · vuelta invalidada'); } }
@@ -2152,32 +2152,31 @@ function tyreSpray(dt) {
     }
   }
 }
-// the crew works while the car stands in its pit box; damage parts and the tyre change finish in parallel
+// the crew works while the car stands in the pit lane: tyres, nose and bodywork at the same time, heavier repairs one after another
+const fmtStop = (x) => x.toFixed(1).replace('.', ',') + ' s';
+function pitPlanNow() { return pitStopPlan(DMG.scale > 0 ? car.dmg : null, car.spec.body, !!SES.tyreReq); }
 function pitRepair(dt) {
-  const R = SES, D = car.dmg, bar = $('hRepair');
+  const R = SES, bar = $('hRepair');
   const stop = () => { R.rep = null; bar.hidden = true; };
   if (R.mode === 'multi') { stop(); return; }
-  const plan = (DMG.scale > 0 && D) ? dmgRepairPlan(D).slice() : [];
-  const nDmg = plan.length;
-  if (R.tyreReq) plan.push({ part: 'tyre', t: 3.4 });
   const here = car.inPit && Math.abs(car.u) < 1.2 && !R.player.pitHold;
-  if (!plan.length || !here) {
-    if (R.rep && plan.length && Math.abs(car.u) >= 1.2) toast('Parada interrumpida', 2.2);
-    stop(); return;
-  }
+  if (!here) { if (R.rep && Math.abs(car.u) >= 1.2) toast('Parada interrumpida', 2.2); stop(); return; }
   if (!R.rep) {
-    R.rep = { t: 0, tot: Math.max(...plan.map(p => p.t)), done: {}, dmg: nDmg > 0 };
-    if (nDmg) { R.valid = false; setValidChip(); }
-    toast(nDmg ? 'Mecánicos trabajando · no te muevas' : 'Cambio de neumáticos · no te muevas', 2.8);
+    const P = pitPlanNow(); if (!P.jobs.length) { stop(); return; }
+    R.rep = { t: 0, tot: P.tot, jobs: P.jobs, done: {}, dmg: P.dmg, tyre: R.tyreReq };
+    if (P.dmg) { R.valid = false; setValidChip(); }
+    toast('Parada ' + fmtStop(P.tot) + ' · ' + P.jobs.map(j => j.label.toLowerCase() + ' ' + fmtStop(j.dur)).join(' + ') + ' · no te muevas', 4);
   }
   const rp = R.rep; rp.t += dt;
-  for (const p of plan) if (rp.t >= p.t && !rp.done[p.part]) {
+  for (const p of rp.jobs) if (rp.t >= p.t && !rp.done[p.part]) {
     rp.done[p.part] = true;
-    if (p.part === 'tyre') { fitPitTyres(R.tyreReq); R.tyreReq = null; } else dmgRepairPart(car, p.part);
+    if (p.part === 'tyres' && rp.tyre) { fitPitTyres(rp.tyre); if (R.tyreReq === rp.tyre) R.tyreReq = null; }
+    if (DMG.scale > 0 && car.dmg && !(p.part === 'tyres' && !(Math.max(...car.dmg.tyre) > 0.02))) dmgRepairPart(car, p.part);
   }
-  if (rp.t >= rp.tot) { stop(); toast('Coche listo · ¡a pista!', 2.6); return; }
+  if (rp.t >= rp.tot) { R.lastStop = rp.tot; stop(); toast('Coche listo en ' + fmtStop(rp.tot) + ' · ¡a pista!', 2.6); return; }
   bar.hidden = false;
-  $('hRepairT').textContent = (rp.dmg ? 'Reparando… ' : 'Cambiando neumáticos… ') + Math.max(0, Math.ceil(rp.tot - rp.t)) + ' s';
+  const now = rp.jobs.filter(p => rp.t >= p.t0 && rp.t < p.t).map(p => p.label);
+  $('hRepairT').textContent = (now.join(' + ') || 'Parada') + ' · ' + fmtStop(Math.max(0, rp.tot - rp.t));
   $('hRepairBar').style.width = Math.min(100, rp.t / rp.tot * 100) + '%';
 }
 // test hook: drive the car into the nearest wall

@@ -22,6 +22,7 @@ node tools/headless.js accel amg_gt3,w17   # 0-100 / 0-200 / 0-300 / vmax con la
 node tools/headless.js ailap monza amg_gt3,w17 5   # vueltas de la IA sola (pista, coches, nivel 1-10)
 node tools/headless.js tyres               # comprueba que las barreras de neumáticos quedan por fuera de la curva
 node tools/headless.js pits                # tribunas, boxes y postes no se pisan entre sí ni con la pista (exit 1 si falla)
+node tools/headless.js pitstop             # tiempo de parada por categoría y daño
 node tools/shot.mjs <prefijo> <pista> <coche> "<js>|||<js>" [ancho]   # capturas en shots/
 ```
 Ejemplos de capturas:
@@ -63,9 +64,11 @@ Ejemplos de capturas:
   - `wheelStat`: regex de piezas de rueda que no giran (conductos de freno).
   - `series`: `'f1mod'` o `'gt3'` para la parrilla de su serie.
 - **Boxes:** la calle de boxes va a la derecha de la recta. Con `pitSide: 1` en `TRACK_DEFS` va a la izquierda (en Tocancipá, el Largo, la Ampliación y los Mixtos: los boxes están por fuera). Las tribunas de la recta van en el lado contrario.
+- **Parada en boxes:** `pitStopPlan` en `damage.js`. Usa `PIT_CREW` (tiempos reales de neumáticos y factor del equipo por tipo de coche) y `PIT_REPAIR` (cada pieza escala con su daño). En Spa la salida de boxes es una vía propia (`escape` con `pit: true`).
 - **Ajuste de cámara** en juego: teclas 1–0. Se guarda por coche y por vista.
 
 ## Historial reciente y decisiones
+- **v70:** salida de boxes de Spa después de La Source; tiempo de parada según la categoría y el daño.
 - **v69:** boxes y tribunas. En Tocancipá la tribuna principal estaba encima de la calle de boxes, y los boxes cambiaban de lado según el trazado. Se añadió `pitSide` y el chequeo `headless.js pits`.
 - **v68:** la dificultad de la IA ya no limita la velocidad en recta: escala el paso por curva y la frenada (`aiProfile` en `ai.js`, `vk` en `qssProfile`). El nivel 10 no cambió.
 - **v66:** el edificio de boxes, el paddock y la torre de Tocancipá atravesaban la curva 3. En `world.js`, `farTrack`/`footHits` omiten cualquier edificio cuya planta quede a menos de semiancho + 3 m de otro tramo de pista.

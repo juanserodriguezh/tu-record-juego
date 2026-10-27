@@ -3,7 +3,7 @@ const fs = require('fs'), path = require('path');
 const SRC = path.join(__dirname, '..', 'src');
 const files = ['data_spa', 'data_monza', 'data_albertpark', 'data_toca', 'tracks', 'cars', 'physics', 'damage', 'line_offs', 'ai'];
 const src = files.map(f => fs.readFileSync(path.join(SRC, f + '.js'), 'utf8').replace(/if \(typeof module[^\n]*\n/, '')).join('\n');
-const M = new Function(src + '\nreturn { buildTrack, Vehicle, CARS, TRACK_DEFS, ACCEL_CAL, LINE_OFFS, lineFromOffsets, wxInit, AIDriver, AI_PROFILES, qssProfile, aiProfile };')();
+const M = new Function(src + '\nreturn { buildTrack, Vehicle, CARS, TRACK_DEFS, ACCEL_CAL, LINE_OFFS, lineFromOffsets, wxInit, AIDriver, AI_PROFILES, qssProfile, aiProfile, newDamage, pitStopPlan, PIT_CREW };')();
 const cmd = process.argv[2] || 'accel';
 if (cmd === 'accel') {   // standing-start acceleration on the Spa straight: 0-100 / 0-200 / 0-300 km/h and top speed
   const T = M.buildTrack('spa');
@@ -84,9 +84,19 @@ if (cmd === 'pits') {   // grandstands, pit lane and pit buildings must not over
         for (const [i, lo] of a.lo) { if (i % 2 && a.kind !== 'post') continue; const hi = a.hi.get(i);
           for (let d = lo; d <= hi + 0.01; d += Math.max(0.75, (hi - lo) / 12)) { const [x, z] = P(i, d), j = inside(c, x, z, i, rule); if (j >= 0) { n++; const s = sOf(i); sMin = Math.min(sMin, s); sMax = Math.max(sMax, s); cS = sOf(j); } } }
         if (n) out.push(`${a.name} overlaps ${c.name}${c.kind === 'track' ? ' (s≈' + cS + ')' : ''} around s ${sMin}-${sMax} (${n} pts)`); } }
+    if (T.esc && T.esc.pit) { const E = T.esc, n0 = Math.round(E.pts.length * 0.1), n1 = Math.round(E.pts.length * 0.68);   // pit exit road: clear of the circuit between where it leaves and where it crosses the run-off to blend in
+      for (const c of F) { let n = 0; for (let j = n0; j <= n1; j++) { const [px, pz] = E.pts[j], tx = E.pts[j + 1][0] - px, tz = E.pts[j + 1][1] - pz, tl = Math.hypot(tx, tz);
+          for (const o of [-E.hw, 0, E.hw]) if (inside(c, px + tz / tl * o, pz - tx / tl * o, 0, "any") >= 0) n++; }
+        if (n) out.push(`pit exit road overlaps ${c.name} (${n} pts)`); } }
     const garN = [...gar].length, sepLen = ((T.pitSepTo - T.pitSepFrom + N) % N) * ds / sc;
     console.log(id.padEnd(14), `pit lane ${Math.round(((pB - pA + N) % N) * ds / sc)} m (separated ${Math.round(sepLen)} m), buildings ${Math.round(garN * ds / sc)} m`, out.length ? '  FAIL' : '  ok');
     for (const o of out) console.log('   ', o);
     bad += out.length; }
   if (bad) { console.log(bad, 'overlap(s)'); process.exit(1); }
+}
+if (cmd === 'pitstop') {   // stationary pit-stop time per body type: tyres only / tyres + light nose damage / heavy damage
+  const cases = [['neumáticos', D => {}, true], ['neum. + alerón leve', D => { D.fw = 0.25; }, true], ['neum. + alerón roto', D => { D.fw = 1; }, true],
+    ['alerón + carrocería', D => { D.fw = 0.6; D.body.f = 1; }, true], ['suspensión media', D => { D.sus[0] = 0.5; }, true], ['choque fuerte', D => { D.fw = 1; D.body.f = 1.2; D.body.l = 0.8; D.sus[0] = 1; D.cool = 0.6; }, true]];
+  console.log('body'.padEnd(7), cases.map(c => c[0].padStart(20)).join(''));
+  for (const body of Object.keys(M.PIT_CREW)) console.log(body.padEnd(7), cases.map(([, f, ty]) => { const D = M.newDamage(); f(D); return (M.pitStopPlan(D, body, ty).tot.toFixed(1) + ' s').padStart(20); }).join(''));
 }

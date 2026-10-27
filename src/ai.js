@@ -154,7 +154,10 @@ class AIDriver {
     const ps = T.pitSide, inPitLane = q.pc === q.pc && ps * q.d > T.pitW[i] + 0.5 && ps * q.d < ps * q.pc + q.phw + 0.5;
     if (inPitLane) { const pc = T.pitC[j]; dj = pc === pc ? ps * Math.max(ps * pc, T.pitW[j] + 0.5 + myW / 2 - (T.pitSep[j] ? 0 : 3)) : line.off[j]; this.off = dj - line.off[j]; }
     else if (Math.abs(this.off) > 0.05) { const m = myW / 2 + 0.25; dj = clamp(dj, Math.min(line.off[j], -(T.wr[j] - m)), Math.max(line.off[j], T.wl[j] - m)); }
-    const tx = T.x[j] + T.nx[j] * dj - v.x, tz = T.z[j] + T.nz[j] * dj - v.z;
+    let tx = T.x[j] + T.nx[j] * dj - v.x, tz = T.z[j] + T.nz[j] * dj - v.z;
+    if (T.esc && T.esc.pit && T.inEscape(v.x, v.z)) {   // pit exit road: follow the lane itself, it leaves the circuit
+      const E = T.esc, nr = E.near(v.x, v.z), seg = Math.hypot(E.pts[1][0] - E.pts[0][0], E.pts[1][1] - E.pts[0][1]), m = Math.min(E.pts.length - 1, nr[1] + Math.round(Ld / seg));
+      tx = E.pts[m][0] - v.x; tz = E.pts[m][1] - v.z; }
     const fx = Math.sin(v.h), fz = Math.cos(v.h), lx = Math.cos(v.h), lz = -Math.sin(v.h);
     const alpha = Math.atan2(tx * lx + tz * lz, tx * fx + tz * fz);
     const delta = Math.atan(2 * v.P.wb * Math.sin(alpha) / Ld);

@@ -99,8 +99,11 @@ const TRACK_DEFS = {
     widen: [[6660, 6700, 6900, 6860, 7.4]],             // Bus Stop: wide switchback
     tyres: [[330, 470, 1], [2380, 2480, 1], [3800, 3960, -1], [5110, 5250, 1], [6150, 6290, -1], [6700, 6760, 1]],
     straight: [6905, 250],                              // concrete walls both sides
-    pitTr: [[6838, 6905], [250, 318]],                  // pit entry / exit: band emerges from a close barrier
-    pit: [6835, 6925, 315, 215],                        // band from a0 (full at a1) to b0 (fades out by b0, starts fading b1)
+    pitTr: [[6838, 6905]],                              // pit entry: band emerges from a close barrier
+    pit: [6835, 6925, 210, 210],                        // band from a0 (full at a1) to b0 (fades out by b0, starts fading b1); here it ends at 210
+    // pit exit road (as on the real circuit since 2007): leaves the pit lane before La Source, crosses inside the hairpin
+    // and joins on the right of the run down to Eau Rouge
+    escape: { from: 210, to: 620, rejoin: -4, hw: 4.5, pit: true },
     saus: [[6738, 6768, -1], [6798, 6830, 1]],
     startS: 190, brakeBanner: { s: 6642, text: 'SPA-FRANCORCHAMPS' }, boards: [355, 2385, 2995, 4905, 5120, 6735],
     bridges: [[1700, '#2f63b8'], [5620, '#c0392b']], vergeSkip: [6840, 330],
