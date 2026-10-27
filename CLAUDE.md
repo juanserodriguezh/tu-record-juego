@@ -1,4 +1,4 @@
-# Tu récord — juego de carreras en el navegador
+# ARMK Racing (antes «Tu récord») — juego de carreras en el navegador
 
 Juego 3D con three.js 0.160 (cargado desde jsDelivr). Incluye 4 circuitos: Spa-Francorchamps, Monza, Albert Park y Tocancipá (6 trazados), 21 coches escaneados, IA, daños, neumáticos, clima, multijugador por sala y audio sintetizado.
 El resultado es una sola página `dist/spa.html` más los modelos en `dist/models/packN.wasm`.
