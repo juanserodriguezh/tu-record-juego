@@ -96,9 +96,9 @@ if (cmd === 'pits') {   // grandstands, pit lane and pit buildings must not over
     let pA = 0; while (!hasPit(pA) || hasPit(pA - 1)) pA++; let pB = pA; while (hasPit(pB + 1)) pB++;
     band('pit lane', 'pit', pA, pB, i => span(T.pitC[i] + ps * T.pitHW, ps * Math.max(ps * T.pitC[i] - T.pitHW, T.pitW[i])));
     let iF = T.pitSepFrom, iT = T.pitSepTo; if (iT < iF) iT += N;
-    const gar = new Set(); for (let i = iF + 2; i < iT - 2; i += 4) if (!footHits(i, 0, 4, dOut(i), dOut(i) + ps * 19.5, 3)) for (let u = 0; u <= 4; u++) gar.add(md(i + u));
-    band('pit building', 'garage', iF, iT, i => gar.has(i) ? span(dOut(i), dOut(i) + ps * 18) : null);
-    { const k = idx(60), o = T.pitC[k] + ps * T.pitHW, u = Math.ceil(11 / ds); if (!footHits(k, -u, u, o + ps * 4, o + ps * 20, 3)) band('control tower', 'garage', k - u, k + u, i => span(o + ps * 4, o + ps * 20)); }
+    const dep = D.pitDepth || 18, gar = new Set(); for (let i = iF + 2; i < iT - 2; i += 4) if (!footHits(i, 0, 4, dOut(i), dOut(i) + ps * (dep + 1.5), 3)) for (let u = 0; u <= 4; u++) gar.add(md(i + u));
+    band('pit building', 'garage', iF, iT, i => gar.has(i) ? span(dOut(i), dOut(i) + ps * dep) : null);
+    if (D.tower !== false) { const k = idx(60), o = T.pitC[k] + ps * T.pitHW, u = Math.ceil(11 / ds); if (!footHits(k, -u, u, o + ps * 4, o + ps * 20, 3)) band('control tower', 'garage', k - u, k + u, i => span(o + ps * 4, o + ps * 20)); }
     D.stands.forEach(([sA, sB, side, gap, tiers]) => { const iA = idx(sA), iB = idx(sB) + (sB < sA ? N : 0);
       band(`stand [${sA},${sB},${side}]`, 'stand', iA, iB, i => { const bar = side > 0 ? T.barL[i] : T.barR[i], a = side * (bar + gap - 0.7), b = side * (bar + gap + tiers * 0.95 + 1.0); return [Math.min(a, b), Math.max(a, b)]; }); });
     // small pieces beside the track (same placement rules as world.js): marshal posts, banner pillars

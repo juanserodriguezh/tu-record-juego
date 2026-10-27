@@ -793,11 +793,20 @@ class World {
     const footHits = (k, i0, i1, dA, dB, pad) => { if (dA < dB) [dA, dB] = [dB, dA]; for (let u = i0; u <= i1; u++) for (let d = dA; d >= dB - 0.01; d -= Math.max(1.5, (dA - dB) / 6)) { const p = this.P((k + u + N) % N, d, 0); if (farTrack(p[0], p[2], k, pad)) return true; } return false; };
     let iF = T.pitSepFrom, iT = T.pitSepTo; if (iT < iF) iT += N;
     const TEAM = ['#c8120c', '#1b3a6b', '#f28c28', '#0f5c4a', '#2f63b8', '#f4f4f4', '#5b1a8f', '#1f9a3a', '#f6c21c', '#2a2d31'];
+    const dep = this.D.pitDepth || 18;   // Tocancipá: a row of low, dark-roofed garages instead of a glazed pit building
     for (let i = iF + 2; i < iT - 2; i += 4) {
       const k = i % N, h = T.hd[k];
       const dOut = T.pitC[k] + ps * (T.pitHW + 0.4);
       const p = this.P(k + 2, dOut + ps * 9, 0), len = T.ds * 4 + 0.2;
       const base = T.e[k] - 0.3;
+      if (dep < 18) {
+        if (!footHits(k, 0, 4, dOut, dOut + ps * (dep + 1.5), 3)) { const q = this.P(k + 2, dOut + ps * dep / 2, 0);
+          const tent = (i >> 2) % 3 !== 2;   // dark tents with a lower white unit every third bay
+          B.box(q[0], base, q[2], dep, tent ? 3.3 : 2.9, len, h, col3(tent ? '#5a5f66' : '#e4e6e8'));
+          B.box(q[0], base + (tent ? 3.3 : 2.9), q[2], dep + 0.3, 0.35, len - (tent ? 0.4 : 0), h, col3(tent ? '#34373c' : '#c9ccd0'));
+          addFP(q[0], q[2], dep); }
+        continue;
+      }
       if (!footHits(k, 0, 4, dOut, dOut + ps * 19.5, 3)) {
         B.box(p[0], base, p[2], 18, 4.6, len, h, C.white);
         B.box(p[0], base + 4.6, p[2], 18, 3.2, len, h, C.glass);
@@ -816,7 +825,7 @@ class World {
       B.box(p2.x, base + 3.95, p2.z, 0.2, 0.55, 9.5, h, col3(TEAM[Math.floor(n / 2) % TEAM.length]));
     });
     // race control tower
-    { const k = this.idx(60), o = T.pitC[k] + ps * T.pitHW, u = Math.ceil(11 / T.ds); const p = this.P(k, o + ps * 12, 0); if (!footHits(k, -u, u, o + ps * 4, o + ps * 20, 3)) { B.box(p[0], T.e[k] - 0.3, p[2], 16, 17, 22, T.hd[k], C.white); B.box(p[0], T.e[k] + 12, p[2], 16.4, 3.5, 22.4, T.hd[k], C.glass); } }
+    if (this.D.tower !== false) { const k = this.idx(60), o = T.pitC[k] + ps * T.pitHW, u = Math.ceil(11 / T.ds); const p = this.P(k, o + ps * 12, 0); if (!footHits(k, -u, u, o + ps * 4, o + ps * 20, 3)) { B.box(p[0], T.e[k] - 0.3, p[2], 16, 17, 22, T.hd[k], C.white); B.box(p[0], T.e[k] + 12, p[2], 16.4, 3.5, 22.4, T.hd[k], C.glass); } }
     // pit exit traffic light
     {
       const k = T.pitSepTo, p = this.P(k, ps * (T.pitBar[k] + 0.3), 0);
@@ -921,6 +930,7 @@ class World {
     }
 
     if (this.SC.oval) this.buildOval(B, C, addFP);
+    if (this.SC.toca) this.buildToca(B, C, addFP);
     if (this.SC.skyline) this.buildSkyline();
     if (this.SC.podium) {
       // Monza podium: platform cantilevered from the pit building over the pit lane and the edge of the track
@@ -978,6 +988,104 @@ class World {
     const extra = new THREE.Mesh(B.build(), new THREE.MeshLambertMaterial({ vertexColors: true }));
     this.group.remove(bm); bm.geometry.dispose();
     this.group.add(extra);
+  }
+
+  // ---------------------------------------------------------------------
+  // Autódromo de Tocancipá: the venue's real reference points, after the aerial photo looking NW down the main straight.
+  // Placed in a frame of the straight shared by every layout (a: metres along it from its SE end, b: towards the infield):
+  // Mobil gantry over the start of the straight and the pit lane, race control and the timing pylon at the far end, the
+  // paddock (asphalt, rows of blue containers under light roofs, red-roofed shed, hedge), tyre walls along the straight and
+  // the return road from the hairpin, eucalyptus rows and the Termozipa chimneys on the horizon. Everything but the banner
+  // goes into the merged landmark mesh; the tyres are one instanced mesh.
+  buildToca(B, C, addFP) {
+    const T = this.T, N = T.N, V = TOCA_VENUE, w = (r) => [r[0], -r[1]];
+    const A = w(V.s0), Z = w(V.s1), L = Math.hypot(Z[0] - A[0], Z[1] - A[1]), R = w(V.infield);
+    const u = [(Z[0] - A[0]) / L, (Z[1] - A[1]) / L];
+    let n = [-u[1], u[0]]; if ((R[0] - A[0]) * n[0] + (R[1] - A[1]) * n[1] < 0) n = [-n[0], -n[1]];
+    const at = (a, b) => [A[0] + u[0] * a + n[0] * b, A[1] + u[1] * a + n[1] * b];
+    const ab = (x, z) => [(x - A[0]) * u[0] + (z - A[1]) * u[1], (x - A[0]) * n[0] + (z - A[1]) * n[1]];
+    const hU = Math.atan2(u[0], u[1]);   // box heading: length along the straight
+    // every road of the venue (all layouts, drawn or not): nothing is built on them
+    const cell = 25, roads = new Map();
+    for (const raw of [TOCA_LARGO_RAW, TOCA_AMP_RAW, TOCA_MIXTOS_RAW, TOCA_CORTO_RAW, TOCA_OVALO_RAW]) for (const r of raw.split(';')) {
+      const v = r.split(','); if (v.length < 4) continue;
+      const x = +v[0], z = -v[1], key = Math.floor(x / cell) + ',' + Math.floor(z / cell); (roads.get(key) || roads.set(key, []).get(key)).push([x, z, Math.max(+v[2], +v[3])]); }
+    const onRoad = (p, pad) => { const cx = Math.floor(p[0] / cell), cz = Math.floor(p[1] / cell);
+      for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (const q of roads.get((cx + i) + ',' + (cz + j)) || []) if ((p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 < (q[2] + pad) ** 2) return true;
+      return false; };
+    const free = (a0, a1, b0, b1, pad) => { for (let a = a0; a <= a1 + 0.01; a += Math.max(1.5, (a1 - a0) / 6)) for (let b = b0; b <= b1 + 0.01; b += Math.max(1.5, (b1 - b0) / 6)) if (onRoad(at(a, b), pad)) return false; return true; };
+    const gy = (p) => this.heightAt(p[0], p[1]);
+    // a box of length la (along the straight), width wb, height hh centred at (a, b), standing on the ground
+    const box = (a, b, la, wb, hh, col, top, y0) => { const p = at(a, b); B.box(p[0], (y0 != null ? y0 : gy(p)) - 0.3, p[1], wb, hh + 0.3, la, hU, col, top); };
+    const pr = T.project(...at(40, 0), -1), kG = pr.i, onStraight = Math.abs(pr.d) < 8;
+    const ins = Math.sign(T.nx[kG] * n[0] + T.nz[kG] * n[1]) || 1;   // sign of the track's d on the infield side
+    const PIT = 20.6;   // outer edge of the pit lane (b), the same in every layout that runs the straight
+
+    if (onStraight) {
+      // ---- Mobil gantry: a white box girder over the straight and the pit lane, on a pillar beyond the outer wall and a stair tower in the paddock
+      const k = kG, y0 = T.e[k], bOut = -((ins > 0 ? T.barR[k] : T.barL[k]) + 3.5), bEnd = PIT + 2.5, len = bEnd - bOut, a = 40;
+      const mid = at(a, (bOut + bEnd) / 2), hN = Math.atan2(n[0], n[1]);
+      { const p = at(a, bOut); B.box(p[0], y0 - 1, p[1], 0.9, 6.7, 0.9, hU, C.white); B.box(p[0], y0 - 1, p[1], 1.8, 1.4, 1.8, hU, C.concrete); addFP(p[0], p[1], 5); }
+      { const p = at(a, bEnd + 1.4); B.box(p[0], y0 - 0.3, p[1], 3.0, 8.0, 3.2, hU, C.white, C.steel); addFP(p[0], p[1], 6); }
+      B.box(mid[0], y0 + 5.6, mid[1], 1.3, 2.2, len + 0.6, hN, C.white, C.steel);
+      for (const sg of [-1, 1]) { const q = [mid[0] + u[0] * 0.5 * sg, mid[1] + u[1] * 0.5 * sg]; B.box(q[0], y0 + 7.8, q[1], 0.1, 0.32, len + 0.6, hN, C.steel); }
+      const tex = canvasTex(1024, 128, (g, W, H) => {
+        g.fillStyle = '#f4f5f6'; g.fillRect(0, 0, W, H);
+        g.fillStyle = '#b9bec4'; g.beginPath(); g.moveTo(690, H); g.lineTo(760, 0); g.lineTo(840, 0); g.lineTo(770, H); g.fill();
+        g.fillStyle = '#7a2633'; g.beginPath(); g.moveTo(735, H); g.lineTo(805, 0); g.lineTo(825, 0); g.lineTo(755, H); g.fill();
+        g.font = 'bold 82px Arial, Helvetica, sans-serif'; g.textBaseline = 'middle'; let x = 250;
+        for (const [t, c] of [['M', '#173f8a'], ['o', '#e1251b'], ['bil', '#173f8a']]) { g.fillStyle = c; g.fillText(t, x, H / 2 + 4); x += g.measureText(t).width; }
+        x += 22; g.fillStyle = '#1b1d21'; g.fillRect(x, 26, 70, 76); g.fillStyle = '#ffffff'; g.font = 'bold 66px Arial, Helvetica, sans-serif'; g.fillText('1', x + 17, H / 2 + 3);
+      }, true);
+      tex.repeat.x = Math.max(1, Math.round(len / 14));
+      const faces = [-1, 1].map(sg => new THREE.PlaneGeometry(len + 0.6, 2.05).toNonIndexed().rotateY(Math.atan2(u[0] * sg, u[1] * sg)).translate(mid[0] + u[0] * 0.66 * sg, y0 + 6.7, mid[1] + u[1] * 0.66 * sg));
+      this.group.add(new THREE.Mesh(mergeGeos(faces), new THREE.MeshLambertMaterial({ map: tex })));   // both faces, one draw call
+    }
+    // ---- race control (white, glazed top floor) and the black timing pylon behind the pit wall at the far end
+    if (free(366, 378, 31.5, 38.5, 1.5)) { box(372, 35, 11, 6.5, 9.5, C.white, C.roof); box(372, 34.9, 11.2, 6.7, 2.4, C.glass, C.roof, gy(at(372, 35)) + 9.8); addFP(...at(372, 35), 10); }
+    if (free(388, 391, 30.5, 32.5, 1)) { box(389.5, 31.5, 2.4, 1.4, 15, col3('#16181b')); box(389.5, 31.5, 2.6, 1.6, 4.5, col3('#0d0f12'), col3('#16181b'), gy(at(389.5, 31.5)) + 10.5); addFP(...at(389.5, 31.5), 4); }
+    // ---- paddock: asphalt behind the garages (far half), container sheds beyond a hedge, the red shed towards the camera end
+    const asph = col3('#5b5f64'), asph2 = col3('#53575c');
+    for (let a = 150; a < 370; a += 10) for (let b = 31; b < 58; b += 9) if (free(a, a + 10, b, b + 9, 6)) box(a + 5, b + 4.5, 10.05, 9.05, 0.38, (a + b) % 20 ? asph : asph2);
+    const CB = ['#2d5d9f', '#28508a', '#3466ab', '#244a80', '#2d5d9f', '#e8e9ea', '#2d5d9f', '#b33a2e'];
+    let nc = 0;
+    for (let row = 0; row < 3; row++) {
+      const b0 = 64 + row * 14;   // a shed: two rows of containers with a light roof over the 5 m between them
+      for (let a = 110 + row * 6.2; a < 240; a += 6.2) {
+        if (!free(a - 3.1, a + 3.1, b0 - 1.5, b0 + 8.5, 7)) continue;
+        for (const bb of [b0, b0 + 7.5]) box(a, bb, 6.05, 2.44, 2.6, col3(CB[(nc++ * 7 + row * 3) % CB.length]), col3('#9aa3ad'));
+        box(a, b0 + 3.75, 6.2, 10.4, 0.22, col3((Math.floor(a / 18) + row) % 3 ? '#7f90a3' : '#9fb0c2'), null, gy(at(a, b0)) + 3.0);
+        addFP(...at(a, b0 + 3.75), 9);
+      }
+    }
+    for (let a = 100; a < 246; a += 4) if (free(a - 2, a + 2, 59, 61, 5)) box(a, 60, 4.05, 1.6, 2.1, col3('#2f4a2a'));
+    if (free(28, 58, 96, 108, 4)) { const p = at(43, 102), y = gy(p); B.box(p[0], y - 0.3, p[1], 10, 3.6, 28, hU, col3('#d9d6cf')); B.gable(p[0], y + 3.3, p[1], 28.6, 2.2, 10.8, hU + Math.PI / 2, col3('#b4231f'), col3('#d9d6cf')); addFP(p[0], p[1], 16); }
+    if (free(66, 76, 98, 106, 4)) { box(71, 102, 9, 7, 3.2, C.white, col3('#c9ccd0')); addFP(...at(71, 102), 8); }
+    // ---- tyre walls: white stacks behind the outer wall of the straight; black-and-white painted ones along the return road from the hairpin
+    const tyres = [];
+    if (onStraight) for (let a = 8; a < L - 25; a += 0.75) { const q = T.project(...at(a, 0), kG); if (Math.abs(q.d) > 8) continue;
+      const bar = ins > 0 ? q.br : q.bl, p = at(a, -(bar + 1.3)); if (onRoad(p, 1)) continue; tyres.push([p[0], p[1], (Math.floor(a / 0.75) % 9) ? 0.93 : 0.12]); }
+    const trees = [];
+    for (let i = 0; i < N; i += 1) {
+      const [a, b] = ab(T.x[i], T.z[i]); if (a < 50 || a > 470 || b < 30 || b > 150) continue;
+      for (const side of [1, -1]) {
+        const p0 = this.P(i, side * ((side > 0 ? T.barL[i] : T.barR[i]) + 0.7), 0), far = ab(p0[0], p0[2])[1] > b;
+        const step = Math.max(1, Math.round(0.8 / T.ds));
+        if (i % step === 0) tyres.push([p0[0], p0[2], far ? (Math.floor(i / (3 * step)) % 2 ? 0.93 : 0.1) : 0.1]);
+        if (far && i % Math.round(7 / T.ds) === 0) { const p = this.P(i, side * ((side > 0 ? T.barL[i] : T.barR[i]) + 16 + 8 * hash2(i, 3)), 0); if (!onRoad([p[0], p[2]], 6)) trees.push([p[0], p[2], 1.8 + 0.5 * hash2(i, 7), 0.75]); }
+      }
+    }
+    if (tyres.length) {
+      const g = new THREE.CylinderGeometry(0.34, 0.34, 0.78, 8, 1), im = new THREE.InstancedMesh(g, new THREE.MeshLambertMaterial(), tyres.length);
+      const m4 = new THREE.Matrix4(), cc = new THREE.Color();
+      tyres.forEach(([x, z, c], j) => { m4.makeTranslation(x, this.heightAt(x, z) + 0.36, z); im.setMatrixAt(j, m4); cc.setRGB(c, c, c * 1.02); im.setColorAt(j, cc); });
+      im.instanceMatrix.needsUpdate = true; im.instanceColor.needsUpdate = true; im.computeBoundingSphere(); this.group.add(im);
+    }
+    this.tocaTrees = trees;
+    // ---- Termozipa: four thermal power plant chimneys on the horizon, ~40° right of the straight
+    { const d = [u[0] * Math.cos(0.7) + n[0] * Math.sin(0.7), u[1] * Math.cos(0.7) + n[1] * Math.sin(0.7)], o = at(L * 0.5, 0);
+      for (let j = 0; j < 4; j++) { const r = 2300 + j * 12, x = o[0] + d[0] * r + d[1] * (j - 1.5) * 38, z = o[1] + d[1] * r - d[0] * (j - 1.5) * 38;
+        B.box(x, -5, z, 7, 92, 7, 0.4, col3('#cfd3d6'), col3('#5a5d61')); B.box(x, 80, z, 7.3, 7, 7.3, 0.4, col3('#7d8186')); } }
   }
 
   // ---------------------------------------------------------------------
@@ -1107,6 +1215,9 @@ class World {
       for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) { const arr = fpHash.get((cx + a) + ',' + (cz + b)); if (!arr) continue; for (const f of arr) if ((x - f[0]) ** 2 + (z - f[1]) ** 2 < f[2] * f[2]) return true; }
       return false;
     };
+    let inField = null;
+    if (this.SC.toca) { const poly = TOCA_LARGO_RAW.split(';').map(r => r.split(',')).filter(v => v.length > 3).map(v => [+v[0], -v[1]]);
+      inField = (x, z) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, zi] = poly[i], [xj, zj] = poly[j]; if ((zi > z) !== (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi) c = !c; } return c; }; }
     const cand = [];
     const sp = 7.5;
     for (let z = t.z0 + 20; z < t.z1 - 20; z += sp) for (let x = t.x0 + 20; x < t.x1 - 20; x += sp) {
@@ -1117,7 +1228,9 @@ class World {
       const dens = fbm(jx / 330, jz / 330, 3);
       const nearBonus = d < 140 ? 0.08 : 0;
       if (dens + nearBonus < this.SC.dens) continue;
-      const pKeep = d < 180 ? 1 : d < 450 ? 0.55 : 0.22;
+      let pKeep = d < 180 ? 1 : d < 450 ? 0.55 : 0.22;
+      // Tocancipá: open grass around the track and in the infield (a few groves), the eucalyptus woods further out
+      if (inField) { if (d < 65) continue; if (inField(jx, jz)) pKeep *= 0.12; }
       if (hash2(jx * 1.3, jz * 0.7) > pKeep) continue;
       cand.push([jx, jz, d]);
     }
@@ -1125,6 +1238,12 @@ class World {
     // collect accepted trees into 350 m tiles so each tile can be frustum-culled
     const TILE = 350, tiles = new Map();
     let n = 0;
+    for (const [x, z, sy, sxz] of this.tocaTrees || []) {   // rows of tall eucalyptus (Tocancipá)
+      if (blocked(x, z)) continue;
+      const key = Math.floor(x / TILE) + ',' + Math.floor(z / TILE);
+      let tl = tiles.get(key); if (!tl) { tl = { c: [], l: [] }; tiles.set(key, tl); }
+      tl.l.push([x, z, sy, sxz]); n++;
+    }
     for (const [x, z, d] of cand) {
       if (n >= maxTrees) break;
       if (d < 90) { const pr = T.project(x, z, -1); const bar = pr.d >= 0 ? pr.bl : pr.br; if (Math.abs(pr.d) < bar + 9) continue; }
@@ -1142,11 +1261,11 @@ class World {
         if (!list.length) continue;
         if (lod === 'hi') for (const [x, z] of list) { tile.x += x; tile.z += z; tn++; }
         const im = new THREE.InstancedMesh(geo, mat, list.length);
-        list.forEach(([x, z], k) => {
+        list.forEach(([x, z, sy, sxz], k) => {
           const y = this.heightAt(x, z) - 0.3;
-          const s = 0.85 + hash2(z * 0.7, x) * 0.95;
+          const s = sy ? 1 : 0.85 + hash2(z * 0.7, x) * 0.95;
           q.setFromAxisAngle(yAxis, hash2(x, z * 3) * 6.28);
-          sv.set(s * (0.85 + 0.3 * hash2(x * 2, z)), s * (con ? 1.25 : 1), s);
+          sv.set(s * (0.85 + 0.3 * hash2(x * 2, z)) * (sxz || 1), s * (con ? 1.25 : 1) * (sy || 1), s * (sxz || 1));
           pv.set(x, y, z); m4.compose(pv, q, sv); im.setMatrixAt(k, m4);
           const tint = 0.78 + 0.35 * hash2(x * 5.1, z * 2.3);
           cc.setRGB(tint, tint * (0.95 + 0.1 * hash2(x, z)), tint * 0.92); im.setColorAt(k, cc);
@@ -1318,7 +1437,7 @@ class Sky {
     U.cover.value = w.cover; U.cloudCol.value.set(w.cloudCol); U.cloudDark.value.set(w.cloudDark);
     this.scene.fog = new THREE.FogExp2(w.fog, w.dens / drawMul);
     this.hills.visible = !w.rain && !(world && world.SC && world.SC.noHills);
-    if (world && world.SC) this.hills.scale.y = world.SC.flat ? 0.3 : 1;
+    if (world && world.SC) this.hills.scale.y = world.SC.hillsY || (world.SC.flat ? 0.3 : 1);
     this.hemi.color.set(w.hemiSky); this.hemi.groundColor.set(w.hemiGnd); this.hemi.intensity = w.hemiI;
     this.sun.color.set(w.sunCol); this.sun.intensity = w.sunI;
     this.rainI = w.rain || 0;
