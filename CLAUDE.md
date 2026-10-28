@@ -24,6 +24,7 @@ node tools/headless.js tyres               # comprueba que las barreras de neum�
 node tools/headless.js pits                # tribunas, boxes y postes no se pisan entre sí ni con la pista (exit 1 si falla)
 node tools/headless.js pitstop             # tiempo de parada por categoría y daño
 node tools/headless.js coach monza amg_gt3   # línea adaptativa: zonas y juicio de 3 pilotos IA (exit 1 si falla)
+node tools/headless.js rewind monza amg_gt3,w17   # rebobinado: restauración exacta, daño, coste y línea adaptativa (exit 1 si falla)
 node tools/shot.mjs <prefijo> <pista> <coche> "<js>|||<js>" [ancho]   # capturas en shots/
 LOD=1 node tools/perf.mjs spa amg_gt3 race medio 8 960   # coste por frame: draw calls, triángulos (todas las pasadas), ms de JS
 ```
@@ -45,6 +46,7 @@ Ejemplos de capturas:
 | `src/line_offs.js` | Trazada ideal precalculada (la genera `build.js`) |
 | `src/ai.js` | Pilotos IA |
 | `src/coach.js` | Línea de frenada adaptativa: plan alcanzable, juicio por curva, retirada de ayuda; `CoachLine` la dibuja |
+| `src/rewind.js` | Rebobinado de prácticas: anillo de fotos del coche (`Rewind`, `REWIND`); `main.js` guarda el cronómetro alrededor |
 | `src/world.js` | Escenario: asfalto, pianos, muros, boxes, tribunas, terreno, árboles, cielo y clima |
 | `src/carmodel.js`, `src/body.js`, `src/hands.js`, `src/special.js` | Coches procedurales, cabina, volante y manos |
 | `src/glb.js` | Monta los modelos escaneados (GLB) sobre el coche: ruedas, cabina real, volante y piezas fijas |
@@ -72,6 +74,7 @@ Ejemplos de capturas:
 - **Ajuste de cámara** en juego: teclas 1–0. Se guarda por coche y por vista.
 
 ## Historial reciente y decisiones
+- **v75:** rebobinado en prácticas (tecla Retroceso o botón ⟲): 5 s por pulsación, hasta 15 s; restaura coche, daño y cronómetro; la vuelta queda inválida; `node tools/headless.js rewind` comprueba que la repetición es idéntica bit a bit.
 - **v72:** Tocancipá con las referencias de la foto aérea (`buildToca`, marco fijo `TOCA_VENUE`): pórtico Mobil, garajes bajos, paddock de contenedores, llantas, eucaliptos, montañas y chimeneas. Los boxes van **por dentro** (entre la recta y la vía de vuelta de la horquilla) y la tribuna por fuera, como en la foto; esto corrige la v69.
 - **v71:** línea de frenada adaptativa (`coach.js`): colores según tu velocidad, aprende por curva, marcas de frenada y se retira de las curvas dominadas.
 - **v70:** salida de boxes de Spa después de La Source; tiempo de parada según la categoría y el daño.

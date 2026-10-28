@@ -285,12 +285,13 @@ function initUI() {
   $('btnControls').addEventListener('click', () => { $('controls').hidden = false; });
   $('ctlClose').addEventListener('click', () => { $('controls').hidden = true; });
   $('pResume').addEventListener('click', resume);
-  $('pRepair').addEventListener('click', () => { dmgRepairAll(car); $('pRepair').hidden = true; if (SES) { SES.rep = null; $('hRepair').hidden = true; toast('Coche reparado'); } });
+  $('pRepair').addEventListener('click', () => { dmgRepairAll(car); RW.clear(); $('pRepair').hidden = true; if (SES) { SES.rep = null; $('hRepair').hidden = true; toast('Coche reparado'); } });
   $('pRestart').addEventListener('click', () => { $('pause').hidden = true; restartSession(); });
   $('pSettings').addEventListener('click', () => openSettings());
   $('pMenu').addEventListener('click', () => { $('pause').hidden = true; leaveSession(); });
   $('pEnd').addEventListener('click', () => { $('pause').hidden = true; S.mode = 'race'; endQuali(); });
   $('pauseBtn').addEventListener('click', () => { if (S.mode === 'race') pause(); });
+  $('hRewind').addEventListener('pointerdown', (e) => { e.preventDefault(); if (S.mode === 'race') rewind(); });
   $('resMenu').addEventListener('click', () => { $('results').hidden = true; leaveSession(); });
   $('resNext').addEventListener('click', onResultsNext);
   initSettings();
@@ -647,6 +648,7 @@ window.addEventListener('keydown', (e) => {
   if (S.mode === 'race') {
     if (e.code === 'KeyC') cycleCam();
     if (e.code === 'KeyR') resetCar();
+    if (e.code === 'Backspace') { e.preventDefault(); rewind(); }
     if (e.code === 'KeyT') tyreRequestCycle();
     if (e.code === 'KeyL') { const ks = Object.keys(LINE_MODES); setLineMode(ks[(ks.indexOf(S.settings.lineMode) + 1) % ks.length], true); }
     if (e.code === 'KeyE' || e.code === 'ShiftRight') INPUT.shiftUp = true;
@@ -788,6 +790,7 @@ function startSession(kind, opts) {
     tyreReq: null, entries: [], player: null, raceLaps: g.laps, bucketT: [], leaderFin: null, resultsShown: false,
     qualiDur: g.qualiMin * 60, flag: false, netSeq: opts.seq || 0, gridOrder: opts.grid || null
   };
+  RW.clear();
   const pe = newEntry({ id: 'me', name: 'Tú', code: 'TÚ', isPlayer: true, sp, veh: car, model, len: sp.len, wid: sp.wid });
   R.player = pe; R.entries.push(pe);
   // ---- AI field
@@ -850,6 +853,7 @@ function startSession(kind, opts) {
   $('hCam').textContent = camName(CAMS[S.camIdx]);
   $('pEnd').hidden = kind !== 'quali';
   $('pRestart').hidden = mode === 'multi';
+  $('hRewind').hidden = !rwAllowed(); $('hRewind').disabled = true;
   setValidChip();
   for (const m of world.lightMats) m.color.setHex(0x2a0606);
   INPUT.steer = 0; INPUT.throttle = 0; INPUT.brake = 0;
@@ -952,11 +956,57 @@ function resetCar() {
   SES.player.ghost = 2.5;
   SES.valid = false; setValidChip(); toast('Coche reiniciado · vuelta invalidada');
 }
+// ---------------------------------------------------------------------------
+//  Rewind (practice only: never in a race, qualifying or online). Backspace or the ⟲ button goes back
+//  REWIND.step s (up to REWIND.keep s, press again to go further); the car, its damage and tyres and the lap
+//  clock come back exactly, then everything holds still for REWIND.hold s. The lap becomes invalid, so it
+//  never sets a record; the adaptive braking line drops the pass that was cut short and judges the retry.
+// ---------------------------------------------------------------------------
+const RW = new Rewind();
+const rwAllowed = () => !!SES && SES.kind === 'practice' && SES.mode !== 'multi';
+const _rwX = { cp: [false, false], sectorsCur: [] };
+function rwLapState() {   // the lap clock, relative to the lap start (the session clock keeps running for the rivals)
+  const R = SES, pe = R.player, x = _rwX;
+  x.started = R.started; x.lapT = R.t - R.lapStart; x.valid = R.valid; x.clean = R.clean; x.inPitLap = R.inPitLap; x.lap1 = !!R.lap1;
+  x.cp = R.cp; x.sectorsCur = R.sectorsCur; x.lastSectorT = R.lastSectorT; x.prevS = R.prevS; x.escMin = R.escMin;
+  x.blockHitsSeen = R.blockHitsSeen; x.ghostLen = R.ghostRec.length; x.ghostNext = R.ghostNext;
+  x.peLap = pe.lap; x.peCp = pe.cp; x.pePrevS = pe.prevS;
+  return x;
+}
+function rewind() {
+  const R = SES; if (!rwAllowed() || R.state !== 'run' || R.player.pitHold || R.rep) return;
+  const b = RW.back(REWIND.step); if (!b) { toast('Aún no hay nada que rebobinar', 1.6); return; }
+  const sn = b.sn, x = sn.x, pe = R.player, D0 = car.dmg;
+  const dmgSig = (D) => D ? D.total + D.fw + D.rw + D.floor + D.lost.join() + D.tyre.join() + D.sus.join() + D.dead : '';
+  const dmgChanged = dmgSig(D0) !== dmgSig(sn.v.dmg);
+  RW.restore(car, sn);
+  if (car.dmg) { car.dmg.ev = dmgChanged ? [{ type: 'repairAll', idx: -1, a: 0, b: 0, nF: 0, nL: 0, x: 0 }] : []; car.dmg.hits = []; }   // the bodywork shows the restored state, without new sparks
+  // lap clock: the lap time goes back with the car; buckets and ghost samples after that moment are dropped
+  R.started = x.started; R.lapStart = R.t - x.lapT; R.clean = x.clean; R.inPitLap = x.inPitLap; R.lap1 = x.lap1;
+  R.cp = x.cp.slice(); R.sectorsCur = x.sectorsCur.slice(); R.lastSectorT = x.lastSectorT; R.prevS = x.prevS;
+  R.escMin = x.escMin; R.blockHitsSeen = x.blockHitsSeen; R.wrongT = 0;
+  for (let k = 0; k < R.trace.length; k++) if (R.trace[k] > x.lapT) R.trace[k] = -1;
+  R.ghostRec.length = Math.min(R.ghostRec.length, x.ghostLen); R.ghostNext = x.ghostNext;
+  for (let k = R.sectorsCur.length; k < 3; k++) { const el = $(['hS1', 'hS2', 'hS3'][k]); el.className = 'sec'; el.querySelector('b').textContent = '—'; }
+  pe.lap = x.peLap; pe.cp = x.peCp; pe.prevS = x.pePrevS; snapshot(pe);
+  _prev.x = car.x; _prev.y = car.y; _prev.z = car.z; _prev.h = car.h;
+  pe.ghost = REWIND.hold + 1.5;   // rivals kept driving: no contact with them right after landing
+  if (R.started && !R.lap1) { R.valid = false; R.rewound = true; }
+  setValidChip();
+  R.rwHold = REWIND.hold; R.rwN = (R.rwN || 0) + 1;
+  CAMSTATE.init = false; $('toast').hidden = true; R.msgT = 0;   // messages about what was undone go away
+  const C = COACH_ST;
+  if (C && S.settings.lineMode === 'activa') {
+    const ev = C.coach.rewound();
+    if (ev) { store.set(C.key, C.coach.state()); C.line.update(C.coach); if (ev.msg) { const el = $('hCoach'); el.textContent = ev.msg; el.className = 'coach ' + ev.kind; el.hidden = false; R.coachT = 3.2; } }
+  }
+  banner(`<div class="big">⟲ −${b.sec.toFixed(0)} s</div><div class="sub">${R.started && !R.lap1 ? 'Vuelta rebobinada · no cuenta como récord' : 'Rebobinado'}</div>`, REWIND.hold + 0.3);
+}
 function toast(msg, t) { const el = $('toast'); el.textContent = msg; el.hidden = false; if (SES) SES.msgT = t || 2.6; }
 function setValidChip() {
   const el = $('hValid'); if (!SES) return;
   if (SES.kind === 'race' && SES.lap1) { el.className = 'chip warn'; el.textContent = 'Salida'; return; }
-  if (!SES.valid) { el.className = 'chip bad'; el.textContent = SES.inPitLap ? 'Boxes' : 'Inválida'; }
+  if (!SES.valid) { el.className = 'chip bad'; el.textContent = SES.inPitLap ? 'Boxes' : SES.rewound ? 'Rebobinada' : 'Inválida'; }
   else if (!SES.clean) { el.className = 'chip warn'; el.textContent = 'Con contacto'; }
   else { el.className = 'chip ok'; el.textContent = 'Válida'; }
 }
@@ -969,6 +1019,7 @@ const SECT = () => T.sectors.map(s => s * T.L / T.nom);
 const _prev = { x: 0, y: 0, z: 0, h: 0 };
 function sessionStep(dt) {
   const R = SES, pe = R.player, race = R.kind === 'race';
+  if (R.rwHold > 0) { R.rwHold -= dt; return; }   // just rewound: everything holds still for a moment
   R.t += dt;
   if (R.state !== 'lights' && R.mode !== 'multi') {
     wxStep(dt);
@@ -1017,6 +1068,7 @@ function sessionStep(dt) {
   playerTiming(dt);
   coachStep(dt);
   pitRepair(dt);
+  if (R.kind === 'practice' && R.mode !== 'multi' && R.state === 'run' && !pe.pitHold && !R.rep) RW.tick(dt, car, rwLapState);
   if (R.mode === 'multi') netTick();
   // ---- session end conditions
   if (R.kind === 'quali' && !R.flag && R.t >= R.qualiDur) {
@@ -1096,7 +1148,7 @@ function playerTiming(dt) {
       const frac = (L - prev) / Math.max(1e-6, (s + L - prev));
       R.started = true; R.lapStart = R.t - dt + dt * frac;
       R.trace.fill(-1); R.trace[0] = 0; R.ghostRec = []; R.ghostNext = 0; R.cp = [false, false];
-      R.valid = true; R.clean = true; R.inPitLap = false; setValidChip();
+      R.valid = true; R.clean = true; R.inPitLap = false; R.rewound = false; setValidChip();
     }
     R.prevS = s;
     return;
@@ -1160,7 +1212,7 @@ function completeLap(lapTime, crossT) {
   if (R.sectorsCur.length === 2) { R.sectorsCur.push(s3); showSector(2, s3); }
   const sectors = R.sectorsCur.length === 3 ? R.sectorsCur.slice() : null;
   const valid = R.valid && !R.lap1 && !(R.kind === 'quali' && R.lapStart >= R.qualiDur);
-  const entry = { n: R.lapNum, time: lapTime, valid, clean: R.clean, sectors, pit: R.inPitLap, first: !!R.lap1 };
+  const entry = { n: R.lapNum, time: lapTime, valid, clean: R.clean, sectors, pit: R.inPitLap, first: !!R.lap1, rw: !!R.rewound };
   R.laps.push(entry);
   const prevBest = R.best ? R.best.time : null;
   let isRecord = false;
@@ -1182,10 +1234,11 @@ function completeLap(lapTime, crossT) {
   const deltaTxt = prevBest != null ? `<div class="sub">${fmtDelta(lapTime - prevBest)} respecto a tu récord</div>` : '';
   if (!pe.fin) {
     if (isRecord) banner(`<div class="big rec">¡Nuevo récord!</div><div class="time">${fmtTime(lapTime)}</div>${prevBest != null ? `<div class="sub">${fmtDelta(lapTime - prevBest)}</div>` : '<div class="sub">Primera vuelta válida</div>'}`, 4);
-    else if (!valid) banner(`<div class="time">${fmtTime(lapTime)}</div><div class="sub">${R.lap1 ? 'Vuelta de salida' : R.inPitLap ? 'Vuelta por boxes' : 'Vuelta inválida'}</div>`, 3);
+    else if (!valid) banner(`<div class="time">${fmtTime(lapTime)}</div><div class="sub">${R.lap1 ? 'Vuelta de salida' : R.inPitLap ? 'Vuelta por boxes' : R.rewound ? 'Vuelta rebobinada · no cuenta como récord' : 'Vuelta inválida'}</div>`, 3);
     else banner(`<div class="time">${fmtTime(lapTime)}</div>${deltaTxt}`, 3);
   }
-  R.lapNum++; R.lapStart = crossT; R.valid = true; R.clean = true; R.cp = [false, false]; R.lap1 = false;
+  R.lapNum++; R.lapStart = crossT; R.valid = true; R.clean = true; R.cp = [false, false]; R.lap1 = false; R.rewound = false;
+  RW.clear();   // a rewind never goes back across the line: the lap just closed stays as it was
   R.inPitLap = car.inPit || (car.inBand(car.q, car.q.d) && T.pitSide * car.q.d > (T.pitSide > 0 ? car.q.wl : car.q.wr)); if (R.inPitLap) R.valid = false;
   R.sectorsCur = []; R.lastSectorT = 0; R.trace.fill(-1); R.trace[0] = 0; R.ghostRec = []; R.ghostNext = 0; R.secShowT = 3;
   setValidChip();
@@ -1579,6 +1632,7 @@ function updateHUD(dt) {
   const st = S.settings;
   const lapT = R.state === 'run' && R.started ? R.t - R.lapStart : 0;
   hudTxt('hTime', fmtTime(lapT));
+  if (R.kind === 'practice' && R.mode !== 'multi') { const off = RW.len < 2 || R.state !== 'run' || R.player.pitHold || !!R.rep; const el = $('hRewind'); if (el.disabled !== off) el.disabled = off; }
   hudTxt('hLap', R.kind === 'race' ? clamp(R.player.lap + 1, 1, R.raceLaps) : R.lapNum);
   hudTxt('hLapOf', R.kind === 'race' ? '/' + R.raceLaps : '');
   const dEl = $('hDelta');
@@ -2218,7 +2272,7 @@ function pitRepair(dt) {
   if (!here) { if (R.rep && Math.abs(car.u) >= 1.2) toast('Parada interrumpida', 2.2); stop(); return; }
   if (!R.rep) {
     const P = pitPlanNow(); if (!P.jobs.length) { stop(); return; }
-    R.rep = { t: 0, tot: P.tot, jobs: P.jobs, done: {}, dmg: P.dmg, tyre: R.tyreReq };
+    R.rep = { t: 0, tot: P.tot, jobs: P.jobs, done: {}, dmg: P.dmg, tyre: R.tyreReq }; RW.clear();
     if (P.dmg) { R.valid = false; setValidChip(); }
     toast('Parada ' + fmtStop(P.tot) + ' · ' + P.jobs.map(j => j.label.toLowerCase() + ' ' + fmtStop(j.dur)).join(' + ') + ' · no te muevas', 4);
   }
@@ -2359,7 +2413,7 @@ function nanScan() {
   for (let i = 0; i < buf.length; i++) { const e = (buf[i] >> 10) & 31; if (e === 31) { if (buf[i] & 1023) nan++; else inf++; if (!first) first = [(i >> 2) % sz.x, sz.y - 1 - Math.floor((i >> 2) / sz.x)]; } else if (e >= 29) big++; }
   return { nan, inf, big, first, w: sz.x, h: sz.y };
 }
-window.__spa = { S, nanScan, freeze(on) { FREEZE = on ? { draw: false } : null; return 'ok'; }, redraw() { if (FREEZE) FREEZE.draw = true; return 'ok'; }, lod(on) { if (on != null) LOD_ON = on !== false; return { on: LOD_ON, jobs: LOD_JOBS.length, ms: Math.round(LOD_MS) }; }, async lodFlush() { for (let k = 0; k < 600 && (LOD_JOBS.length || (LOD_W && LOD_W.pend.size)); k++) await new Promise(r => setTimeout(r, 100)); return { worker: !!LOD_W, left: LOD_JOBS.length, ms: Math.round(LOD_MS) }; }, get INPUT() { return INPUT; }, switchTrack, post: () => POST.ready, get TRACK() { return TRACK; }, audioLab: { CarAudio, EngineVoice, engineProfile, engineWave }, get car() { return car; }, get model() { return model; }, get race() { return SES; }, get world() { return world; }, get skids() { return skids; }, get camera() { return camera; }, get T() { return T; }, get DFX() { return DFX; }, get coach() { return COACH_ST; }, setLineMode, crashTest, startSession, selectCar, cycleCam, netDbg: () => ({ code: NET.code, host: NET.host, off: NET.offset, seen: NET.cfgSeen, peers: NET.peers.map(p => [p.peer, p.sameTab, pres(p).code, pres(p).host, pres(p).ph, pres(p).cfg && pres(p).cfg.seq, pres(p).cfg && pres(p).cfg.startAt - Date.now()]) }), setAuto(k) { AUTO = k != null ? { k } : null; }, renderer: () => renderer, menu: MENU, setWeather, WXS, TYRES, tyreRequestCycle, startFromMenu, endQuali,
+window.__spa = { S, nanScan, freeze(on) { FREEZE = on ? { draw: false } : null; return 'ok'; }, redraw() { if (FREEZE) FREEZE.draw = true; return 'ok'; }, lod(on) { if (on != null) LOD_ON = on !== false; return { on: LOD_ON, jobs: LOD_JOBS.length, ms: Math.round(LOD_MS) }; }, async lodFlush() { for (let k = 0; k < 600 && (LOD_JOBS.length || (LOD_W && LOD_W.pend.size)); k++) await new Promise(r => setTimeout(r, 100)); return { worker: !!LOD_W, left: LOD_JOBS.length, ms: Math.round(LOD_MS) }; }, get INPUT() { return INPUT; }, switchTrack, post: () => POST.ready, get TRACK() { return TRACK; }, audioLab: { CarAudio, EngineVoice, engineProfile, engineWave }, get car() { return car; }, get model() { return model; }, get race() { return SES; }, get world() { return world; }, get skids() { return skids; }, get camera() { return camera; }, get T() { return T; }, get DFX() { return DFX; }, get coach() { return COACH_ST; }, setLineMode, crashTest, startSession, rewind, get RW() { return RW; }, selectCar, cycleCam, netDbg: () => ({ code: NET.code, host: NET.host, off: NET.offset, seen: NET.cfgSeen, peers: NET.peers.map(p => [p.peer, p.sameTab, pres(p).code, pres(p).host, pres(p).ph, pres(p).cfg && pres(p).cfg.seq, pres(p).cfg && pres(p).cfg.startAt - Date.now()]) }), setAuto(k) { AUTO = k != null ? { k } : null; }, renderer: () => renderer, menu: MENU, setWeather, WXS, TYRES, tyreRequestCycle, startFromMenu, endQuali,
   view(sN, d, h, back, lookD, fov) { $('menu').hidden = true; const s = ((sN + T.nom) % T.nom) * T.L / T.nom; const p = trackPoint(T, s - (back || 0), d), t = trackPoint(T, s, lookD != null ? lookD : d); DEBUGCAM = [p.x, p.e + h, p.z, t.x, t.e + 1, t.z, fov || 60]; return 'ok'; }, noview() { DEBUGCAM = null; }, cam(a, b, c, d, e, f, g) { $('menu').hidden = true; DEBUGCAM = [a, b, c, d, e, f, g || 60]; return 'ok'; },
   camAt(p, t, fov) { $('menu').hidden = true; model.root.updateMatrixWorld(true); const a = model.body.localToWorld(new THREE.Vector3(p[0], p[1], p[2])), b = model.body.localToWorld(new THREE.Vector3(t[0], t[1], t[2])); DEBUGCAM = [a.x, a.y, a.z, b.x, b.y, b.z, fov || 40]; return 'ok'; },
   orbit(ang, dist, h, fov) { $('menu').hidden = true; const a = car.h + ang, y = car.y; DEBUGCAM = [car.x + Math.sin(a) * dist, y + h, car.z + Math.cos(a) * dist, car.x, y + 0.55, car.z, fov || 35]; return 'ok'; },

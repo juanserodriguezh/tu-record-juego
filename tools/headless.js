@@ -1,9 +1,9 @@
 // Headless game core (tracks + cars + physics, no browser): node tools/headless.js accel [ids]  |  node tools/headless.js tyres
 const fs = require('fs'), path = require('path');
 const SRC = path.join(__dirname, '..', 'src');
-const files = ['data_spa', 'data_monza', 'data_albertpark', 'data_toca', 'tracks', 'cars', 'physics', 'damage', 'line_offs', 'ai', 'coach'];
+const files = ['data_spa', 'data_monza', 'data_albertpark', 'data_toca', 'tracks', 'cars', 'physics', 'damage', 'line_offs', 'ai', 'coach', 'rewind'];
 const src = files.map(f => fs.readFileSync(path.join(SRC, f + '.js'), 'utf8').replace(/if \(typeof module[^\n]*\n/, '')).join('\n');
-const M = new Function(src + '\nreturn { buildTrack, Vehicle, CARS, TRACK_DEFS, ACCEL_CAL, LINE_OFFS, lineFromOffsets, wxInit, AIDriver, AI_PROFILES, qssProfile, aiProfile, newDamage, pitStopPlan, PIT_CREW, Coach, coachPlan, COACH, DMG };')();
+const M = new Function(src + '\nreturn { buildTrack, Vehicle, CARS, TRACK_DEFS, ACCEL_CAL, LINE_OFFS, lineFromOffsets, wxInit, AIDriver, AI_PROFILES, qssProfile, aiProfile, newDamage, pitStopPlan, PIT_CREW, Coach, coachPlan, COACH, DMG, Rewind, REWIND, rwCopy };')();
 const cmd = process.argv[2] || 'accel';
 if (cmd === 'accel') {   // standing-start acceleration on the Spa straight: 0-100 / 0-200 / 0-300 km/h and top speed
   const T = M.buildTrack('spa');
@@ -137,4 +137,61 @@ if (cmd === 'pitstop') {   // stationary pit-stop time per body type: tyres only
     ['alerón + carrocería', D => { D.fw = 0.6; D.body.f = 1; }, true], ['suspensión media', D => { D.sus[0] = 0.5; }, true], ['choque fuerte', D => { D.fw = 1; D.body.f = 1.2; D.body.l = 0.8; D.sus[0] = 1; D.cool = 0.6; }, true]];
   console.log('body'.padEnd(7), cases.map(c => c[0].padStart(20)).join(''));
   for (const body of Object.keys(M.PIT_CREW)) console.log(body.padEnd(7), cases.map(([, f, ty]) => { const D = M.newDamage(); f(D); return (M.pitStopPlan(D, body, ty).tot.toFixed(1) + ' s').padStart(20); }).join(''));
+}
+if (cmd === 'rewind') {   // practice rewind: exact restore (replay = same lap), damage, cost and the adaptive line: node tools/headless.js rewind [track] [cars]
+  const tid = process.argv[3] || 'monza', ids = (process.argv[4] || 'amg_gt3,w17,duster').split(',');
+  const D = M.TRACK_DEFS[tid], T = M.buildTrack(D), offs = (M.LINE_OFFS[D.id] || '').split(',').map(v => +v / 100);
+  const LINE = M.lineFromOffsets(T, Float64Array.from(offs.length === T.N ? offs : new Array(T.N).fill(0))); M.wxInit(T, LINE, D);
+  const dt = 1 / 240, self = { id: 'me' }; let fail = 0;
+  const diff = (a, b) => { let m = 0, k = ''; const walk = (x, y, p) => { if (typeof x === 'number') { const d = Math.abs(x - y); if (!(d <= m)) { m = d; k = p; } } else if (x && typeof x === 'object') for (const j in x) walk(x[j], y ? y[j] : undefined, p + '.' + j); else if (x !== y) { m = Infinity; k = p; } }; walk(a, b, ''); return [m, k]; };
+  const skip = { spec: 1, P: 1, T: 1 }, state = (V) => { const o = {}; for (const k in V) if (!skip[k] && typeof V[k] !== 'function') o[k] = M.rwCopy(V[k]); return o; };
+  // 1) exact: drive 40 s (AI level 10, damage on), go back 5 s, replay the same inputs: the car must end bit-identical
+  M.DMG.scale = 1;
+  for (const id of ids) { const sp = M.CARS.find(c => c.id === id);
+    const V = new M.Vehicle(sp, T); V.reset(T.L - 150 * T.L / D.nom, 0); V.u = 0;
+    const ai = new M.AIDriver(V, T, LINE, { diff: 10, react: 0 }); ai.setEnv({ grip: 1, wet: 0, water: 0, dryLine: 0 }, id); ai.startRolling();
+    const RW = new M.Rewind(), inps = []; let n = 0;
+    for (; n < 40 / dt; n++) { const inp = Object.assign({}, ai.drive(dt, [self], self, { hold: false })); inps.push(inp); V.step(dt, inp, ai.env); RW.tick(dt, V, { n: n + 1 }); }
+    const end = state(V), b = RW.back(5); RW.restore(V, b.sn);
+    const back = (end.q.s - V.q.s + T.L) % T.L;
+    for (let j = b.sn.x.n; j < n; j++) V.step(dt, inps[j], ai.env);
+    const [m, k] = diff(end, state(V)); if (m !== 0) fail++;
+    console.log(`${tid} ${id.padEnd(9)} back ${b.sec} s (${back.toFixed(0)} m), replay -> max difference ${m}${m ? ' in ' + k : ' (identical)'}`); }
+  // 2) damage: hit the wall at 180 km/h, rewind to before the hit: damage, tyres and speed as they were
+  { const sp = M.CARS.find(c => c.id === ids[0]), V = new M.Vehicle(sp, T), i = Math.round(T.N * 0.3), RW = new M.Rewind();
+    V.reset(i * T.ds, T.barL[i] - 8, false); V.h = Math.atan2(T.tx[i], T.tz[i]) + 25 * Math.PI / 180; V.u = 50;
+    const env = { grip: 1, abs: true, tc: true, esc: true, autoShift: true, steerAssist: true, slipCap: true };
+    for (let j = 0; j < 3 / dt; j++) { V.step(dt, { steer: 0, throttle: 0.3, brake: 0 }, env); RW.tick(dt, V, {}); }
+    const hit = V.dmg.total, b = RW.back(15); RW.restore(V, b.sn);
+    const ok = hit > 0.05 && V.dmg.total === b.sn.v.dmg.total && V.dmg.total < 0.01 && Math.abs(V.u - b.sn.v.u) === 0;
+    if (!ok) fail++;
+    console.log(`damage: after the hit ${(hit * 100).toFixed(0)} %, rewound ${b.sec} s -> ${(V.dmg.total * 100).toFixed(1)} % at ${(V.u * 3.6).toFixed(0)} km/h ${ok ? 'OK' : 'FAIL'}`); }
+  // 3) cost: time per snapshot and memory of a full ring (15 s at 10 Hz); a full ring reuses its objects (no garbage)
+  { let gc = null; try { require('v8').setFlagsFromString('--expose-gc'); gc = require('vm').runInNewContext('gc'); } catch (e) { }
+    const sp = M.CARS.find(c => c.id === ids[0]), V = new M.Vehicle(sp, T); V.reset(1000, 0); V.u = 40;
+    for (let j = 0; j < 240; j++) V.step(dt, { steer: 0, throttle: 1, brake: 0 }, { grip: 1 });
+    const x = { started: true, lapT: 12.3, cp: [true, false], sectorsCur: [31.2], ghostLen: 480 };
+    const heap = () => { if (gc) gc(); return process.memoryUsage().heapUsed; };
+    const h0 = heap(), rings = []; for (let r = 0; r < 20; r++) { const RW = new M.Rewind(); for (let j = 0; j < RW.n; j++) { RW.acc = 0; RW.tick(dt, V, x); } rings.push(RW); }
+    const per = (heap() - h0) / 20;
+    const RW = rings[0], t0 = process.hrtime.bigint(), N = 20000; for (let j = 0; j < N; j++) { RW.acc = 0; RW.tick(dt, V, x); }
+    const us = Number(process.hrtime.bigint() - t0) / 1e3 / N, h1 = heap(); for (let j = 0; j < 20000; j++) { RW.acc = 0; RW.tick(dt, V, x); } const grow = heap() - h1;
+    console.log(`cost: ${us.toFixed(1)} µs per snapshot (10 per second = ${(us * 10 / 1000).toFixed(3)} ms/s of CPU, ${(us * 10 / 1e4).toFixed(4)} % of one core), ring of ${RW.n} snapshots ${(per / 1024).toFixed(0)} KB${gc ? '' : ' (no gc: rough)'}, heap after 20 000 more snapshots ${grow >= 0 ? '+' : ''}${(grow / 1024).toFixed(0)} KB`);
+    if (us > 50 || per > 2e6) fail++; }
+  // 4) adaptive line: AI level 10 drives 2 laps and rewinds 3 s at every apex; the retry must be judged (and judged right)
+  { const sp = M.CARS.find(c => c.id === ids[0]), V = new M.Vehicle(sp, T); V.reset(T.L - 150 * T.L / D.nom, 0); V.u = 0; M.DMG.scale = 0;
+    const ai = new M.AIDriver(V, T, LINE, { diff: 10, react: 0 }); ai.setEnv({ grip: 1, wet: 0, water: 0, dryLine: 0 }, ids[0]); ai.startRolling();
+    const C = new M.Coach(T, M.coachPlan(T, LINE, V.P, 1), {}), RW = new M.Rewind(), cnt = { late: 0, good: 0, early: 0 }, at = {};
+    let t = 0, lap = 0, ps = V.q.s, rw = 0, retried = 0, judgedRetry = 0, pend = -1, dts = 1 / 120;
+    while (lap < 3 && t < 900) { const inp = ai.drive(dts, [self], self, { hold: false }); V.step(dts, inp, ai.env); t += dts; RW.tick(dts, V, {});
+      const q = V.q, k = C.zEval[q.i];
+      const ev = C.observe(q.i, Math.abs(V.u), inp.brake, false, false, dts);
+      if (ev) { cnt[ev.kind]++; if (pend === C.zones.indexOf(ev.zone)) { judgedRetry++; pend = -1; } }
+      if (lap >= 1 && k >= 0 && at[k] !== lap && C.rel(C.zones[k], q.i) >= C.rel(C.zones[k], C.zones[k].a)) {   // at the apex: back 3 s
+        at[k] = lap; const b = RW.back(3); if (b) { RW.restore(V, b.sn); const e2 = C.rewound(); if (e2) cnt[e2.kind]++; rw++; const r = C.zEval[V.q.i]; if (r === k && C.rel(C.zones[k], V.q.i) < C.rel(C.zones[k], C.zones[k].b) - 4) { retried++; pend = k; } ps = V.q.s; continue; } }
+      if (ps > T.L * 0.8 && q.s < T.L * 0.2) lap++; ps = q.s; }
+    const tot = cnt.late + cnt.good + cnt.early, ok = judgedRetry >= 0.9 * retried && cnt.good >= 0.9 * tot;
+    if (!ok) fail++;
+    console.log(`line: ${rw} rewinds at the apex, ${retried} landed before the braking point, ${judgedRetry} of those retries judged · verdicts good ${cnt.good} late ${cnt.late} early ${cnt.early} ${ok ? 'OK' : 'FAIL'}`); }
+  if (fail) { console.log(fail, 'rewind check(s) failed'); process.exit(1); }
 }

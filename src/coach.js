@@ -100,7 +100,7 @@ class Coach {
     const z = this.zones[k], r = this.rel(z, i);
     // a pass counts only when the car comes in before the top speed ahead of the zone and with some speed there
     // (not after a spin, a reset or stuck in traffic); braking and red are looked at from that point on
-    if (!o) this.obs = o = { k, ok: r < this.rel(z, z.p), arm: false, bi: -1, vb: 0, red: -1, vmin: 1e9, off: false, r };
+    if (!o) { this.obs = o = { k, ok: r < this.rel(z, z.p) || (this.reArm && r < this.rel(z, z.b) - 4), arm: false, bi: -1, vb: 0, red: -1, vmin: 1e9, off: false, r }; this.reArm = false; }
     if (r < o.r - 4) o.ok = false;   // going backwards, reset or spun
     o.r = Math.max(o.r, r);
     const ra = this.rel(z, z.a);
@@ -144,6 +144,15 @@ class Coach {
     z.hidden = z.streak >= COACH.master;
     this.rebuild();
     return { zone: z, kind, err, ratio, msg: msg ? z.name + ' · ' + msg : '' };
+  }
+  // the player rewound (practice): a pass that already went wrong (off, or past the apex) still counts, since the
+  // retry is what the marks are for; a pass cut short says nothing. The retry is judged even when the rewind
+  // lands inside the window, as long as it lands before the braking point.
+  rewound() {
+    const o = this.obs; let ev = null;
+    if (o && o.ok && o.arm && (o.off || o.r >= this.rel(this.zones[o.k], this.zones[o.k].a))) ev = this.judge(o);
+    this.obs = null; this.cool = 0; this.reArm = true;
+    return ev;
   }
   state() { const o = {}; for (const z of this.zones) if (z.n) o[z.key] = { l: z.lvl, s: z.streak, n: z.n }; return o; }
 }
