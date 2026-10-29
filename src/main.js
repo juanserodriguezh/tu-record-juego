@@ -735,6 +735,7 @@ function makeField(n) {
     const special = ['f1', 'f1h', 'indy', 'lmp', 'fe'].includes(sp.body) || !!sp.model;
     let col = LIV_COLS[Math.floor(rnd() * LIV_COLS.length)], col2 = LIV_COLS[Math.floor(rnd() * LIV_COLS.length)];
     if (col2 === col) col2 = col === '#0e0f11' ? '#f4f4f4' : '#0e0f11';
+    if (sp.series === 'f1mod') { col = sp.col; col2 = sp.col2; }   // F1 teams keep their livery on the grid
     const liv = { col, col2, col3: sp.col3, pattern: special ? 'solido' : ['solido', 'solido', 'franjas', 'dos', 'banda'][Math.floor(rnd() * 5)], finish: rnd() < 0.2 ? 'metal' : rnd() < 0.1 ? 'mate' : 'brillo', rim: ['plata', 'negro', 'negro', 'oro', 'bronce'][Math.floor(rnd() * 5)] };
     field.push({ id: 'ai' + k, name: names[k % names.length][0], code: names[k % names.length][1], sp, liv, diff: g.diff, spread: (rnd() - 0.5) * 0.024 });
   }

@@ -1,0 +1,4 @@
+{"tread":"tyre_tread","wheels":["sf25_wheel_hub","discs.008","tyre_tread","tyre_sides"],
+"int":["chrome.005","black_s.002","kers_green.004","kers_red.004","kers_blue","chrome_ao.002","CLEARLED.004","plastic_interior.002","sf25_lcd","CLARED","sf25_sw_carbon","sf25_sw","sf25_sw_decals","gp21_cinture.005","sf25_carbon3","glass"],
+"keep":["paint","decal","number","driver_color","mirror","rear_light"],"mask":["decal","numbers"],"glass":[],
+"paint":"sf25_paints","mode":"ref","ref":[172,4,4],"paintSize":2048,"err":0.0004,"scale":0.9625}

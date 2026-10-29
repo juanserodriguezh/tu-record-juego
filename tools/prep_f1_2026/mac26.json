@@ -1,0 +1,4 @@
+{"tread":"tread_medium.009","wheels":["gm_cadillac_wheel_hub","discs.010","tread_medium.009","sidewall.009"],
+"int":["chrome.007","black_s.001","gm_cadillac_carbon4","gm_cadillac_steeringwheel","vehicle_revs_type2","indicator_lights","generic_lcd","gm_cadillac_sw_decals","kers_green.006","kers_yellow","CLEARLED.005","gp21_cinture.006"],
+"keep":["paint","decal","number","driver_color","mirror","glass","rear_light"],"mask":["decal","number"],"glass":[],
+"paint":"gm_cadillac_paint","mode":"dark","ref":[0,0,0],"paintSize":2048,"err":0.0004,"scale":1}

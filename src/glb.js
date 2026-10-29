@@ -82,6 +82,17 @@ async function mergeStatic(root) {
     root.add(m);
   }
 }
+// Textured liveries (F1 2026): the paint texture's alpha is the recolour weight baked offline (1 = body colour, 0 = stripes / logos).
+// The texel moves by (chosen - original) * weight, so the original colour gives the texture back unchanged and shading / edges stay.
+function glbPaintMask(mat) {
+  const ref = new THREE.Color(mat.userData.paintRef || '#000000');
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.paintRef = { value: ref };
+    sh.fragmentShader = 'uniform vec3 paintRef;\n' + sh.fragmentShader.replace('#include <map_fragment>',
+      '#ifdef USE_MAP\n vec4 pt = texture2D( map, vMapUv );\n diffuseColor.rgb = clamp( pt.rgb + ( diffuse - paintRef ) * pt.a, 0.0, 1.0 );\n#endif');
+  };
+  mat.customProgramCacheKey = () => 'paintMask';
+}
 // Replace the procedural exterior of `out` with the GLB model. cfg: { dz (cockpit shift), int: [regex of nodes hidden from inside] }
 function applyGlb(out, spec) {
   const src = GLBS[spec.glb]; if (!src) return;
@@ -100,7 +111,7 @@ function applyGlb(out, spec) {
   { const cache = GLB_PAINT || (GLB_PAINT = new Map());
     g.traverse(o => { if (!o.isMesh) return; const mats = Array.isArray(o.material) ? o.material : [o.material];
       const nm = mats.map(m => { const pk = m && m.userData && m.userData.paint; if (!pk) return m; const hex = pk === 1 ? out.liv.col : out.liv.col2; if (!hex) return m;
-        const key = spec.glb + '|' + m.uuid + '|' + hex; let c = cache.get(key); if (!c) { c = m.clone(); c.color.set(hex); cache.set(key, c); } return c; });
+        const key = spec.glb + '|' + m.uuid + '|' + hex; let c = cache.get(key); if (!c) { c = m.clone(); c.color.set(hex); if (m.userData.paintMask) glbPaintMask(c); cache.set(key, c); } return c; });
       o.material = Array.isArray(o.material) ? nm : nm[0]; }); }
   body.add(g); out.glb = g;
   // 2) wheels (order FL, FR, RL, RR as the procedural ones)
