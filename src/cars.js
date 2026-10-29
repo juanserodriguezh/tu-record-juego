@@ -38,6 +38,7 @@ const ACCEL_CAL = {
   indy_2028: [0.81, 1],
   civic_r: [0.846, 1],
   duster: [0.8, 1],
+  seagull: [1, 1.09],
   amg_gt3: [0.79, 1],
   amg_gt3_rb: [0.79, 1],
   amg_gt3_evo: [0.79, 1],
@@ -116,6 +117,9 @@ const CARS = [
   mkCar('indy_2028', 'IndyCar', 'proto', 'indy', 900, 820, 'R', 320, { glb: 'indy23', dy: -0.08, cdz: 0.1, cdy: 0.07, scanFrame: true, tcFwd: 0.22, tcPitch: -0.11, cabClip: [1.2, -1, 3, 3, 1.3], shDrop: 0.2, suit: '#1a1c22', gloveCol: '#e6e6e2', aero: { zf: 1.42, zt: 0.98, yf: 0.82, yt: 1.08, w: 0.30, wt: 0.24, wrap: 0.5, drop: 0.2 }, len: 5.08, wid: 2.05, hgt: 1.34, wb: 3.3, sub: 'Chasis 2028 · V6 turbo híbrido', shape: 0.95, xpk: 0.9, spread: 2.8, col: '#f3f3f3', col2: '#b0101a', num: '28', helmet: '#ffffff', rw: 0.33, isNew: true }),
 
   // ---- road cars
+  // BYD Seagull 2024 (38,88 kWh «Flying»): 55 kW / 135 Nm delantero, 1.240 kg, 130 km/h limitada, 0-100 en 13,0 s. Sin límite llegaría a ~160 km/h
+  // con su CdA (~0,72 m²): vmax 160 + lim 130 deja la resistencia aerodinámica real. Eléctrico de una marcha: par constante hasta ~40 km/h (xpk 0,24: 4,6 kN en rueda ≈ 135 Nm × reducción ~10).
+  mkCar('seagull', 'BYD Seagull', 'calle', 'hatch', 75, 1240, 'F', 160, { lim: 130, sub: 'Eléctrico · 55 kW · 135 Nm · batería Blade LFP 38,9 kWh', ev: true, gears: 1, shift: 0, red: 12000, cyl: 4, shape: 1.0, xpk: 0.24, xLaunch: 0.2, spread: 1, isNew: true, glb: 'seagull', trueWheels: false, cdz: 0, cdy: -0.1, swAt: [0.95, 0.42, 0.4], col: '#8fa018', col2: '#1b1c1e', len: 3.78, wid: 1.715, hgt: 1.54, wb: 2.5, wf: 0.6, cgh: 0.56, mu: 0.95, cla: 0, rw: 0.3, rim: 'negro' }),
   mkCar('duster', 'Renault Duster', 'calle', 'hatch', 150, 1290, 'F', 187, { sub: '2.ª gen · Intens 1.3 TCe 150 · SUV', suv: true, isNew: true, glb: 'duster', cdz: 0, col: '#f2f4f5', col2: '#1b1c1e', len: 4.33, wid: 1.93, hgt: 1.77, wb: 2.69, wf: 0.61, cgh: 0.68, mu: 0.97, cla: 0, gears: 6, red: 6000, cyl: 4, shift: 0.26, rim: 'plata' }),
 
   // ---- supercars

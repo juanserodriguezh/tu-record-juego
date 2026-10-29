@@ -1,6 +1,6 @@
 # ARMK Racing
 
-Juego de carreras en el navegador. Incluye Spa, Monza, Albert Park y Tocancipá, y 21 coches escaneados.
+Juego de carreras en el navegador. Incluye Spa, Monza, Albert Park y Tocancipá, y 22 coches escaneados.
 
 ```bash
 node build.js && node tools/serve.mjs   # abre http://localhost:8000
