@@ -1,6 +1,6 @@
 # ARMK Racing (antes «Tu récord») — juego de carreras en el navegador
 
-Juego 3D con three.js 0.160 (cargado desde jsDelivr). Incluye 4 circuitos: Spa-Francorchamps, Monza, Albert Park y Tocancipá (6 trazados), 21 coches escaneados, IA, daños, neumáticos, clima, multijugador por sala y audio sintetizado.
+Juego 3D con three.js 0.160 (cargado desde jsDelivr). Incluye 4 circuitos: Spa-Francorchamps, Monza, Albert Park y Tocancipá (6 trazados), 22 coches escaneados, IA, daños, neumáticos, clima, multijugador por sala y audio sintetizado.
 El resultado es una sola página `dist/spa.html` más los modelos en `dist/models/packN.wasm`.
 
 ## Cómo trabajar con el usuario (Juanse)
@@ -74,6 +74,7 @@ Ejemplos de capturas:
 - **Ajuste de cámara** en juego: teclas 1–0. Se guarda por coche y por vista.
 
 ## Historial reciente y decisiones
+- **v77:** BYD Seagull (eléctrico, 55 kW, limitado a 130): modelo preparado con `tools/prep_seagull.mjs`; el color cambia solo la pintura (también mate/metal en cualquier coche escaneado).
 - **v75:** rebobinado en prácticas (tecla Retroceso o botón ⟲): 5 s por pulsación, hasta 15 s; restaura coche, daño y cronómetro; la vuelta queda inválida; `node tools/headless.js rewind` comprueba que la repetición es idéntica bit a bit.
 - **v72:** Tocancipá con las referencias de la foto aérea (`buildToca`, marco fijo `TOCA_VENUE`): pórtico Mobil, garajes bajos, paddock de contenedores, llantas, eucaliptos, montañas y chimeneas. Los boxes van **por dentro** (entre la recta y la vía de vuelta de la horquilla) y la tribuna por fuera, como en la foto; esto corrige la v69.
 - **v71:** línea de frenada adaptativa (`coach.js`): colores según tu velocidad, aprende por curva, marcas de frenada y se retira de las curvas dominadas.
@@ -84,7 +85,7 @@ Ejemplos de capturas:
 - **v65:** Tocancipá estaba en espejo. Se corrigió a `y = +z`, invirtiendo el lado de las barreras y las tribunas.
 - **v64:** ruedas del W17 corregidas en el asset: 2,5° de caída eliminados, llanta redondeada y ruedas excluidas de la simplificación. Por eso `trueWheels: false`.
 - **v62:** la escapatoria de la T1 de Monza es plana (rampa lineal) y el coche se apoya en ella.
-- El pipeline que optimizaba los GLB originales (gltf-transform + meshoptimizer, scripts `prep.mjs` por coche) **no está en este repo**. Para un coche nuevo hay que rehacerlo con gltf-transform (weld, simplify, textureCompress webp, quantize, meshopt) y dejar el resultado en `assets/`.
+- El pipeline que optimizaba los GLB originales (gltf-transform + meshoptimizer, scripts `prep.mjs` por coche) **no está en este repo**. Para un coche nuevo, el modelo a seguir es `tools/prep_seagull.mjs` (v77): FBX → GLB con FBX2glTF, escala por la batalla real, ruedas separadas en `WHL_*` por cilindro, materiales arreglados, `paint`/`int` en extras, simplify por grupo (la pintura sin simplificar), webp, quantize y meshopt. Sus dependencias (`fbx2gltf`, `@gltf-transform/*`, `meshoptimizer`, `sharp`) se instalan aparte, no en `package.json`.
 - El Ferrari F40 de ACPursuit (mod de Assetto Corsa) **no se integró**: el modelo viene protegido contra extracción. Su física (data.acd) está calculada; ver HANDOFF.md.
 
 ## Publicación

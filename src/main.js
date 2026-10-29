@@ -206,7 +206,7 @@ function selectCar(id, silent) {
 const accelCache = {};
 function zeroTo100(sp) {
   if (accelCache[sp.id] != null) return accelCache[sp.id];
-  const v = new Vehicle(sp, T); v.reset(1500, 0);
+  const v = new Vehicle(sp, T); v.reset(1500, 0); v.collide = () => {}; v.surfaceAt = () => 'asphalt';   // a slow car (13 s) would leave a short straight before 100 km/h
   const e = { grip: 1, abs: true, tc: true, esc: true, autoShift: true, steerAssist: true, noGrade: true };
   let t = 0; const dt = 1 / 240;
   while (t < 25) { v.step(dt, { steer: 0, throttle: 1, brake: 0 }, e); t += dt; if (v.u >= 100 / 3.6) break; }
@@ -454,7 +454,7 @@ function renderSpec() {
   $('bestWet').textContent = fmtTime(S.times[recKey(sp.id, true)]);
   for (const [id, key] of [['sw1', 'col'], ['sw2', 'col2']]) [...$(id).children].forEach(b => b.setAttribute('aria-pressed', String(b.dataset.c.toLowerCase() === String(liv[key]).toLowerCase())));
   $('col1').value = liv.col; $('col2').value = liv.col2;
-  const special = ['f1', 'f1h', 'indy', 'lmp', 'fe'].includes(sp.body) || !!sp.model;
+  const special = ['f1', 'f1h', 'indy', 'lmp', 'fe'].includes(sp.body) || !!sp.model || !!sp.glb;   // scanned bodies only recolour their paint: no stripes
   segButtons($('segPattern'), special ? { solido: 'Original' } : PATTERNS, special ? 'solido' : liv.pattern, (k) => setLivery({ pattern: k }));
   segButtons($('segFinish'), FINISH, liv.finish, (k) => setLivery({ finish: k }));
   segButtons($('segRim'), RIMNAMES, liv.rim, (k) => setLivery({ rim: k }));
@@ -732,7 +732,7 @@ function makeField(n) {
   const field = [];
   for (let k = 0; k < n; k++) {
     const sp = deal ? deal[k % deal.length] : pool[Math.floor(rnd() * pool.length)];
-    const special = ['f1', 'f1h', 'indy', 'lmp', 'fe'].includes(sp.body) || !!sp.model;
+    const special = ['f1', 'f1h', 'indy', 'lmp', 'fe'].includes(sp.body) || !!sp.model || !!sp.glb;   // scanned bodies only recolour their paint: no stripes
     let col = LIV_COLS[Math.floor(rnd() * LIV_COLS.length)], col2 = LIV_COLS[Math.floor(rnd() * LIV_COLS.length)];
     if (col2 === col) col2 = col === '#0e0f11' ? '#f4f4f4' : '#0e0f11';
     if (sp.series === 'f1mod') { col = sp.col; col2 = sp.col2; }   // F1 teams keep their livery on the grid

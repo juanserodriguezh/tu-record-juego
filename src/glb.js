@@ -111,7 +111,8 @@ function applyGlb(out, spec) {
   { const cache = GLB_PAINT || (GLB_PAINT = new Map());
     g.traverse(o => { if (!o.isMesh) return; const mats = Array.isArray(o.material) ? o.material : [o.material];
       const nm = mats.map(m => { const pk = m && m.userData && m.userData.paint; if (!pk) return m; const hex = pk === 1 ? out.liv.col : out.liv.col2; if (!hex) return m;
-        const key = spec.glb + '|' + m.uuid + '|' + hex; let c = cache.get(key); if (!c) { c = m.clone(); c.color.set(hex); if (m.userData.paintMask) glbPaintMask(c); cache.set(key, c); } return c; });
+        const fin = out.liv.finish || 'brillo', key = spec.glb + '|' + m.uuid + '|' + hex + '|' + fin; let c = cache.get(key);
+        if (!c) { c = m.clone(); c.color.set(hex); if (fin === 'mate') { c.metalness = 0; c.roughness = 0.62; } else if (fin === 'metal') { c.metalness = 0.85; c.roughness = 0.2; } if (m.userData.paintMask) glbPaintMask(c); cache.set(key, c); } return c; });
       o.material = Array.isArray(o.material) ? nm : nm[0]; }); }
   body.add(g); out.glb = g;
   // 2) wheels (order FL, FR, RL, RR as the procedural ones)
