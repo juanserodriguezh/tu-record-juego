@@ -58,7 +58,9 @@ if (cmd === 'coach') {   // adaptive line: zones and how it judges three drivers
     const ai = new M.AIDriver(V, T, LINE, { diff, react: 0 }); ai.setEnv({ grip: 1, wet: 0, water: 0, dryLine: 0 }, id); ai.startRolling();
     const miss = [], C = new M.Coach(T, vel, {}), cnt = { late: 0, good: 0, early: 0 }, laps = []; let t = 0, ps = V.q.s, lap = 0, hidden = [];
     const self = { id: 'me' }, dt = 1 / 120;
-    let zk = -1, s0 = null;
+    let zk = -1, s0 = null, redOut = 0;
+    // where the plan brakes (top speed before a zone to just past its apex): a clean driver must never see red elsewhere
+    const brkPart = new Uint8Array(T.N); for (const z of C.zones) for (let j = z.p; j !== (z.a + 3) % T.N; j = (j + 1) % T.N) brkPart[j] = 1;
     while (lap <= nl && t < 900) { let inp = ai.drive(dt, [self], self, { hold: false });
       if (late) { const k = C.zEval[V.q.i]; if (k !== zk) { zk = k; s0 = null; }
         if (k >= 0 && inp.brake > 0.05 && s0 == null) s0 = V.q.s;
@@ -67,6 +69,7 @@ if (cmd === 'coach') {   // adaptive line: zones and how it judges three drivers
       if (ai.needReset) { V.reset(V.q.s, LINE.off[V.q.i], true); V.u = 10; ai.needReset = false; ai.stuckT = 0; ai.startRolling(); C.obs = null; }
       const q = V.q, off = Math.abs(q.d) > (q.d >= 0 ? q.wl : q.wr) + 1.3 + 0.95;
       const ev = C.observe(q.i, Math.abs(V.u), inp.brake, off, V.impactT > 0.45 && V.lastImpact > 4, dt);
+      if (lap >= 1 && !brkPart[q.i] && C.code(Math.abs(V.u), q.i) > 1.5) redOut += dt;
       if (ev) { cnt[ev.kind]++; if (ev.kind !== want) miss.push(ev.zone.name + ' ' + ev.kind + ' (' + ev.err + ' m, ' + (ev.ratio * 100).toFixed(0) + ' %)'); }
       if (ps > T.L * 0.8 && q.s < T.L * 0.2) { lap++; hidden.push(C.zones.filter(z => z.hidden).length); } ps = q.s; }
     // the plan keeps a braking margin, so braking 40 m late still makes some corners (more on fast tracks): those
@@ -74,7 +77,8 @@ if (cmd === 'coach') {   // adaptive line: zones and how it judges three drivers
     // mostly late verdicts and few early ones (<15 % of the late ones); the other two need 90 %.
     const tot = cnt.late + cnt.good + cnt.early, share = tot ? cnt[want] / tot : 0;
     if (want === 'late' ? !cnt.late || cnt.early > 0.15 * cnt.late : share < 0.9) fail++;
-    console.log(`${name.padEnd(6)} late ${cnt.late}  good ${cnt.good}  early ${cnt.early}  -> ${(share * 100).toFixed(0)} % as expected · corners withdrawn after each lap: ${hidden.join(' ')}`);
+    const ro = redOut / Math.max(1, nl); if (want !== 'late' && ro > 0.3) fail++;
+    console.log(`${name.padEnd(6)} late ${cnt.late}  good ${cnt.good}  early ${cnt.early}  -> ${(share * 100).toFixed(0)} % as expected · red under the car outside braking ${ro.toFixed(1)} s/lap · corners withdrawn after each lap: ${hidden.join(' ')}`);
     if (miss.length) console.log('    other verdicts:', [...new Set(miss)].slice(0, 6).join(' · '));
   }
   if (fail) { console.log(fail, 'driver(s) misjudged'); process.exit(1); }

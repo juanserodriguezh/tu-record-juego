@@ -8,7 +8,9 @@
 // ============================================================================
 // plan: braking at 80 % of the tyre limit and corners at 97 %, below the theoretical lap so a
 // human can hit it; lead: seconds of yellow before the red; pre/exit: metres judged around a zone
-const COACH = { brake: 0.8, vk: 0.97, lead: 0.45, pre: 160, exit: 25, master: 3 };
+// apex: red only above this share of the plan's apex speed (the plan corners at 97 %); soft: per level of late
+// braking, the warning envelope brakes that much softer (level 3 = 30 % longer braking, so the red starts earlier)
+const COACH = { brake: 0.8, vk: 0.97, lead: 0.45, pre: 160, exit: 25, master: 3, apex: 1.02, soft: 0.1, blend: 1.2 }, NEVER = 1e4;
 const coachPlan = (T, line, P, grip) => qssProfile(T, line, P, { grip }, { brake: COACH.brake, lat: 1, vk: COACH.vk }).vel;
 
 // braking zones of a speed plan: { s (window start), b (brake), a (apex), e (window end) } as sample indices
@@ -37,7 +39,7 @@ class Coach {
   constructor(T, vel, saved) {
     this.T = T; this.N = T.N; this.vel = vel;
     const N = T.N;
-    this.thrR = new Float32Array(N); this.thrY = new Float32Array(N); this.hide = new Uint8Array(N); this.stat = new Uint8Array(N);
+    this.thrR = new Float32Array(N); this.thrY = new Float32Array(N); this.hide = new Uint8Array(N); this.stat = new Float32Array(N);
     this.zEval = new Int16Array(N).fill(-1);
     this.zones = coachZones(T, vel);
     saved = saved || {};
@@ -57,31 +59,49 @@ class Coach {
   }
   next(i) { return (i + 1) % this.N; }
   rel(z, i) { return ((i - z.s) % this.N + this.N) % this.N; }
-  // per-sample thresholds (m/s): red when the car is faster than thrR, yellow when faster than thrY
+  // per-sample thresholds (m/s): red when the car is faster than thrR, yellow when faster than thrY.
+  // thrR is a braking envelope, not the plan speed itself: the fastest a car can be at that point and still make
+  // the apex braking like the plan does. So it is red only where braking is due (from your braking point to the apex),
+  // never on a corner exit or a straight, and never at the apex for a car at the plan's speed. A late braker gets the
+  // red earlier by braking softer in the envelope (longer braking), which leaves the apex speed untouched.
   rebuild() {
-    const { N, vel, T } = this, ds = T.ds, lead = new Float32Array(N).fill(COACH.lead);
-    for (let i = 0; i < N; i++) { const dv = vel[(i + 3) % N] - vel[i]; this.stat[i] = dv < -0.35 ? 2 : dv < -0.05 ? 1 : 0; }
-    // away from braking zones the plan's top speed can sit just under the car's real one: never red there
-    for (let i = 0; i < N; i++) this.thrR[i] = vel[i] + 2.5;
-    this.hide.fill(0);
+    const { N, vel, T } = this, ds = T.ds, lead = new Float32Array(N).fill(COACH.lead), nx = (j) => this.next(j), pv = (j) => (j - 1 + N) % N;
+    // fixed colours, continuous 0 (green) .. 1 (yellow) .. 2 (red) from the plan's slope
+    for (let i = 0; i < N; i++) { const dv = vel[(i + 3) % N] - vel[i]; this.stat[i] = Math.min(2, Math.max(0, (-dv - 0.02) / 0.165)); }
+    this.thrR.fill(NEVER); this.hide.fill(0);
     for (const z of this.zones) {
-      const late = Math.max(0, z.lvl), f = 1 - 0.025 * late, ld = Math.min(1.3, Math.max(0.25, COACH.lead + (z.lvl > 0 ? 0.25 : 0.08) * z.lvl));
-      const rb = this.rel(z, z.b), ra = this.rel(z, z.a);
-      for (let j = z.s; ; j = this.next(j)) {
-        const r = this.rel(z, j);
-        lead[j] = ld;
-        this.thrR[j] = r >= rb - 2 && r <= ra ? vel[j] * f : vel[j] + (r < rb ? 2.5 : 0);   // a late braker sees the red earlier
-        if (z.hidden) this.hide[j] = 1;
-        if (j === z.e) break;
+      const g = 1 / (1 + COACH.soft * z.lvl), ld = Math.min(1.3, Math.max(0.25, COACH.lead + (z.lvl > 0 ? 0.25 : 0.08) * z.lvl));
+      let d = z.b; while (d !== z.a && vel[nx(d)] < vel[d] - 0.02) d = nx(d);   // end of the main braking run
+      // apex back to the braking point: the plan's own deceleration, softened by g on the main run
+      let e2 = (vel[z.a] * COACH.apex) ** 2, main = false; this.thrR[z.a] = Math.sqrt(e2);
+      for (let j = pv(z.a); ; j = pv(j)) {
+        if (j === d) main = true;
+        e2 += (main ? g : 1) * Math.max(0, vel[j] ** 2 - vel[nx(j)] ** 2); this.thrR[j] = Math.sqrt(e2);
+        if (j === z.b) break;
       }
+      // before the braking point: carry on with the deceleration of its first 30 m
+      let n = 0, j2 = z.b; while (n < 12 && j2 !== d) { j2 = nx(j2); n++; }
+      const rate = g * (n ? (vel[z.b] ** 2 - vel[j2] ** 2) / n : 2 * 8 * ds);
+      if (z.b !== z.s) for (let j = pv(z.b); ; j = pv(j)) { e2 += rate; this.thrR[j] = Math.sqrt(e2); if (j === z.s) break; }
+      // and on, outside any zone, until it is far above any speed (no red edge at the window start)
+      for (let j = pv(z.s), k = 0; k < 400 && this.zEval[j] < 0 && e2 < 150 * 150; j = pv(j), k++) { e2 += rate; this.thrR[j] = Math.min(this.thrR[j], Math.sqrt(e2)); }
+      // past the apex the threshold climbs away from the plan over ~15 m (no hard edge for a car too fast there), then never red
+      const va = this.thrR[z.a]; for (let j = nx(z.a), k = 1; j !== nx(z.e); j = nx(j), k++) this.thrR[j] = Math.max(vel[j], va) + 0.6 * k;
+      for (let j = z.s; ; j = nx(j)) { lead[j] = ld; if (z.hidden) this.hide[j] = 1; if (j === z.e) break; }
     }
     for (let i = 0; i < N; i++) {   // yellow: the red is less than `lead` seconds ahead at this speed
-      const n = Math.ceil(this.thrR[i] * lead[i] / ds); let m = this.thrR[i];
+      const n = Math.ceil(Math.max(5, vel[i]) * lead[i] / ds); let m = this.thrR[i];
       for (let k = 1; k <= n; k++) m = Math.min(m, this.thrR[(i + k) % N]);
       this.thrY[i] = m;
     }
+    // a withdrawn corner fades in and out over 20 m instead of starting at one sample
+    const h = this.hide, w = Math.round(20 / ds); this.hideS = this.hideS || new Float32Array(N);
+    for (let i = 0; i < N; i++) { let m = 0; for (let k = -w; k <= w; k++) if (h[(i + k + N) % N]) m = Math.max(m, 1 - Math.abs(k) / (w + 1)); this.hideS[i] = m; }
     for (const z of this.zones) if (z.mark) z.mark.ref = this.refPoint(z, z.mark.vb);
   }
+  // live colour of sample j for a car at speed v, 0 green .. 1 yellow .. 2 red: the same blend as the shader
+  code(v, j) { const sm = (x) => { const t = Math.min(1, Math.max(0, (x + COACH.blend) / (2 * COACH.blend))); return t * t * (3 - 2 * t); };
+    return sm(v - this.thrY[j]) + sm(v - this.thrR[j]); }
   // where the red starts for a car arriving at speed v (sample index)
   refPoint(z, v) {
     for (let j = z.p; ; j = this.next(j)) { if (this.thrR[j] < v) return j; if (j === z.a) return z.b; }
@@ -172,7 +192,8 @@ class CoachLine {
     const pos = new Float32Array(seg.length * 18), aI = new Float32Array(seg.length * 6);
     seg.forEach((i, n) => {
       const i2 = (i + 1) % N, a0 = W.P(i, off[i] - 0.28, 0.02), a1 = W.P(i, off[i] + 0.28, 0.02), b0 = W.P(i2, off[i2] - 0.28, 0.02), b1 = W.P(i2, off[i2] + 0.28, 0.02);
-      [a0, b0, b1, a0, b1, a1].forEach((p, k) => { pos.set(p, n * 18 + k * 3); aI[n * 6 + k] = i; });
+      // each end of a dash carries its own sample, so the colour runs smoothly along it
+      [a0, b0, b1, a0, b1, a1].forEach((p, k) => { pos.set(p, n * 18 + k * 3); aI[n * 6 + k] = k === 1 || k === 2 || k === 4 ? i2 : i; });
     });
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
@@ -184,11 +205,15 @@ class CoachLine {
       Object.assign(sh.uniforms, this.u);
       sh.vertexShader = 'attribute float aI;\nattribute vec4 aD;\nuniform float uV, uI, uN, uWin, uHide;\nuniform vec3 uG, uY, uR;\nvarying vec4 vCo;\n' +
         sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
-          float di = mod(aI - uI + uN, uN), near = step(di, uWin);
-          float code = near > 0.5 ? (uV > aD.x ? 2.0 : uV > aD.y ? 1.0 : 0.0) : aD.w;
-          float al = near > 0.5 ? 0.9 : 0.55;
-          al *= mix(1.0, near * step(aD.x * 1.04 + 1.0, uV), aD.z * uHide);   // mastered corner: only when clearly too fast
-          vCo = vec4(code > 1.5 ? uR : code > 0.5 ? uY : uG, al);`);
+          // live colours near the car (fading into the fixed ones at the far end of the window and just behind it)
+          float di = mod(aI - uI + uN, uN);
+          float near = uWin > 0.0 ? max(1.0 - smoothstep(uWin * 0.7, uWin, di), smoothstep(uN - 16.0, uN - 4.0, di)) : 0.0;
+          // 0 green .. 1 yellow .. 2 red, blended over ±${COACH.blend.toFixed(2)} m/s around each threshold (Coach.code does the same)
+          float live = smoothstep(-${COACH.blend.toFixed(2)}, ${COACH.blend.toFixed(2)}, uV - aD.y) + smoothstep(-${COACH.blend.toFixed(2)}, ${COACH.blend.toFixed(2)}, uV - aD.x);
+          float code = mix(aD.w, live, near);
+          float al = mix(0.55, 0.9, near);
+          al *= mix(1.0, near * smoothstep(aD.x * 1.04, aD.x * 1.04 + 2.0, uV), aD.z * uHide);   // mastered corner: only when clearly too fast
+          vCo = vec4(code > 1.0 ? mix(uY, uR, code - 1.0) : mix(uG, uY, code), al);`);
       sh.fragmentShader = 'varying vec4 vCo;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  if (vCo.a < 0.01) discard;\n  diffuseColor = vec4(vCo.rgb, diffuseColor.a * vCo.a);');
     };
     this.dispose();
@@ -198,7 +223,7 @@ class CoachLine {
   }
   update(coach) {
     const a = this.mesh.geometry.getAttribute('aD'), d = a.array;
-    this.seg.forEach((i, n) => { for (let k = 0, o = n * 24; k < 6; k++, o += 4) { d[o] = coach.thrR[i]; d[o + 1] = coach.thrY[i]; d[o + 2] = coach.hide[i]; d[o + 3] = coach.stat[i]; } });
+    this.seg.forEach((i, n) => { for (let k = 0, o = n * 24; k < 6; k++, o += 4) { const j = k === 1 || k === 2 || k === 4 ? (i + 1) % coach.N : i; d[o] = coach.thrR[j]; d[o + 1] = coach.thrY[j]; d[o + 2] = coach.hideS[j]; d[o + 3] = coach.stat[j]; } });
     a.needsUpdate = true;
     this.buildMarks(coach);
   }
