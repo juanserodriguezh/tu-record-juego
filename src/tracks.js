@@ -174,3 +174,30 @@ const TOCA_DEFS = {
   toca_ovalo: {"id": "toca_ovalo", "name": "Tocancipá", "layout": "Óvalo", "title": "ARMK Racing · Tocancipá", "mark": "TOC", "sub": "Autódromo de Tocancipá · Óvalo · 0,95 km", "nom": 953, "elev": [[0, 2], [953, 2]], "corners": [{"s": 192, "name": "Curva 1", "n": 1}, {"s": 296, "name": "Curva 2", "n": 2}, {"s": 692, "name": "Curva 3", "n": 3}], "sectors": [318, 635], "runoff": [], "tyres": [[142, 222, -1]], "straight": [827, 53], "pitTr": [[777, 827], [53, 103]], "pit": [777, 827, 103, 53], "startS": 0, "brakeBanner": {"s": 120, "text": "AUTÓDROMO DE TOCANCIPÁ"}, "boards": [137, 241, 637], "bridges": [], "vergeSkip": [777, 103], "stands": [[817, 73, 1, 5, 10, true], [132, 232, 1, 8, 8, false]], "labels": [[192, "C1", 8, 4], [692, "C3", 8, 4]], "load": ["Trazando Tocancipá…", "La Sabana de Bogotá…", "Tribunas y boxes…"], "saus": [], "raw": () => TOCA_OVALO_RAW, "scenery": TOCA_SCENERY},
 };
 Object.assign(TRACK_DEFS, TOCA_DEFS);
+
+// Circuit de Monaco: geometry, walls, kerbs, heights and the city measured on the Assetto Corsa model (data_monaco.js, tools/prep_monaco).
+// Street circuit: asphalt widths as built (exactW, down to 3.6 m half-width), barriers where the model has them (bar), tarmac behind them.
+const MONACO_CORNERS = [
+  { s: 220, name: 'Sainte-Dévote', n: 1 }, { s: 505, name: 'Beau Rivage', n: 2, noBoard: true }, { s: 770, name: 'Massenet', n: 3 },
+  { s: 900, name: 'Casino', n: 4 }, { s: 1130, name: 'Mirabeau', n: 5 }, { s: 1270, name: 'Horquilla', n: 6 },
+  { s: 1345, name: 'Mirabeau Bas', n: 7, noBoard: true }, { s: 1435, name: 'Portier', n: 8 }, { s: 1740, name: 'Túnel', n: 9, noBoard: true },
+  { s: 2089, name: 'Nouvelle Chicane', n: 10 }, { s: 2369, name: 'Tabac', n: 12 }, { s: 2560, name: 'Louis Chiron', n: 13 },
+  { s: 2724, name: 'Piscine', n: 15 }, { s: 2919, name: 'La Rascasse', n: 17 }, { s: 3004, name: 'Anthony Noghès', n: 19, noBoard: true }
+];
+TRACK_DEFS.monaco = {
+  id: 'monaco', name: 'Mónaco', title: 'ARMK Racing · Mónaco', mark: 'MON',
+  sub: 'Circuit de Monaco · 3,337 km · 19 curvas · el túnel y el puerto',
+  raw: () => MONACO_RAW, bar: () => MONACO_BAR, barDs: MONACO_DS, nom: MONACO_NOM, exactW: true, exactStraight: true, wmin: 3.6, noPaint: true, lineMargin: 1.7, passRoom: 1.2, crane: true,   // walls at the asphalt edge: the racing line keeps a wider car (Chiron) off them
+  elev: MONACO_ELEV, corners: MONACO_CORNERS, sectors: [1100, 2250], runoff: [],
+  kerbs: MONACO_CITY.kerbs, conc: MONACO_CITY.conc, tyres: MONACO_CITY.tyres,
+  straight: [3060, 170], pitTr: [],
+  pit: [3040, 3090, 160, 160],
+  // pit exit: the lane runs on along the right of the straight and comes out on the inside of Sainte-Dévote, up Beau Rivage
+  escape: { from: 160, to: 280, rejoin: -4.5, hw: 4.0, pit: true, handles: [0.45, 0.3] },
+  pitDepth: 12, tower: false,
+  saus: [], startS: 60, boards: [190, 745, 1105, 1250, 1410, 2060, 2340, 2525, 2700, 2895],
+  bridges: [], vergeSkip: [0, 1e6], stands: [],
+  labels: [[220, 'STE DÉVOTE', 8, 4], [900, 'CASINO', 8, 4], [1270, 'HORQUILLA', 8, 4], [1740, 'TÚNEL', 8, 4], [2089, 'CHICANE', 8, 4], [2369, 'TABAC', 8, 4], [2724, 'PISCINE', 8, 4], [2919, 'RASCASSE', 8, 4]],
+  scenery: { monaco: MONACO_CITY, hills: 0, conifer: 0, dens: 9, flat: false, noHills: true },
+  load: ['Trazando Mónaco…', 'Montecarlo, el puerto y el túnel…', 'Muros, gradas y boxes…']
+};

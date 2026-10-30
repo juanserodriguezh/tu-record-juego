@@ -266,6 +266,9 @@ class World {
 
   buildTrack() {
     const T = this.T, N = T.N, line = this.line;
+    // Monaco: the tunnel (track metres) and how much the light drops along it (asphalt, kerbs)
+    if (this.SC.monaco) { const [a, b] = this.SC.monaco.tunnel; this.tunnel = [a * this.sc, b * this.sc]; this.tunDark = new Float32Array(N);
+      for (let i = 0; i < N; i++) { const s = i * T.ds; this.tunDark[i] = 1 - 0.55 * smoothstep(this.tunnel[0] - 4, this.tunnel[0] + 22, s) * (1 - smoothstep(this.tunnel[1] - 22, this.tunnel[1] + 4, s)); } }
     // ---- asphalt with rubbered racing line
     const M = 9;
     const pos = new Float32Array((N + 1) * M * 3), uv = new Float32Array((N + 1) * M * 2), colr = new Float32Array((N + 1) * M * 3);
@@ -279,7 +282,7 @@ class World {
         uv[o * 2] = d / 5; uv[o * 2 + 1] = (i * T.ds) / 5;
         const rub = Math.exp(-((d - line.off[k]) ** 2) / (2 * 1.1 * 1.1));
         const patch = 0.92 + 0.12 * vnoise(i * 0.05, j * 0.7);
-        const v = patch * (1 - 0.32 * rub);
+        const v = patch * (1 - 0.32 * rub) * (this.tunDark ? this.tunDark[k] : 1);
         colr[o * 3] = v; colr[o * 3 + 1] = v; colr[o * 3 + 2] = v;
       }
     }
@@ -592,9 +595,10 @@ class World {
     const T = this.T, N = T.N;
     let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
     for (let i = 0; i < N; i++) { minX = Math.min(minX, T.x[i]); maxX = Math.max(maxX, T.x[i]); minZ = Math.min(minZ, T.z[i]); maxZ = Math.max(maxZ, T.z[i]); }
-    const pad = 800;
+    const MC = this.SC.monaco, pad = MC ? 380 : 800;
     const x0 = minX - pad, x1 = maxX + pad, z0 = minZ - pad, z1 = maxZ + pad;
-    const step = this.q === 'bajo' ? 20 : 14;
+    const step = MC ? (this.q === 'bajo' ? 12 : 8) : this.q === 'bajo' ? 20 : 14;
+    const gnd = MC ? this.monacoGround() : null;   // measured ground (height above the sea, class 0 sea / 1 paved / 2 green)
     const nx = Math.ceil((x1 - x0) / step) + 1, nz = Math.ceil((z1 - z0) / step) + 1;
     const cnt = nx * nz;
     const dist = new Float32Array(cnt).fill(1e9), eNear = new Float32Array(cnt), barNear = new Float32Array(cnt), iNear = new Int32Array(cnt);
@@ -650,14 +654,14 @@ class World {
       const dN = dist[k];
       const hills = (fbm(px / 520, pz / 520, 4) - 0.45) * hillAmp + (fbm(px / 140 + 10, pz / 140, 3) - 0.5) * 14 * hillAmp / 95;
       const amp = smoothstep(40, 700, Math.min(dN, 1e4));
-      const natural = base + hills * amp - 2;
+      const natural = gnd ? gnd.h(px, pz) : base + hills * amp - 2;
       let h;
       if (dN > 1e8) h = natural;
       else {
         const nearH = eNear[k] - (dN < barNear[k] + 0.5 ? 1.6 : 0.4);
-        const t = smoothstep(barNear[k] + 3, barNear[k] + 70, dN);
+        const t = gnd ? smoothstep(barNear[k] + 0.5, barNear[k] + 9, dN) : smoothstep(barNear[k] + 3, barNear[k] + 70, dN);
         const bank = (dN - barNear[k]) * 0.04 * (fbm(px / 60, pz / 60, 2) - 0.5);
-        h = lerp(nearH, lerp(eNear[k] - 0.4 + bank, natural, smoothstep(barNear[k] + 25, barNear[k] + 220, dN)), t);
+        h = gnd ? lerp(nearH, natural, t) : lerp(nearH, lerp(eNear[k] - 0.4 + bank, natural, smoothstep(barNear[k] + 25, barNear[k] + 220, dN)), t);
       }
       // lake (Albert Park): carve a basin where the point is well inside the outline and away from the track
       if (lake) {
@@ -678,12 +682,13 @@ class World {
       // colours
       const f = fbm(px / 300 + 50, pz / 300, 3);
       let c;
-      if (dN < 45) c = mown.clone().multiplyScalar(0.92 + 0.14 * vnoise(px / 9, pz / 9));
+      if (gnd) c = gnd.col(px, pz, h);
+      else if (dN < 45) c = mown.clone().multiplyScalar(0.92 + 0.14 * vnoise(px / 9, pz / 9));
       else if (f < 0.4) c = field.clone().lerp(grass, vnoise(px / 80, pz / 80) * 0.6);
       else c = grass.clone().lerp(grassDark, smoothstep(0.45, 0.62, f)).multiplyScalar(0.9 + 0.15 * vnoise(px / 25, pz / 25));
       // forest floor (same density field the trees use): darker, browner under the canopy
       const dens = fbm(px / 330, pz / 330, 3) + (dN < 140 ? 0.08 : 0);
-      if (dN > 30) c.lerp(forest, smoothstep(this.SC.dens - 0.02, this.SC.dens + 0.09, dens) * smoothstep(30, 60, dN) * 0.85);
+      if (dN > 30 && !gnd) c.lerp(forest, smoothstep(this.SC.dens - 0.02, this.SC.dens + 0.09, dens) * smoothstep(30, 60, dN) * 0.85);
       C[k * 3] = c.r; C[k * 3 + 1] = c.g; C[k * 3 + 2] = c.b;
     }
     const geo = new THREE.PlaneGeometry(x1 - x0, z1 - z0, nx - 1, nz - 1);
@@ -698,10 +703,11 @@ class World {
     geo.computeVertexNormals();
     { const uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (x1 - x0) / 9, uv.getY(i) * (z1 - z0) / 9); }
     for (let i = 0; i < C.length; i++) C[i] = Math.min(1, C[i] * 1.13);
-    const mesh = new THREE.Mesh(geo, macroVariation(new THREE.MeshLambertMaterial({ vertexColors: true, map: TEX.grass })));
+    const mesh = new THREE.Mesh(geo, macroVariation(new THREE.MeshLambertMaterial({ vertexColors: true, map: MC ? (TEX.paving || (TEX.paving = this.pavingTex())) : TEX.grass })));
     mesh.receiveShadow = true;
     this.group.add(mesh);
     this.terrain = { x0, z0, step, nx, nz, H, dist, x1, z1 };
+    if (MC) { this.lake = { y: 0 }; this.buildSea(); }
     if (lake) {
       let a = 1e9, b = 1e9, c = -1e9, d = -1e9; for (const [x, z] of lake.poly) { a = Math.min(a, x); c = Math.max(c, x); b = Math.min(b, z); d = Math.max(d, z); }
       const wm = new THREE.Mesh(new THREE.PlaneGeometry(c - a + 80, d - b + 80).rotateX(-Math.PI / 2).translate((a + c) / 2, lake.y, (b + d) / 2),
@@ -931,6 +937,7 @@ class World {
 
     if (this.SC.oval) this.buildOval(B, C, addFP);
     if (this.SC.toca) this.buildToca(B, C, addFP);
+    if (this.SC.monaco) this.buildMonaco(B, C, addFP);
     if (this.SC.skyline) this.buildSkyline();
     if (this.SC.podium) {
       // Monza podium: platform cantilevered from the pit building over the pit lane and the edge of the track
@@ -990,6 +997,150 @@ class World {
     this.group.add(extra);
   }
 
+  // ---------------------------------------------------------------------
+  // Monaco: measured ground (8 m height map over the town, 40 m over the mountains around the bay)
+  monacoGround() {
+    const G = this.SC.monaco.ground, raw = atob(G.h), n = G.nx * G.nz, H = new Float32Array(n), K = new Uint8Array(n);
+    for (let o = 0; o < n; o++) { let v = raw.charCodeAt(o * 2) | (raw.charCodeAt(o * 2 + 1) << 8); if (v > 32767) v -= 65536; K[o] = v & 3; H[o] = (v >> 2) / 10; }
+    const cell = (x, z) => [clamp((x - G.x0) / G.step - 0.5, 0, G.nx - 1.001), clamp((z - G.z0) / G.step - 0.5, 0, G.nz - 1.001)];
+    const h = (x, z) => { const [fx, fz] = cell(x, z), ix = Math.floor(fx), iz = Math.floor(fz), ax = fx - ix, az = fz - iz, o = iz * G.nx + ix;
+      return lerp(lerp(H[o], H[o + 1], ax), lerp(H[o + G.nx], H[o + G.nx + 1], ax), az); };
+    const kind = (x, z) => { const [fx, fz] = cell(x, z); return K[Math.round(fz) * G.nx + Math.round(fx)]; };
+    const paved = col3('#b3aa9c'), paved2 = col3('#8f8a82'), green = col3('#5e7d45'), green2 = col3('#47613a'), sand = col3('#6f6a5a');
+    const col = (x, z, y) => { const k = kind(x, z), nn = vnoise(x / 23, z / 23);
+      if (k === 0 || y < 0.6) return sand.clone().multiplyScalar(0.8 + 0.2 * nn);
+      if (k === 2) return green.clone().lerp(green2, nn).multiplyScalar(0.9 + 0.15 * vnoise(x / 7, z / 7));
+      return paved.clone().lerp(paved2, vnoise(x / 41, z / 41) * 0.7).multiplyScalar(0.92 + 0.12 * vnoise(x / 6, z / 6)); };
+    this.mGround = { h, kind, G };
+    return { h, col };
+  }
+  // the sea (and the harbour) at height 0, out to the horizon, and the mountains around the bay
+  buildSea() {
+    const sea = new THREE.Mesh(new THREE.PlaneGeometry(9000, 9000).rotateX(-Math.PI / 2),
+      new THREE.MeshPhongMaterial({ color: 0x1f5f7d, shininess: 140, specular: 0x7fa6b8, transparent: true, opacity: 0.94 }));
+    const t = this.terrain; sea.position.set((t.x0 + t.x1) / 2, 0, (t.z0 + t.z1) / 2); sea.renderOrder = 1; this.group.add(sea); this.seaMesh = sea;
+    const F = this.SC.monaco.far, raw = atob(F.h), nx = F.nx, nz = F.nz, pos = new Float32Array(nx * nz * 3), col = new Float32Array(nx * nz * 3), idx = [];
+    const rock = col3('#8d8778'), scrub = col3('#536b3c'), dark = col3('#3d5232'), cc = new THREE.Color();
+    for (let b = 0; b < nz; b++) for (let a = 0; a < nx; a++) { const o = b * nx + a; let v = raw.charCodeAt(o * 2) | (raw.charCodeAt(o * 2 + 1) << 8); if (v > 32767) v -= 65536;
+      const x = F.x0 + (a + 0.5) * F.step, z = F.z0 + (b + 0.5) * F.step;
+      const inTown = x > t.x0 + 30 && x < t.x1 - 30 && z > t.z0 + 30 && z < t.z1 - 30;   // the 8 m terrain covers the town: keep the far mesh under it
+      const y = inTown ? Math.min(v, -6) : v;
+      pos.set([x, y, z], o * 3);
+      cc.copy(scrub).lerp(dark, vnoise(x / 160, z / 160)).lerp(rock, smoothstep(160, 420, y) * 0.8 + 0.25 * vnoise(x / 70, z / 70)); col.set([cc.r, cc.g, cc.b], o * 3);
+      if (a < nx - 1 && b < nz - 1) idx.push(o, o + nx, o + 1, o + 1, o + nx, o + nx + 1); }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.setIndex(idx); g.computeVertexNormals();
+    this.group.add(new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true })));
+  }
+  // Monaco town (blocks measured on the AC model), harbour yachts, palms, grandstands and the tunnel under the Fairmont
+  buildMonaco(B, C, addFP) {
+    const T = this.T, N = T.N, MC = this.SC.monaco, ps = T.pitSide;
+    // ---- buildings: one merged mesh, facades with windows (u: 3.6 m bays, v: 3.2 m floors), flat roofs
+    const fac = new GeoBuilder(true), roofB = new GeoBuilder(false);
+    const PAL = ['#e9d9b8', '#e6c9a0', '#f0e6d2', '#dcb79a', '#e8d2b0', '#f2ede2', '#d9a98c', '#cfc6b4', '#efd9a6', '#e0bfa8'].map(col3);
+    const ROOF = ['#9a5a43', '#8c8a86', '#a7684d', '#77746f'].map(col3);
+    const E = T.esc, onExit = (x, z, m) => E && x > E.box[0] - m && x < E.box[1] + m && z > E.box[2] - m && z < E.box[3] + m && E.near(x, z)[0] < E.hw + m;   // the pit exit road
+    const pitZone = (x, z) => { if (onExit(x, z, 3)) return true; const q = T.project(x, z, -1); const c = T.pitC[q.i]; return c === c && q.d * ps > 0 && Math.abs(q.d) < Math.abs(c) + T.pitHW + (this.D.pitDepth || 18) + 8 && Math.abs(q.e - this.heightAt(x, z)) < 8; };
+    let nB = 0;
+    for (const r of MC.buildings.split(';')) {
+      const [cx, cz, hw, hd, rot, base, top] = r.split(',').map(Number);
+      const c = Math.cos(rot), sn = Math.sin(rot), corner = (u, v) => [cx + u * hw * c - v * hd * sn, cz + u * hw * sn + v * hd * c];
+      const cs = [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)];
+      if (cs.some(p => pitZone(p[0], p[1])) || pitZone(cx, cz)) continue;
+      const g0 = Math.min(...cs.map(p => this.heightAt(p[0], p[1])));
+      const y0 = base > g0 + 4 ? base : Math.min(base, g0) - 1.5, y1 = Math.max(top, y0 + 3);
+      const hh = hash2(cx * 0.37, cz * 0.91), col = PAL[Math.floor(hh * PAL.length)].clone().multiplyScalar(0.92 + 0.12 * hash2(cz, cx));
+      for (let e = 0; e < 4; e++) { const a = cs[e], b = cs[(e + 1) % 4], L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+        const v0 = (y0 - 1) / 3.2, v1 = (y1 - 1) / 3.2;
+        fac.quad([b[0], y0, b[1]], [a[0], y0, a[1]], [a[0], y1, a[1]], [b[0], y1, b[1]], col, [[L / 3.6, v0], [0, v0], [0, v1], [L / 3.6, v1]]); }
+      roofB.quad([cs[0][0], y1, cs[0][1]], [cs[3][0], y1, cs[3][1]], [cs[2][0], y1, cs[2][1]], [cs[1][0], y1, cs[1][1]], ROOF[Math.floor(hash2(cz, cx * 3) * ROOF.length)]);
+      if (hw > 6 && hd > 6 && hh > 0.5) { const p = corner(0.3, -0.2); roofB.quad([p[0] - 1.5, y1 + 2.2, p[1] - 1.5], [p[0] - 1.5, y1 + 2.2, p[1] + 1.5], [p[0] + 1.5, y1 + 2.2, p[1] + 1.5], [p[0] + 1.5, y1 + 2.2, p[1] - 1.5], col3('#8f8c87')); B.box(p[0], y1, p[1], 3, 2.2, 3, rot, col3('#c9c3b8')); }
+      addFP(cx, cz, Math.max(hw, hd) + 2); nB++;
+    }
+    { const m = new THREE.Mesh(fac.build(), new THREE.MeshLambertMaterial({ vertexColors: true, map: TEX.facade || (TEX.facade = this.facadeTex()) })); m.receiveShadow = true; this.group.add(m); }
+    this.group.add(new THREE.Mesh(roofB.build(), new THREE.MeshLambertMaterial({ vertexColors: true })));
+    this.nBuildings = nB;
+    // ---- grandstands (as on the model): seating that rises away from the track, crowd on the slope, roof on the tall ones
+    const crowdB = new GeoBuilder(true);
+    for (const [, , cx, cz, hw, hd, rot, base, top] of MC.stands) {
+      const c = Math.cos(rot), sn = Math.sin(rot), q = T.project(cx, cz, -1);
+      const tx = T.x[q.i] - cx, tz = T.z[q.i] - cz;   // towards the track
+      const ux = c, uz = sn, vx = -sn, vz = c, alongU = Math.abs(tx * ux + tz * uz) < Math.abs(tx * vx + tz * vz);   // the long side faces the track
+      const [ax, az, bx, bz, la, lb] = alongU ? [ux, uz, vx * Math.sign(tx * vx + tz * vz), vz * Math.sign(tx * vx + tz * vz), hw, hd] : [vx, vz, ux * Math.sign(tx * ux + tz * uz), uz * Math.sign(tx * ux + tz * uz), hd, hw];
+      const P = (u, v, y) => [cx + ax * u * la + bx * v * lb, y, cz + az * u * la + bz * v * lb];   // v = +1: front (track side)
+      const g = this.heightAt(cx, cz), y0 = Math.min(base, g) - 1, yF = Math.max(base, g) + 1.2, yB = Math.max(top - 1.5, yF + 3);
+      const f0 = P(-1, 1, yF), f1 = P(1, 1, yF), b0 = P(-1, -1, yB), b1 = P(1, -1, yB);
+      crowdB.quad(f0, f1, b1, b0, C.white, [[0, 0], [la / 2, 0], [la / 2, 1], [0, 1]]);
+      const lo = (p) => [p[0], y0, p[2]];
+      const out = (a, b, c, d) => { const nx = (b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]), nz = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);   // face away from the stand's centre
+        if (nx * ((a[0] + c[0]) / 2 - cx) + nz * ((a[2] + c[2]) / 2 - cz) >= 0) B.quad(a, b, c, d, C.concrete); else B.quad(d, c, b, a, C.concrete); };
+      out(lo(f1), lo(f0), f0, f1); out(lo(b0), lo(b1), b1, b0); out(lo(f0), lo(b0), b0, f0); out(lo(b1), lo(f1), f1, b1);
+      if (top - base > 9) { const r0 = P(-1, 0.6, yB + 3), r1 = P(1, 0.6, yB + 3), r2 = P(1, -1.05, yB + 3.4), r3 = P(-1, -1.05, yB + 3.4); B.quad(r0, r1, r2, r3, C.roof); B.quad(r3, r2, r1, r0, C.roof); }
+      addFP(cx, cz, Math.max(hw, hd) + 3);
+    }
+    this.group.add(new THREE.Mesh(crowdB.build(), new THREE.MeshLambertMaterial({ map: TEX.crowd, side: THREE.DoubleSide })));
+    // ---- yachts in the harbour: white hull, deck house, a mast on the tall narrow ones
+    const yB = new GeoBuilder(false), hull = col3('#f3f4f2'), deck = col3('#d7d1c4'), glass = col3('#2a3440'), navy = col3('#1d2c44');
+    for (const r of MC.boats.split(';')) {
+      const [cx, cz, hw, hd, rot, h] = r.split(',').map(Number); if (this.heightAt(cx, cz) > -0.5) continue;
+      const L = Math.max(hw, hd) * 2, W = Math.min(hw, hd) * 2, hd2 = hw >= hd ? -rot + Math.PI / 2 : -rot;
+      yB.box(cx, -0.6, cz, W, Math.min(3.2, 0.9 + L * 0.06), L, hd2, hash2(cx, cz) < 0.2 ? navy : hull, deck);
+      if (L > 14) { const hz = Math.min(8, h * 0.35); yB.box(cx, 1.2 + L * 0.03, cz, W * 0.72, Math.max(1.8, hz * 0.5), L * 0.55, hd2, hull, deck); yB.box(cx, 1.2 + L * 0.03 + Math.max(1.8, hz * 0.5), cz, W * 0.55, 1.1, L * 0.3, hd2, glass, deck); }
+      if (h > 12 && L < 30) yB.box(cx, 1, cz, 0.2, h - 1, 0.2, hd2, hull);
+    }
+    this.group.add(new THREE.Mesh(yB.build(), new THREE.MeshLambertMaterial({ vertexColors: true })));
+    // ---- palms (instanced: trunk + drooping fronds)
+    { const fr = []; for (let k = 0; k < 7; k++) { const g = new THREE.PlaneGeometry(1.0, 3.6, 1, 3).translate(0, 1.8, 0); const p = g.attributes.position; for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setZ(i, -0.12 * y * y); } g.rotateX(-1.15).rotateY(k / 7 * Math.PI * 2); fr.push(g.toNonIndexed()); }
+      const crown = mergeGeos(fr.map(g => { g.deleteAttribute('normal'); g.computeVertexNormals(); const n = g.attributes.position.count, a = new Float32Array(n * 3).fill(1); g.setAttribute('color', new THREE.BufferAttribute(a, 3)); return g; }));
+      const trunk = colorize(new THREE.CylinderGeometry(0.18, 0.28, 1, 6, 1, true).translate(0, 0.5, 0), '#7b6a55'); trunk.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(trunk.attributes.position.count * 2).fill(0.02), 2));
+      const pts = MC.palms.split(';').map(r => r.split(',').map(Number)).filter(([x, z]) => { if (onExit(x, z, 1.5)) return false; const q = T.project(x, z, -1); return Math.abs(q.d) > (q.d > 0 ? q.bl : q.br) + 1; });
+      const m4 = new THREE.Matrix4(), q4 = new THREE.Quaternion(), sv = new THREE.Vector3(), pv = new THREE.Vector3(), yA = new THREE.Vector3(0, 1, 0);
+      const tMat = new THREE.MeshLambertMaterial({ vertexColors: true }), cMat = new THREE.MeshLambertMaterial({ vertexColors: true, map: TEX.leaves, alphaTest: 0.5, side: THREE.DoubleSide }); cMat.alphaToCoverage = this.q !== 'bajo';
+      const it = new THREE.InstancedMesh(trunk, tMat, pts.length), ic = new THREE.InstancedMesh(crown, cMat, pts.length);
+      pts.forEach(([x, z, top], k) => { const y = this.heightAt(x, z) - 0.2, h = clamp(top - y, 5, 16); q4.setFromAxisAngle(yA, hash2(x, z) * 6.28);
+        sv.set(1, h, 1); pv.set(x, y, z); m4.compose(pv, q4, sv); it.setMatrixAt(k, m4); sv.set(1.2, 1.1, 1.2); pv.set(x, y + h - 0.3, z); m4.compose(pv, q4, sv); ic.setMatrixAt(k, m4); addFP(x, z, 3); });
+      this.group.add(it, ic); }
+    this.buildTunnel(B);
+  }
+  pavingTex() {   // light, neutral town ground (pavements, squares): fine speckle and joints, tinted by the vertex colours
+    return canvasTex(128, 128, (g, w, h) => { g.fillStyle = '#e2e0dc'; g.fillRect(0, 0, w, h);
+      for (let i = 0; i < 900; i++) { const v = 200 + Math.floor(hash2(i, 7) * 50); g.fillStyle = `rgb(${v},${v - 2},${v - 6})`; g.fillRect(hash2(i, 1) * w, hash2(i, 3) * h, 2, 2); }
+      g.strokeStyle = 'rgba(120,115,105,0.25)'; g.lineWidth = 1; for (let k = 0; k <= 4; k++) { g.beginPath(); g.moveTo(0, k * 32); g.lineTo(w, k * 32); g.moveTo(k * 32, 0); g.lineTo(k * 32, h); g.stroke(); } }, true);
+  }
+  facadeTex() {   // one bay x one floor: wall (white, tinted by the vertex colour), a window with green shutters on some
+    return canvasTex(64, 64, (g, w, h) => { g.fillStyle = '#ffffff'; g.fillRect(0, 0, w, h); g.fillStyle = '#e4e0d8'; g.fillRect(0, 56, w, 8);
+      g.fillStyle = '#34404a'; g.fillRect(20, 14, 24, 34); g.fillStyle = '#5a6b78'; g.fillRect(22, 16, 20, 14); g.fillStyle = '#d8d2c6'; g.fillRect(18, 48, 28, 3);
+      g.fillStyle = '#4f6d4a'; g.fillRect(11, 14, 8, 34); g.fillRect(45, 14, 8, 34); }, true);
+  }
+  // tunnel under the Fairmont: side walls on the barrier lines, a roof that casts the sun's shadow, lamp strips, portals
+  buildTunnel(B) {
+    const T = this.T, N = T.N, [sa, sb] = this.tunnel, i0 = Math.floor(sa / T.ds), i1 = Math.ceil(sb / T.ds), H = 6.6;
+    const wall = new GeoBuilder(false), roof = new GeoBuilder(false), lamp = new GeoBuilder(false);
+    const wc = col3('#7b7a76'), wc2 = col3('#5f5e5a'), rc = col3('#46474a'), lc = col3('#ffe9b0');
+    const bd = (side, i) => this.barDf(side, i) + side * 0.15;
+    for (let i = i0; i < i1; i++) {
+      for (const side of [1, -1]) { const a0 = this.P(i, bd(side, i), -0.4), a1 = this.P(i + 1, bd(side, i + 1), -0.4), b0 = this.P(i, bd(side, i), H), b1 = this.P(i + 1, bd(side, i + 1), H);
+        const cc = (Math.floor(i / 3) % 2) ? wc : wc2;
+        if (side > 0) wall.quad(a1, a0, b0, b1, cc); else wall.quad(a0, a1, b1, b0, cc); }
+      const l0 = this.P(i, bd(1, i), H), l1 = this.P(i + 1, bd(1, i + 1), H), r0 = this.P(i, bd(-1, i), H), r1 = this.P(i + 1, bd(-1, i + 1), H);
+      roof.quad(l0, l1, r1, r0, rc); roof.quad(r0, r1, [r1[0], r1[1] + 1.2, r1[2]], [r0[0], r0[1] + 1.2, r0[2]], rc);
+      roof.quad([l0[0], l0[1] + 1.2, l0[2]], [r0[0], r0[1] + 1.2, r0[2]], [r1[0], r1[1] + 1.2, r1[2]], [l1[0], l1[1] + 1.2, l1[2]], rc);
+      if (i % 3 === 0) { const c0 = this.P(i, 0.6, H - 0.06), c1 = this.P(i, -0.6, H - 0.06), c2 = this.P(i + 1, -0.6, H - 0.06), c3 = this.P(i + 1, 0.6, H - 0.06); lamp.quad(c0, c1, c2, c3, lc);
+        for (const side of [1, -1]) { const s0 = this.P(i, bd(side, i) - side * 0.1, 4.6), s1 = this.P(i + 1, bd(side, i + 1) - side * 0.1, 4.6); lamp.quad(s0, s1, [s1[0], s1[1] + 0.25, s1[2]], [s0[0], s0[1] + 0.25, s0[2]], lc); } }
+    }
+    // portals: a thick lintel across each end
+    for (const i of [i0, i1]) { const p = this.P(i, 0, 0), w = (T.wl[i % N] + T.wr[i % N]) + 4; B.box(p[0], p[1] + H - 0.2, p[2], w + 3, 3.4, 1.6, T.hd[i % N], col3('#c9c1b0')); }
+    this.group.add(new THREE.Mesh(wall.build(), new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })));
+    const rm = new THREE.Mesh(roof.build(), new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })); rm.castShadow = true; this.group.add(rm);
+    this.group.add(new THREE.Mesh(lamp.build(), new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })));
+  }
+  // inside the tunnel the sky light drops (the roof already shades the sun near the car); k eases in over ~25 m at each end
+  updateTunnel(sky, cam) {
+    if (!this.tunnel || !sky) return;
+    const q = this.T.project(cam.x, cam.z, this._tq === undefined ? -1 : this._tq), [a, b] = this.tunnel; this._tq = q.i;
+    const k = cam.y < q.e + 6 ? smoothstep(a - 6, a + 25, q.s) * (1 - smoothstep(b - 25, b + 6, q.s)) : 0;
+    this.tunK = k;
+    if (!(sky.w && sky.w.storm)) { sky.hemi.intensity = sky.hemiI0 * (1 - 0.62 * k); sky.sun.intensity = sky.sunI0 * (1 - 0.35 * k); }
+  }
   // ---------------------------------------------------------------------
   // Autódromo de Tocancipá: the venue's real reference points, after the aerial photo looking NW down the main straight.
   // Placed in a frame of the straight shared by every layout (a: metres along it from its SE end, b: towards the infield):

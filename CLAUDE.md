@@ -1,6 +1,6 @@
 # ARMK Racing (antes «Tu récord») — juego de carreras en el navegador
 
-Juego 3D con three.js 0.160 (cargado desde jsDelivr). Incluye 4 circuitos: Spa-Francorchamps, Monza, Albert Park y Tocancipá (6 trazados), 24 coches escaneados, IA, daños, neumáticos, clima, multijugador por sala y audio sintetizado.
+Juego 3D con three.js 0.160 (cargado desde jsDelivr). Incluye 5 circuitos: Spa-Francorchamps, Monza, Albert Park, Tocancipá (6 trazados) y Mónaco, 24 coches escaneados, IA, daños, neumáticos, clima, multijugador por sala y audio sintetizado.
 El resultado es una sola página `dist/spa.html` más los modelos en `dist/models/packN.wasm`.
 
 ## Cómo trabajar con el usuario (Juanse)
@@ -39,6 +39,7 @@ Ejemplos de capturas:
 |---|---|
 | `src/head.html`, `src/style.css`, `src/body.html`, `src/tail.html` | Página, CSS y la UI (menú, HUD, modales) |
 | `src/data_*.js` | Líneas centrales de los circuitos: `"x,y,anchoDer,anchoIzq;..."` en metros. En el juego, `pz = -y` |
+| `src/data_monaco.js` | Mónaco medido sobre el mod de Assetto Corsa (lo genera `tools/prep_monaco/prep.mjs`): eje, muros por muestra (`MONACO_BAR`), elevación y `MONACO_CITY` (túnel, pianos, edificios, terreno, tribunas, yates, palmeras) |
 | `src/tracks.js` | `TRACK_DEFS`: curvas, sectores, boxes, tribunas, barreras de neumáticos, escapatorias, elevación y paisaje de cada trazado |
 | `src/cars.js` | `BODY_DEF` (valores por tipo), `ACCEL_CAL` (calibración a tiempos reales 0-100/0-200) y `CARS` (`mkCar(id, nombre, categoría, tipo, CV, kg, tracción, vmax, extras)`) |
 | `src/physics.js` | `buildTrack`, `computeRacingLine` y el modelo del vehículo `Vehicle` (neumáticos, aero, motor, caja). Lo usa también `tools/headless.js` |
@@ -74,6 +75,7 @@ Ejemplos de capturas:
 - **Ajuste de cámara** en juego: teclas 1–0. Se guarda por coche y por vista.
 
 ## Historial reciente y decisiones
+- **v79:** Mónaco desde el mod de AC (`tools/prep_monaco/`: `kn5.mjs` lee `.kn5` y `fast_lane.ai`; `prep.mjs` mide eje, anchos, muros reales, pianos, ciudad). Opciones de pista nuevas: `bar`/`barDs` (muros medidos por muestra; la cara del muro de neumáticos es la medida), `kerbs`, `lineMargin`, `passRoom` (la IA adelanta solo con hueco y en fila entre muros), `crane` (retira coches destrozados), `escape.handles`. La trazada nunca usa piano con muro detrás. `__spa.setAuto` gira con el entorno del jugador.
 - **v78:** Cadillac MAC-26 y Ferrari SF-26 (F1 2026, física del W17) preparados con `tools/prep_f1_2026/`; libreas texturizadas recoloreables con la máscara de pintura (`glbPaintMask`, alfa de la textura = peso); la parrilla F1 conserva las libreas.
 - **v77:** BYD Seagull (eléctrico, 55 kW, limitado a 130): modelo preparado con `tools/prep_seagull.mjs`; el color cambia solo la pintura (también mate/metal en cualquier coche escaneado).
 - **v75:** rebobinado en prácticas (tecla Retroceso o botón ⟲): 5 s por pulsación, hasta 15 s; restaura coche, daño y cronómetro; la vuelta queda inválida; `node tools/headless.js rewind` comprueba que la repetición es idéntica bit a bit.

@@ -78,7 +78,7 @@ function buildTrack(def) {
     const k = (j + 1) % dn;
     T.x[i] = lerp(dx[j], dx[k], t); T.z[i] = lerp(dz[j], dz[k], t);
     // exactW: widths measured on the 3D model (white line to white line + edge) are used as they are
-    const wk = def.exactW ? 1 : 1.15, wo = def.exactW ? 0 : 0.4, wmin = def.exactW ? 4.6 : 5.6;
+    const wk = def.exactW ? 1 : 1.15, wo = def.exactW ? 0 : 0.4, wmin = def.wmin || (def.exactW ? 4.6 : 5.6);   // wmin: narrow street circuits (Monaco)
     T.wr[i] = clamp(lerp(dwr[j], dwr[k], t) * wk + wo, wmin, 9.5);
     T.wl[i] = clamp(lerp(dwl[j], dwl[k], t) * wk + wo, wmin, 9.5);
   }
@@ -115,6 +115,7 @@ function buildTrack(def) {
   T.slope = sl; T.vc = gaussWrap(vc, 3);
 
   // run-off / kerbs
+  const BAR = def.bar ? def.bar().split(';').map(r => r.split(',').map(Number)) : null;
   for (let i = 0; i < N; i++) {
     const s = i * ds * (NOM / L);
     const kk = Math.abs(T.k[i]);
@@ -126,6 +127,9 @@ function buildTrack(def) {
         if (o[2] === 'R' || o[2] === 'B') { rr = o[3]; tr = o[4]; pr = o[5] || 0; }
       }
     }
+    // measured barriers (Monaco: the collision walls of the 3D model): distance beyond the asphalt edge, every def.barDs nominal metres
+    if (BAR) { const f = s / def.barDs, a = Math.floor(f) % BAR.length, b = (a + 1) % BAR.length, t = f - Math.floor(f);
+      rl = lerp(BAR[a][0], BAR[b][0], t); rr = lerp(BAR[a][1], BAR[b][1], t); tl = tr = 'tarmac'; }
     // main straight: pit wall on the pit side (right unless def.pitSide = 1), grandstand wall on the other
     const [stA, stB] = def.straight, pitL = def.pitSide > 0;
     if (!def.exactStraight && (s > stA || s < stB)) { if (pitL) { rl = 2.6; rr = Math.min(rr, 6); } else { rr = 2.6; rl = Math.min(rl, 6); } tr = 'tarmac'; tl = 'tarmac'; }   // exactStraight: the measured run-off table already describes the pit straight
@@ -136,7 +140,9 @@ function buildTrack(def) {
   { const [stA, stB] = def.straight; T.isStraightN = (sN) => sN > stA || sN < stB; }
   // kerbs where the corner is meaningful (extend both ways)
   const kmask = new Uint8Array(N);
-  for (let i = 0; i < N; i++) if (Math.abs(T.k[i]) > 1 / 330) kmask[i] = 1;
+  if (def.kerbs) {   // measured kerbs [sFrom, sTo, side] (Monaco): only there, only on that side
+    for (let i = 0; i < N; i++) { const s = i * ds * NOM / L; for (const [a, b, side] of def.kerbs) if (s >= a && s <= b) (side > 0 ? T.kerbL : T.kerbR)[i] = 1; }
+  } else for (let i = 0; i < N; i++) if (Math.abs(T.k[i]) > 1 / 330) kmask[i] = 1;
   const ext = Math.round(18 / ds);
   for (let i = 0; i < N; i++) {
     if (!kmask[i]) continue;
@@ -173,7 +179,7 @@ function buildTrack(def) {
         const x = T.x[i] + T.nx[i] * side * (w + d), z = T.z[i] + T.nz[i] * side * (w + d);
         const j = nearestIdx(x, z);
         let di = j < 0 ? 0 : Math.abs(j - i); di = Math.min(di, N - di);
-        if (j >= 0 && di * ds > (w + d) * 1.2 + 6) { run = Math.max(1.6, (d - 8) * 0.5); break; }
+        if (j >= 0 && di * ds > (w + d) * 1.2 + 6) { run = Math.min(run, Math.max(1.6, (d - 8) * 0.5)); break; }
       }
       if (side > 0) T.runL[i] = run; else T.runR[i] = run;
     }
@@ -230,6 +236,8 @@ function buildBarriers(T, def, ds, NOM, L) {
       if (w <= 0.05) continue;
       if (T.pitSep[i] && side === T.pitSide) continue;
       if (side > 0) { T.btL[i] = 2; T.twL0[i] = w; } else { T.btR[i] = 2; T.twR0[i] = w; }
+      // measured barriers (def.bar) are the face of the tyre wall: the rail sits behind it
+      if (def.bar) { if (side > 0) T.barL[i] += w; else T.barR[i] += w; }
     }
   }
   T.twL = T.twL0.slice(); T.twR = T.twR0.slice();
@@ -270,7 +278,8 @@ function buildEscape(T, def) {
   let d0 = 0; if (pit) for (let q = 0; q < 8; q++) { const c = T.pitC[(iA - q + N) % N]; if (c === c) { d0 = c; break; } }
   const P0 = [T.x[iA] + T.nx[iA] * d0, T.z[iA] + T.nz[iA] * d0], P3 = [T.x[iB] + T.nx[iB] * rejoin, T.z[iB] + T.nz[iB] * rejoin];
   const D = Math.hypot(P3[0] - P0[0], P3[1] - P0[1]);
-  const P1 = [P0[0] + T.tx[iA] * D * 0.62, P0[1] + T.tz[iA] * D * 0.62], P2 = [P3[0] - T.tx[iB] * D * 0.38, P3[1] - T.tz[iB] * D * 0.38];
+  const [h1, h2] = def.escape.handles || [0.62, 0.38];   // Bezier handles (fractions of the chord): short ones turn tighter (Monaco pit exit, inside Sainte-Dévote)
+  const P1 = [P0[0] + T.tx[iA] * D * h1, P0[1] + T.tz[iA] * D * h1], P2 = [P3[0] - T.tx[iB] * D * h2, P3[1] - T.tz[iB] * D * h2];
   const pts = [], M = 90;
   for (let j = 0; j <= M; j++) {
     const t = j / M, a = (1 - t) ** 3, b = 3 * (1 - t) ** 2 * t, c = 3 * (1 - t) * t * t, d = t ** 3;
@@ -410,7 +419,8 @@ function computeRacingLine(T, margin) {
         const a = (i - K + N) % N, b = (i + K) % N;
         const fx4 = gx[a] - 2 * gx[i] + gx[b], fz4 = gz[a] - 2 * gz[i] + gz[b];
         const dlt = fx4 * T.nx[i] + fz4 * T.nz[i];
-        off[i] = clamp(off[i] - dlt * 0.1, -T.wr[i] + margin - (T.kerbR[i] ? 0.9 : 0), T.wl[i] - margin + (T.kerbL[i] ? 0.9 : 0));
+        // a kerb with a wall right behind it (Monaco) gives no extra room
+        off[i] = clamp(off[i] - dlt * 0.1, Math.max(-T.wr[i] + margin - (T.kerbR[i] ? 0.9 : 0), -T.barR[i] + margin), Math.min(T.wl[i] - margin + (T.kerbL[i] ? 0.9 : 0), T.barL[i] - margin));
       }
     }
   }
@@ -437,7 +447,8 @@ function computeRacingLine(T, margin) {
         const fx4 = gx[a] - 2 * gx[i] + gx[b], fz4 = gz[a] - 2 * gz[i] + gz[b];
         const wm = Math.max(wgt[a], wgt[i], wgt[b]);
         const dlt = (fx4 * T.nx[i] + fz4 * T.nz[i]) / wm;
-        off[i] = clamp(off[i] - dlt * 0.1, -T.wr[i] + margin - (T.kerbR[i] ? 0.9 : 0), T.wl[i] - margin + (T.kerbL[i] ? 0.9 : 0));
+        // a kerb with a wall right behind it (Monaco) gives no extra room
+        off[i] = clamp(off[i] - dlt * 0.1, Math.max(-T.wr[i] + margin - (T.kerbR[i] ? 0.9 : 0), -T.barR[i] + margin), Math.min(T.wl[i] - margin + (T.kerbL[i] ? 0.9 : 0), T.barL[i] - margin));
       }
     }
   }

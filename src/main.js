@@ -671,6 +671,7 @@ function readInput(dt) {
   if (AUTO && SES && SES.player) {
     const pe = SES.player;
     if (!pe.autoAI) { pe.autoAI = new AIDriver(car, T, LINE, { diff: AUTO.k, react: 0.2 }); pe.autoAI.setEnv(env, car.spec.id); if (SES.state === 'run') pe.autoAI.startRolling(); }
+    pe.autoAI.env = env;   // steer through the player's own assists (slip-capped steering), or the AI's mapping under-steers
     const r = pe.autoAI.drive(dt, SES.entries, pe, { hold: SES.state === 'lights', caution: SES.kind === 'race' && SES.t - SES.goT < 25 ? 1 : 0 });
     INPUT.steer = r.steer; INPUT.throttle = r.throttle; INPUT.brake = r.brake; INPUT.handbrake = false;
     return;
@@ -1088,6 +1089,8 @@ function stepAI(dt) {
     e.veh.step(dt, inp, e.ai.env);
     if (e.ghost > 0) e.ghost -= dt;
     if (e.ai.needReset) respawnAI(e);
+    // street circuit (Monaco): a wreck between the walls is craned off after a few seconds instead of blocking the lane
+    if (T.def.crane && !e.craned && e.veh.dmg && e.veh.dmg.dead && (e.deadT = (e.deadT || 0) + dt) > 5) { e.craned = true; e.ghost = Infinity; }
     snapshot(e);
   }
 }
@@ -1375,7 +1378,7 @@ function updateOthers(dt) {
   for (const e of SES.entries) {
     if (e.isPlayer || !e.model) continue;
     if (e.isRemote) { netPoseRemote(e, dt); continue; }
-    const vis = (e.x - cx) ** 2 + (e.z - cz) ** 2 < far * far;
+    const vis = !e.craned && (e.x - cx) ** 2 + (e.z - cz) ** 2 < far * far;
     e.model.root.visible = vis;
     if (vis) poseModel(e.model, e.veh, 0, e.ai.inp.brake > 0.05, dt);
   }
@@ -2340,7 +2343,7 @@ function frame(now) {
   damageFrame(dt);
   tyreFrame(dt);
   sky.update(dt, camera, model ? model.root.position : null);
-  world.updateLOD(camera.position, dt); world.updateEscape(dt);
+  world.updateLOD(camera.position, dt); world.updateEscape(dt); world.updateTunnel(sky, camera.position);
   if (COACH_ST && SES) COACH_ST.line.frame(Math.abs(car.u), car.q.i, S.settings.lineMode === 'activa');
   if (SES && (S.mode === 'race' || S.mode === 'pause' || S.mode === 'results')) updateHUD(S.mode === 'pause' ? 0 : dt);
   if (SES && SES.kind === 'race' && SES.resultsShown && !$('results').hidden) { resT += dt; if (resT > 1) { resT = 0; showRaceResults(); } }

@@ -6,7 +6,7 @@ const rd = (f) => fs.readFileSync(path.join(SRC, f), 'utf8');
 const stripMod = (s) => s.replace(/if \(typeof module[^\n]*\n/, '');
 
 // order matters: later files use globals from earlier ones
-const DATA = ['data_spa.js', 'data_monza.js', 'data_albertpark.js', 'data_toca.js'];
+const DATA = ['data_spa.js', 'data_monza.js', 'data_albertpark.js', 'data_toca.js', 'data_monaco.js'];
 const CORE = ['tracks.js', 'cars.js', 'physics.js', 'damage.js'];
 const GAME = ['ai.js', 'world.js', 'coach.js', 'rewind.js', 'carmodel.js', 'body.js', 'hands.js', 'special.js', 'meshopt_simplifier.js', 'glb.js', 'audio.js', 'main.js'];
 
@@ -16,7 +16,7 @@ if (process.argv.includes('--lines')) {   // only when a track changed: float no
   try {
     const M = new Function([...DATA, ...CORE].map(f => stripMod(rd(f))).join('\n') + '\nreturn { TRACK_DEFS, buildTrack, computeRacingLine };')();
     const out = {};
-    for (const id of Object.keys(M.TRACK_DEFS)) { const T = M.buildTrack(id); const line = M.computeRacingLine(T, 1.3); out[id] = Array.from(line.off, v => Math.round(v * 100)).join(','); }
+    for (const id of Object.keys(M.TRACK_DEFS)) { const T = M.buildTrack(id); const line = M.computeRacingLine(T, M.TRACK_DEFS[id].lineMargin || 1.3); out[id] = Array.from(line.off, v => Math.round(v * 100)).join(','); }
     lineOffs = 'const LINE_OFFS = ' + JSON.stringify(out) + ';';
     fs.writeFileSync(path.join(SRC, 'line_offs.js'), lineOffs);
   } catch (e) { console.warn('racing lines: kept src/line_offs.js (' + e.message + ')'); }

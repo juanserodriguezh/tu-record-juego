@@ -151,3 +151,30 @@
 - Verificado: `headless.js accel` W17 / SF-26 / MAC-26 idénticos (0-100 2,53 s, 0-200 4,5 s, 0-300 8,7 s, punta 340); `ailap monza … 10` 1:23,09 los tres; `coach monza sf26` y `rewind monza sf26,mac26` en verde. Capturas exteriores (3/4 delantero, trasero, lateral), cabina comparada con el W17 y garaje con 4 colores por coche, sin errores de página. Coste en el garaje (un coche + sombra, sin LOD): W17 186 draw calls / 1,38 M triángulos; SF-26 210 / 1,37 M; MAC-26 198 / 1,32 M. Carrera Monza con 12 IA F1 y LOD: sin errores (la parrilla es aleatoria, así que esos totales no comparan coches).
 - Packs: al entrar mac26 y sf26 el reparto alfabético cambia y pasan de 7 a 9 packs; se publican todos.
 - Publicada el 29-oct-2026 como versión 78 del artefacto (id 1793244681-bd3e). Cambiaron la página y todos los packs (ahora pack0-pack8).
+
+## v79 (30-oct-2026) — circuito de Mónaco
+- Pedido de Juanse: añadir Mónaco desde `asw-2022-monaco-f1-grand-prix.zip` (mod de Assetto Corsa «monaco_gp22»), con el mismo procedimiento que los otros circuitos.
+- Medición (`tools/prep_monaco/`, nuevo; `node tools/prep_monaco/prep.mjs <carpeta monaco_gp22>` → `src/data_monaco.js`): `kn5.mjs` lee las mallas del `.kn5` (v6) y la línea de IA `fast_lane.ai`. Ejes: x/z de AC = x/z del juego y `y = -z` (como Monza); comprobado porque la vuelta es en sentido horario y el mar queda al sur. Elevación = y + 19,1 (nivel del mar).
+  - Eje y anchos: los anchos de la línea de IA de AC no sirven (2,7 m en la horquilla); se miden lanzando rayos laterales sobre una rejilla de 0,4 m de las mallas de asfalto. Vuelta 3.304 m (nominal 3.337), anchos 7,8-13 m.
+  - Muros: rayos contra las mallas `WALL` de `monacophysics.kn5` dan la distancia real del muro por lado cada 5 m (`MONACO_BAR`, `def.bar` en `physics.js`). El tipo (guardarraíl / hormigón / neumáticos) sale de las mallas visibles; se dejan solo los 3 muros de neumáticos por fuera de la curva (`tyres` en verde). Donde el muro está a menos de 0,85 m, la línea blanca se recorta.
+  - Pianos de las mallas `KERB` (`def.kerbs`, sustituye a la regla por curvatura), túnel [1515, 1880], 776 bloques de edificios (rejilla de tejados de 2 m, partidos hasta llenar > 62 % de su rectángulo), terreno con mapa de alturas de 8 m (mar / pavimento / verde), montañas, tribunas, yates y palmeras.
+- Escenario (`world.js`): `buildMonaco` (fachadas con ventanas, tejados, tribunas, yates, palmeras), `buildSea` (mar a cota 0 y montañas), `buildTunnel` (paredes, techo con sombra, lámparas y portales) y `updateTunnel` (oscurece la luz dentro del túnel). Boxes en la recta con salida propia por dentro de Sainte-Dévote (`escape` con `pit: true` y `handles` nuevos para la curva de Bézier).
+- IA (`ai.js`, `physics.js`, `main.js`). Atascos y choques encontrados al probar:
+  - Portier: el muro de neumáticos se ponía 1,35 m por delante del muro medido y los coches se quedaban frotando hasta pararse. Con muros medidos, la cara del neumático es la medida y el raíl va detrás.
+  - La trazada aprovechaba 0,9 m de piano aunque hubiera un muro justo detrás. Ahora nunca se acerca al muro más que el margen, y Mónaco usa `lineMargin: 1.7` (por defecto 1,3).
+  - Una IA que se abre hacia un muro cercano levanta el pie (Chiron en Casino y Tabac).
+  - En carrera, con `passRoom: 1.2`, adelantar exige más hueco, no se lanza a una frenada y trata un coche mucho más lento como más ancho. Con `crane: true`, un coche destrozado se retira a los 5 s en vez de quedarse entre los muros.
+  - En el resto de circuitos todo queda igual: misma trazada, mismas vueltas de IA en 5 circuitos × 3 coches y mismas tablas de pista (hash).
+- Piloto automático de pruebas (`__spa.setAuto`): ahora gira con el entorno del jugador (dirección limitada por la ayuda). Antes subviraba y se estrellaba en Mónaco en la primera vuelta.
+- Verificado:
+  - `ailap monaco` en los niveles 1/3/5/7/10 con GT3, W17, SF-26, MAC-26, Duster y NASCAR, sin atascos. Nivel 10: W17 1:14,8 (pole real F1 1:10,3) y GT3 1:33,6.
+  - `coach monaco amg_gt3`, `rewind monaco amg_gt3,w17`, `tyres` y `pits` en verde.
+  - Carrera en el navegador (12 GT3, nivel 5, 3 vueltas): termina, con 6 coches con las 3 vueltas en 1:39,8-1:41 y ninguno atascado; hay toques y alguna retirada, como en el real.
+  - Capturas: aérea del puerto, parrilla, Casino, túnel, chicane, Piscine, onboard en la recta y sin errores de página.
+- Límites conocidos:
+  - La entrada a boxes está simplificada: la real está antes de La Rascasse.
+  - Los garajes van en el lado contrario de la calle de boxes respecto al modelo de AC.
+  - Los muros de neumáticos por dentro de la curva se quitaron.
+  - El Chiron y el AMG One con IA de nivel 8-10 aún se estrellan a veces en Massenet (reaparecen); GT3, F1, Duster y NASCAR no.
+  - El piloto automático de nivel 10 con el GT3 del jugador también puede chocar ahí, por los neumáticos fríos del jugador.
+- Packs sin cambios (no cambió ningún GLB).

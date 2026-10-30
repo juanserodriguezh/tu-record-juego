@@ -91,7 +91,8 @@ class AIDriver {
       // if they braked as hard as they can (Gipps-style safe speed)
       if (ds > 0.5 && ds < look) {
         const jj = (i + Math.round(ds / T.ds)) % N, myD = line.off[jj] + this.off, lenSum = (myL + c.len) / 2, widSum = (myW + c.wid) / 2;
-        if (Math.abs(c.d - myD) < widSum + 0.35 || Math.abs(dd) < widSum + 0.1) {
+        const wx = T.def.passRoom && c.u < u * 0.7 ? T.def.passRoom : 0;   // between walls a much slower car (spun, damaged) blocks more than its width
+        if (Math.abs(c.d - myD) < widSum + 0.35 + wx || Math.abs(dd) < widSum + 0.1 + wx) {
           const b = this.decel, tau = 0.28, gap = ds - lenSum - (1.2 + u * (0.05 + 0.12 * (ctrl.caution || 0)));
           const vs = -b * tau + Math.sqrt(Math.max(0, b * b * tau * tau + (c.u > 0 ? c.u * c.u : 0) + 2 * b * gap));
           vCap = Math.min(vCap, Math.max(0, vs));
@@ -124,9 +125,10 @@ class AIDriver {
       const gap = aheadDs - lenSum;
       if ((closing > 0.3 + 1.2 * (1 - this.skill) && gap / Math.max(0.5, closing) < 2.4 + 1.2 * this.skill) || gap < 6 + u * 0.35) {
         const ci = c.i, roomL = T.wl[ci] - (c.d + c.wid / 2), roomR = (c.d - c.wid / 2) + T.wr[ci];
-        const need = myW + 0.7;
+        const need = myW + 0.7 + (T.def.passRoom || 0);   // between walls (Monaco) a pass needs real room
         let sd = this.passSide;
         if (!sd || (sd > 0 ? roomL : roomR) < need) sd = roomL >= roomR ? (roomL > need ? 1 : 0) : (roomR > need ? -1 : 0);
+        if (T.def.passRoom && !this.passSide && this.brakingAhead) sd = 0;   // no lunges into a corner between walls
         this.passSide = sd;
         if (sd) target = c.d + sd * (widSum + 0.8);
         const latClear = Math.abs(c.d - q.d) > widSum + 0.2;
@@ -179,6 +181,9 @@ class AIDriver {
       }
     }
     vt = Math.min(vt, vCap);
+    // running wide towards a wall close to the asphalt (Monaco): lift so the tyres turn the car instead of pushing it on
+    { const drift = q.d - (base + this.off), cl = (q.d >= 0 ? q.bl - q.d : q.br + q.d) - myW / 2;
+      if (cl < 1.4 && v.u > 8 && drift * q.d > 0 && Math.abs(drift) > 0.5) vt = Math.min(vt, v.u - 3 * (1.4 - cl) * Math.min(1, Math.abs(drift) - 0.5)); }
     if (dead) vt = Math.min(vt, Math.abs(q.d) > Math.min(T.wl[i], T.wr[i]) - 2.5 ? 0 : 9);
     if (inPitLane) vt = Math.min(vt, 21.5);
     const err = vt - v.u;
