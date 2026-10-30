@@ -178,3 +178,4 @@
   - El Chiron y el AMG One con IA de nivel 8-10 aún se estrellan a veces en Massenet (reaparecen); GT3, F1, Duster y NASCAR no.
   - El piloto automático de nivel 10 con el GT3 del jugador también puede chocar ahí, por los neumáticos fríos del jugador.
 - Packs sin cambios (no cambió ningún GLB).
+- Publicada el 30-oct-2026 como versión 79 del artefacto (id 1793366473-e952). Solo cambió la página; los packs siguen como en v78.
