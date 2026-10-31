@@ -232,3 +232,4 @@
 - Sin tocar:
   - El piloto automático recorre la vía a unos 28 km/h, ya antes de este cambio.
   - Mónaco usa la misma rampa recta en su salida de boxes; si tiene el mismo fallo, basta con añadir `follow: true`.
+- Publicada el 31-oct-2026 como versión 82 del artefacto (id 1793466846-80b5). Solo cambió la página; los packs siguen como en v78.
