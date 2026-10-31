@@ -27,6 +27,7 @@ node tools/headless.js pitstop             # tiempo de parada por categoría y d
 node tools/headless.js coach monza amg_gt3   # línea adaptativa: zonas y juicio de 3 pilotos IA (exit 1 si falla)
 node tools/headless.js rewind monza amg_gt3,w17   # rebobinado: restauración exacta, daño, coste y línea adaptativa (exit 1 si falla)
 node tools/shot.mjs <prefijo> <pista> <coche> "<js>|||<js>" [ancho]   # capturas en shots/
+node tools/menu_shot.mjs <prefijo> "<js>|||<js>" [ancho] [alto] [móvil]   # capturas del menú (sin empezar sesión)
 LOD=1 node tools/perf.mjs spa amg_gt3 race medio 8 960   # coste por frame: draw calls, triángulos (todas las pasadas), ms de JS
 ```
 Ejemplos de capturas:
@@ -53,7 +54,7 @@ Ejemplos de capturas:
 | `src/carmodel.js`, `src/body.js`, `src/hands.js`, `src/special.js` | Coches procedurales, cabina, volante y manos |
 | `src/glb.js` | Monta los modelos escaneados (GLB) sobre el coche: ruedas, cabina real, volante y piezas fijas |
 | `src/audio.js` | Motores sintetizados |
-| `src/main.js` | Arranque, garaje, modos de sesión, HUD, cámaras, red, `window.__spa` (ganchos de prueba) |
+| `src/main.js` | Arranque, menú (`MENU_UI`, `Spring`), garaje, modos de sesión, HUD, cámaras, red, `window.__spa` (ganchos de prueba) |
 | `assets/*.glb` | Modelos ya optimizados. `build.js` los empaqueta en `dist/models/packN.wasm` (≤ 8 MB cada uno) |
 
 ## Convenciones importantes
@@ -74,8 +75,10 @@ Ejemplos de capturas:
 - **Parada en boxes:** `pitStopPlan` en `damage.js`. Usa `PIT_CREW` (tiempos reales de neumáticos y factor del equipo por tipo de coche) y `PIT_REPAIR` (cada pieza escala con su daño). En Spa la salida de boxes es una vía propia (`escape` con `pit: true`).
 - **Rendimiento (v73):** los coches escaneados rivales cambian a mallas simplificadas por distancia (`glbLod*` en `glb.js`, meshoptimizer en `src/meshopt_simplifier.js`, calculado en un worker). Cada malla usa el nivel más simple cuyo error geométrico en pantalla es < 0,3 px (`LOD_PX`); el coche del jugador siempre lleva el modelo completo. `__spa.lod(false)` lo apaga para comparar; `__spa.freeze(true)` + `__spa.redraw()` congelan un frame para comparar píxel a píxel. Límite de FPS en ajustes (60 por defecto, `paceSkip` en `main.js`). En el postproceso solo la pasada de escena lleva MSAA.
 - **Ajuste de cámara** en juego: teclas 1–0. Se guarda por coche y por vista.
+- **Menú (v81):** tres pasos en una hoja de cristal: Pista (tarjetas con el trazado, trazados de Tocancipá, clima) · Coche (lista + ficha a la derecha) · Sesión (modo, detalles, «Más opciones»). Escritorio: panel lateral; móvil (≤ 820 px): hoja inferior con dos posiciones que se arrastra por la cabecera. Movimiento con muelles propios (`Spring`: amortiguamiento + respuesta, parten del valor y la velocidad actuales), proyección del gesto y rebote en los bordes, según la guía de diseño de Apple que pasó Juanse. Los ids de los controles antiguos se conservan. La cámara del menú encuadra el coche en el hueco libre (`menuFrame`). Capturas del menú: `node tools/menu_shot.mjs <prefijo> "__spa.menuStep('coche')" [ancho] [alto] [móvil=1]`.
 
 ## Historial reciente y decisiones
+- **v81:** menú nuevo en tres pasos (Pista · Coche · Sesión) con hoja de cristal, muelles y gestos; en móvil el menú anterior se salía de la pantalla.
 - **v80:** alrededores de Mónaco: `prep_monaco` parte cualquier bloque o tribuna que llegue por dentro del muro (`node tools/headless.js city`, exit 1 si alguno invade); relleno de ciudad en la ladera y la Roca, roca en las pendientes y palmeras con normales hacia arriba.
 - **v79:** Mónaco desde el mod de AC (`tools/prep_monaco/`: `kn5.mjs` lee `.kn5` y `fast_lane.ai`; `prep.mjs` mide eje, anchos, muros reales, pianos, ciudad). Opciones de pista nuevas: `bar`/`barDs` (muros medidos por muestra; la cara del muro de neumáticos es la medida), `kerbs`, `lineMargin`, `passRoom` (la IA adelanta solo con hueco y en fila entre muros), `crane` (retira coches destrozados), `escape.handles`. La trazada nunca usa piano con muro detrás. `__spa.setAuto` gira con el entorno del jugador.
 - **v78:** Cadillac MAC-26 y Ferrari SF-26 (F1 2026, física del W17) preparados con `tools/prep_f1_2026/`; libreas texturizadas recoloreables con la máscara de pintura (`glbPaintMask`, alfa de la textura = peso); la parrilla F1 conserva las libreas.

@@ -194,3 +194,19 @@
 - Verificado: `city`, `pits` y `tyres` en verde. Capturas antes y después (Beau Rivage, bajada del Casino, salida del túnel, aérea de Beau Rivage, tribuna de Piscine, la Roca y aérea de la ciudad) en la carpeta del proyecto `monaco-v80/`, sin errores de página. Coste (`perf.mjs monaco amg_gt3 race medio`): 2,86 M → 2,97 M triángulos (+4 %), 521 → 516 llamadas de dibujo.
 - Publicada el 31-oct-2026 como versión 80 del artefacto (id 1793464891-e5fb). Solo cambió la página; los packs siguen como en v78.
 - Límite que queda: los bloques siguen siendo cajas con la misma fachada; el relleno es genérico (no reproduce el Palacio ni la catedral de la Roca).
+
+## v81 (31-oct-2026) — menú en tres pasos (Pista · Coche · Sesión)
+- Pedido de Juanse: un menú donde se elija coche, pista y los detalles de la sesión, siguiendo la guía «Apple design» que adjuntó.
+- Causa: el menú anterior lo tenía todo a la vez (garaje a la izquierda, ficha a la derecha, pestañas de pista arriba, modos y opciones abajo). En móvil se salía de la pantalla: pestañas de pista en dos líneas, filas cortadas a la derecha y la ficha montada debajo de los modos (captura previa en un iPhone de 390 px).
+- Ahora (`body.html`, `style.css`, `main.js`): una hoja de cristal con tres pasos y un control segmentado arriba.
+  - Pista: tarjetas con el dibujo del trazado (sale de `D.raw()`), país, longitud y tu récord con el coche elegido; los 6 trazados de Tocancipá aparecen bajo su tarjeta; el clima va en este paso.
+  - Coche: buscador, categorías y lista; la ficha (datos, récords y «Apariencia» plegable) aparece a la derecha solo en este paso. En móvil la ficha es una tarjeta compacta arriba (tres datos, flechas y botón «Colores»).
+  - Sesión: los 4 modos como filas con icono y descripción, los detalles como lista agrupada (interruptor de rivales, pasos de dificultad, rivales y vueltas, neumáticos) y «Más opciones» abre el modal de siempre.
+  - Abajo, siempre: resumen (pista · coche · modo), botón «Siguiente» y «Salir a pista».
+- Movimiento: muelles propios (`Spring` en `main.js`, amortiguamiento y respuesta como en la guía: 1,0 sin rebote; 0,8 solo tras un lanzamiento) que parten del valor y la velocidad actuales, así que se pueden interrumpir. Se puede deslizar entre pasos con el dedo o el ratón (seguimiento 1:1, umbral de 10 px por eje, proyección del gesto para decidir el paso y rebote progresivo en los extremos). En móvil la hoja tiene dos posiciones (media pantalla y completa) y se arrastra o se lanza desde la cabecera. Respeta «reducir movimiento», «reducir transparencia» y «más contraste». Respuesta al pulsar con escala 0,97 en `:active`.
+- Cámara del menú (`menuFrame`): encuadra el coche en el hueco que dejan los paneles y aleja la cámara si no cabe (en móvil vertical el coche se cortaba). Se suaviza al cambiar de paso.
+- Se conservan todos los ids (`trackTabs`, `modeTabs`, `quickOpts`, `carList`, `startBtn`…), así que la lógica de sesiones, multijugador y garaje no cambió. `scrollIntoView` se sustituyó por `scrollIntoPage`: el original desplazaba de lado la fila de páginas.
+- Herramienta nueva: `tools/menu_shot.mjs` (capturas del menú sin empezar sesión; con `1` al final emula un móvil). Ganchos: `__spa.menuStep(paso)` y `__spa.sheet(completa)`.
+- Verificado: capturas de los tres pasos a 1280 y 1000 px, en móvil vertical (390 × 844, hoja media y completa) y horizontal (844 × 390). Prueba de interacción con Playwright (ratón en escritorio y toques reales por CDP en móvil): deslizar de Pista a Coche, arrastrar la hoja hasta arriba, pestañas, elegir modo (el botón pasa a «Empezar carrera»), elegir Tocancipá (aparecen sus 6 trazados), elegir coche y salir a pista (HUD visible); sin errores de página. `headless.js pits` en verde (no cambia la física).
+- Límite: al abrir el paso Coche la lista se desplaza hasta el coche elegido, así que el buscador queda arriba fuera de vista hasta que subes.
+
