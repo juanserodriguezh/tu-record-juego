@@ -80,6 +80,7 @@ Ejemplos de capturas:
 
 ## Historial reciente y decisiones
 - **v84:** la vida de los neumáticos en el menú se mide en la pista y con el coche elegidos (IA nivel 9, 4 vueltas por compuesto, en trozos de 6 ms mientras el menú está abierto: `tyreLifeStart` en `main.js`); antes decía siempre «en Spa» con un número fijo. «Auto» elige el compuesto más blando que aguanta la carrera con esa medida.
+- **v85:** Mónaco: palmeras fuera de boxes (`pitZone`); las piezas de tribuna del modelo se unen en tribunas continuas que siguen el muro (`standRuns` en `buildMonaco`), nunca en boxes, garajes, otra calle o el mar; túnel con paredes claras, luz cálida propia (`tunLight`) y exposición +22 % dentro; Tabac sin el muro de 10 m (muros de contención limitados a 3 m salvo calle justo detrás o suelo medido que sube a < 7 m; terreno tallado hasta 16 m donde el suelo medido sigue a nivel).
 - **v83:** Mónaco sin bancos de tierra: el terreno de 8 m se talla al nivel de la calle más baja en un pasillo de 6 m detrás del muro, y los muros de contención de piedra (`buildMonacoStreet` en `world.js`) tapan el desnivel. Además, aceras de ladrillo, la isla de la horquilla y árboles en jardines y taludes.
 - **v82:** salida de boxes de Spa: la vía sigue la cota de la pista (`escape.follow`), raíles solo donde la física para el coche (`T.drivable`), sin muro cruzado en la boca ni hierba encima.
 - **v81:** menú nuevo en tres pasos (Pista · Coche · Sesión) con hoja de cristal, muelles y gestos; en móvil el menú anterior se salía de la pantalla.

@@ -616,7 +616,7 @@ class World {
     const gnd = MC ? this.monacoGround() : null;   // measured ground (height above the sea, class 0 sea / 1 paved / 2 green)
     const nx = Math.ceil((x1 - x0) / step) + 1, nz = Math.ceil((z1 - z0) / step) + 1;
     const cnt = nx * nz;
-    const dist = new Float32Array(cnt).fill(1e9), eNear = new Float32Array(cnt), barNear = new Float32Array(cnt), iNear = new Int32Array(cnt), eLow = new Float32Array(cnt).fill(1e9);
+    const dist = new Float32Array(cnt).fill(1e9), eNear = new Float32Array(cnt), barNear = new Float32Array(cnt), iNear = new Int32Array(cnt), eLow = new Float32Array(cnt).fill(1e9), eLow2 = new Float32Array(cnt).fill(1e9);
     const R = 170, rc = Math.ceil(R / step);
     // flat ground under the grandstands (depth measured from the barrier)
     const standDepthL = new Float32Array(N), standDepthR = new Float32Array(N);
@@ -631,6 +631,7 @@ class World {
         const k = gz * nx + gx, px = x0 + gx * step, pz = z0 + gz * step;
         const d = Math.hypot(px - T.x[i], pz - T.z[i]);
         if (d < Math.max(T.barL[i], T.barR[i]) + 6 && T.e[i] < eLow[k]) eLow[k] = T.e[i];   // lowest road whose corridor holds this vertex
+        if (d < Math.max(T.barL[i], T.barR[i]) + 16 && T.e[i] < eLow2[k]) eLow2[k] = T.e[i];   // same, 16 m (v84)
         if (d < dist[k]) {
           dist[k] = d; eNear[k] = T.e[i]; iNear[k] = i;
           const side = (px - T.x[i]) * T.nx[i] + (pz - T.z[i]) * T.nz[i];
@@ -685,6 +686,10 @@ class World {
         // (buildMonacoStreet) close it on both sides, so no 8 m terrain triangle slopes across the view: a road one level up
         // stands on its wall, the ground above the road starts behind the wall
         if (gnd && eLow[k] < 1e8) h = Math.min(h, eLow[k] - 1.6);
+        // v84: where the measured ground is still at the level of the lower road further back (Tabac: 14 m of pavement, palms and a
+        // block before Avenue d'Ostende rises), the carve reaches 16 m: the step sits where the model has it, under the upper road's
+        // wall, instead of an 8 m triangle rising from the barrier that needed a 10 m stone wall to hide it
+        if (gnd && eLow2[k] < 1e8 && natural < eLow2[k] + 1.5) h = Math.min(h, eLow2[k] - 1.6);
       }
       // lake (Albert Park): carve a basin where the point is well inside the outline and away from the track
       if (lake) {
@@ -709,7 +714,7 @@ class World {
       let c;
       if (gnd) { c = gnd.col(px, pz, h);
         // a bank right behind the barrier (between two levels of the town): masonry and planting, not bare paving that reads as sand
-        if (dN < barNear[k] + 14 && Math.abs(h - eNear[k]) > 1.5) c.lerp(col3('#7d7563').lerp(col3('#4a5a34'), vnoise(px / 11, pz / 11)), smoothstep(1.5, 4, Math.abs(h - eNear[k])) * 0.85); }
+        if (dN < barNear[k] + 20 && Math.abs(h - eNear[k]) > 1.5) c.lerp(col3('#5b6b40').lerp(col3('#3d5130'), vnoise(px / 11, pz / 11)), smoothstep(1.5, 4, Math.abs(h - eNear[k])) * 0.9); }   // planted (v84: was half masonry, read as sand above the capped walls)
       else if (dN < 45) c = mown.clone().multiplyScalar(0.92 + 0.14 * vnoise(px / 9, pz / 9));
       else if (f < 0.4) c = field.clone().lerp(grass, vnoise(px / 80, pz / 80) * 0.6);
       else c = grass.clone().lerp(grassDark, smoothstep(0.45, 0.62, f)).multiplyScalar(0.9 + 0.15 * vnoise(px / 25, pz / 25));
@@ -1095,7 +1100,40 @@ class World {
       block(cs, rot, y0, y1, hw, hd, [cx, cz]); mark(cx, cz, hw, hd, rot, 3);
       addFP(cx, cz, Math.max(hw, hd) + 2); nB++;
     }
-    for (const [, , cx, cz, hw, hd, rot] of MC.stands) mark(cx, cz, hw, hd, rot, 4);
+    // ---- grandstands, planned here so the filler town keeps clear of them (built further down). v84: the model's stands come in
+    // ~90 pieces (split where they touched the track); placed as they were they looked dropped in at random, some crossed the pit
+    // lane and the garages. The pieces facing the same stretch are joined into one stand that follows the barrier: a walkway of at
+    // least 3 m behind it, rows rising away from the track, a roof on the tall ones. No part of a stand in the pit lane, on the
+    // garages, on the pit exit, on another road, on a measured block or over the sea.
+    const standRuns = [];
+    { const kind = this.mGround.kind, md = (i) => ((i % N) + N) % N, pcs = [];
+      for (const [, , cx, cz, hw, hd, rot, base, top] of MC.stands) {
+        const q = T.project(cx, cz, -1), side = q.d >= 0 ? 1 : -1, c = Math.cos(rot), sn = Math.sin(rot);
+        let iA = 1e9, iB = -1e9, dIn = 1e9, dOut = 0;
+        for (const [u, v] of [[-1, -1], [1, -1], [1, 1], [-1, 1], [0, 0]]) { const r = T.project(cx + u * hw * c - v * hd * sn, cz + u * hw * sn + v * hd * c, q.i);
+          let di = r.i - q.i; if (di > N / 2) di -= N; if (di < -N / 2) di += N; iA = Math.min(iA, q.i + di); iB = Math.max(iB, q.i + di); dIn = Math.min(dIn, Math.abs(r.d)); dOut = Math.max(dOut, Math.abs(r.d)); }
+        const bar = side > 0 ? q.bl : q.br; pcs.push({ side, iA, iB, gap: dIn - bar, dep: dOut - dIn, h: top - base });
+      }
+      pcs.sort((a, b) => a.side - b.side || a.iA - b.iA);
+      const groups = []; for (const p of pcs) { const g = groups[groups.length - 1];
+        if (g && g.side === p.side && p.iA <= g.iB + Math.ceil(14 / T.ds) && Math.abs(p.gap - g.gap) < 12) { g.iB = Math.max(g.iB, p.iB); g.p.push(p); }
+        else groups.push({ side: p.side, iA: p.iA, iB: p.iB, gap: p.gap, p: [p] }); }
+      const med = (a) => { a = a.slice().sort((x, y) => x - y); return a[a.length >> 1]; };
+      const onRoad = (k, x, z) => { const r = T.project(x, z, -1); let dk = Math.abs(r.i - k); dk = Math.min(dk, N - dk); return dk * T.ds > 30 && Math.abs(r.d) < (r.d > 0 ? r.bl : r.br) + 2.5; };
+      for (const g of groups) {
+        if ((g.iB - g.iA) * T.ds < 10) continue;
+        const front = clamp(Math.min(...g.p.map(p => p.gap)), 3, 9), dep = clamp(med(g.p.map(p => p.dep)), 5, 16), h = clamp(Math.max(...g.p.map(p => p.h)), 4, 18);
+        const rise = Math.min(dep * 0.55, h - 1), roof = h > 9, side = g.side;
+        let run = null; const done = () => { if (run && run.k.length > Math.ceil(12 / T.ds)) standRuns.push(run); run = null; };
+        for (let i = g.iA - 1; i <= g.iB + 1; i++) { const k = md(i), bar = side > 0 ? T.barL[k] : T.barR[k];
+          let ok = true; for (const dd of [front, front + dep * 0.5, front + dep]) { const p = this.P(k, side * (bar + dd), 0);
+            if (pitZone(p[0], p[2]) || onExit(p[0], p[2], 2) || kind(p[0], p[2]) === 0 || occ.has(okey(p[0], p[2])) || onRoad(k, p[0], p[2])) { ok = false; break; } }
+          if (!ok) { done(); continue; }
+          if (!run) run = { side, front, dep, rise, roof, k: [] }; run.k.push(k); }
+        done();
+      }
+      for (const r of standRuns) for (const k of r.k) { const bar = r.side > 0 ? T.barL[k] : T.barR[k]; for (let dd = r.front - 1; dd <= r.front + r.dep + 1; dd += 2) { const p = this.P(k, r.side * (bar + dd), 0); occ.add(okey(p[0], p[2])); } }
+    }
     for (const r of MC.palms.split(';')) { const [x, z] = r.split(',').map(Number); occ.add(okey(x, z)); }
     // ---- filler town: the model leaves much of the hillside and the Rock as bare paved ground (its far blocks are flat cards).
     // Paved land above the quays, away from every road of the lap, from the pits and from the measured blocks gets plain
@@ -1122,23 +1160,29 @@ class World {
     { const m = new THREE.Mesh(fac.build(), new THREE.MeshLambertMaterial({ vertexColors: true, map: TEX.facade || (TEX.facade = this.facadeTex()) })); m.receiveShadow = true; this.group.add(m); }
     this.group.add(new THREE.Mesh(roofB.build(), new THREE.MeshLambertMaterial({ vertexColors: true })));
     this.nBuildings = nB; this.nFiller = nF;
-    // ---- grandstands (as on the model): seating that rises away from the track, crowd on the slope, roof on the tall ones
+    // ---- grandstands (runs planned above): crowd on the slope, concrete front and back, end walls, roof on the tall ones
     const crowdB = new GeoBuilder(true);
-    for (const [, , cx, cz, hw, hd, rot, base, top] of MC.stands) {
-      const c = Math.cos(rot), sn = Math.sin(rot), q = T.project(cx, cz, -1);
-      const tx = T.x[q.i] - cx, tz = T.z[q.i] - cz;   // towards the track
-      const ux = c, uz = sn, vx = -sn, vz = c, alongU = Math.abs(tx * ux + tz * uz) < Math.abs(tx * vx + tz * vz);   // the long side faces the track
-      const [ax, az, bx, bz, la, lb] = alongU ? [ux, uz, vx * Math.sign(tx * vx + tz * vz), vz * Math.sign(tx * vx + tz * vz), hw, hd] : [vx, vz, ux * Math.sign(tx * ux + tz * uz), uz * Math.sign(tx * ux + tz * uz), hd, hw];
-      const P = (u, v, y) => [cx + ax * u * la + bx * v * lb, y, cz + az * u * la + bz * v * lb];   // v = +1: front (track side)
-      const g = this.heightAt(cx, cz), y0 = Math.min(base, g) - 1, yF = Math.max(base, g) + 1.2, yB = Math.max(top - 1.5, yF + 3);
-      const f0 = P(-1, 1, yF), f1 = P(1, 1, yF), b0 = P(-1, -1, yB), b1 = P(1, -1, yB);
-      crowdB.quad(f0, f1, b1, b0, C.white, [[0, 0], [la / 2, 0], [la / 2, 1], [0, 1]]);
-      const lo = (p) => [p[0], y0, p[2]];
-      const out = (a, b, c, d) => { const nx = (b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]), nz = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);   // face away from the stand's centre
-        if (nx * ((a[0] + c[0]) / 2 - cx) + nz * ((a[2] + c[2]) / 2 - cz) >= 0) B.quad(a, b, c, d, C.concrete); else B.quad(d, c, b, a, C.concrete); };
-      out(lo(f1), lo(f0), f0, f1); out(lo(b0), lo(b1), b1, b0); out(lo(f0), lo(b0), b0, f0); out(lo(b1), lo(f1), f1, b1);
-      if (top - base > 9) { const r0 = P(-1, 0.6, yB + 3), r1 = P(1, 0.6, yB + 3), r2 = P(1, -1.05, yB + 3.4), r3 = P(-1, -1.05, yB + 3.4); B.quad(r0, r1, r2, r3, C.roof); B.quad(r3, r2, r1, r0, C.roof); }
-      addFP(cx, cz, Math.max(hw, hd) + 3);
+    { const face = (a, b, c, d, col, dx, dz) => { const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+        const nx = uy * vz - uz * vy, nz = ux * vy - uy * vx; if (nx * dx + nz * dz >= 0) B.quad(a, b, c, d, col); else B.quad(d, c, b, a, col); };
+      for (const r of standRuns) { const sd = r.side, n = r.k.length; let u = 0;
+        const at = (k, dd, y) => { const bar = sd > 0 ? T.barL[k] : T.barR[k], p = this.P(k, sd * (bar + dd), 0); return [p[0], y, p[2]]; };
+        const yF = (k) => T.e[k] + 1.1, yB = (k) => T.e[k] + 1.1 + r.rise, g0 = (k, dd) => { const p = at(k, dd, 0); return Math.min(this.heightAt(p[0], p[2]), T.e[k]) - 0.8; };
+        for (let j = 0; j + 1 < n; j++) { const k = r.k[j], k2 = r.k[j + 1];
+          const f0 = at(k, r.front, yF(k)), f1 = at(k2, r.front, yF(k2)), b0 = at(k, r.front + r.dep, yB(k)), b1 = at(k2, r.front + r.dep, yB(k2));
+          const L = Math.hypot(f1[0] - f0[0], f1[2] - f0[2]); crowdB.quad(f0, f1, b1, b0, C.white, [[u, 0], [u + L / 2, 0], [u + L / 2, 1], [u, 1]]); u += L / 2;
+          const nx = -sd * T.nx[k], nz = -sd * T.nz[k];   // towards the track
+          face([f0[0], g0(k, r.front), f0[2]], [f1[0], g0(k2, r.front), f1[2]], f1, f0, C.concrete, nx, nz);
+          const bt0 = yB(k) + (r.roof ? 3.6 : 1.0), bt1 = yB(k2) + (r.roof ? 3.6 : 1.0);
+          face([b0[0], g0(k, r.front + r.dep), b0[2]], [b1[0], g0(k2, r.front + r.dep), b1[2]], [b1[0], bt1, b1[2]], [b0[0], bt0, b0[2]], C.concrete, -nx, -nz);
+          if (r.roof) { const r0 = at(k, r.front + r.dep * 0.3, yB(k) + 3.3), r1 = at(k2, r.front + r.dep * 0.3, yB(k2) + 3.3), r2 = at(k2, r.front + r.dep + 0.3, bt1), r3 = at(k, r.front + r.dep + 0.3, bt0);
+            B.quad(r0, r1, r2, r3, C.roof); B.quad(r3, r2, r1, r0, C.roof); }
+          if (j % 3 === 0) { const pc = at(k, r.front + r.dep / 2, 0); addFP(pc[0], pc[2], r.dep / 2 + 4); }
+        }
+        for (const [j, dir] of [[0, -1], [n - 1, 1]]) { const k = r.k[j], kk = r.k[Math.max(0, Math.min(n - 1, j - dir))], tx = T.x[k] - T.x[kk], tz = T.z[k] - T.z[kk];   // end walls
+          const f = at(k, r.front, yF(k)), b = at(k, r.front + r.dep, yB(k) + (r.roof ? 3.6 : 1.0));
+          face([f[0], g0(k, r.front), f[2]], [b[0], g0(k, r.front + r.dep), b[2]], b, f, C.concrete, tx, tz); }
+      }
+      this.nStands = standRuns.length; this.standLen = Math.round(standRuns.reduce((a, r) => a + r.k.length * T.ds, 0));
     }
     this.group.add(new THREE.Mesh(crowdB.build(), new THREE.MeshLambertMaterial({ map: TEX.crowd, side: THREE.DoubleSide })));
     // ---- yachts in the harbour: white hull, deck house, a mast on the tall narrow ones
@@ -1161,7 +1205,7 @@ class World {
         for (let i = 0; i < bp.count; i += 3) for (const at of [bp, bn, bu]) { const k = at.itemSize, t = []; for (let c = 0; c < k; c++) t.push(at.array[(i + 1) * k + c]); for (let c = 0; c < k; c++) { at.array[(i + 1) * k + c] = at.array[(i + 2) * k + c]; at.array[(i + 2) * k + c] = t[c]; } }
         return [g, b].map(q => { const n = q.attributes.position.count, a = new Float32Array(n * 3).fill(1); q.setAttribute('color', new THREE.BufferAttribute(a, 3)); return q; }); }));
       const trunk = colorize(new THREE.CylinderGeometry(0.18, 0.28, 1, 6, 1, true).translate(0, 0.5, 0), '#7b6a55'); trunk.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(trunk.attributes.position.count * 2).fill(0.02), 2));
-      const pts = MC.palms.split(';').map(r => r.split(',').map(Number)).filter(([x, z]) => { if (onExit(x, z, 1.5)) return false; const q = T.project(x, z, -1); return Math.abs(q.d) > (q.d > 0 ? q.bl : q.br) + 1; });
+      const pts = MC.palms.split(';').map(r => r.split(',').map(Number)).filter(([x, z]) => { if (onExit(x, z, 1.5) || pitZone(x, z)) return false; const q = T.project(x, z, -1); return Math.abs(q.d) > (q.d > 0 ? q.bl : q.br) + 1; });   // none in the pit lane or on the garages (v84)
       const m4 = new THREE.Matrix4(), q4 = new THREE.Quaternion(), sv = new THREE.Vector3(), pv = new THREE.Vector3(), yA = new THREE.Vector3(0, 1, 0);
       const tMat = new THREE.MeshLambertMaterial({ vertexColors: true }), cMat = new THREE.MeshLambertMaterial({ vertexColors: true, map: TEX.leaves, alphaTest: 0.5 }); cMat.alphaToCoverage = this.q !== 'bajo';
       const it = new THREE.InstancedMesh(trunk, tMat, pts.length), ic = new THREE.InstancedMesh(crown, cMat, pts.length);
@@ -1191,17 +1235,26 @@ class World {
         const L = Math.hypot(b[0] - a[0], b[2] - a[2]); if (L > 8) continue;
         // ground just behind: highest of the terrain a few metres back (the slope the wall has to hide), lowest close by
         const back = (k, dd) => { const p = this.P(k, this.barDf(side, k) + side * dd, 0); return this.heightAt(p[0], p[2]); };
-        // another stretch of the lap just behind and above (the road one level up): the wall reaches its surface
-        const above = (k) => { let top = -1e9; const p = this.P(k, this.barDf(side, k) + side * 9, 0), cx = Math.floor(p[0] / T.cell), cz = Math.floor(p[2] / T.cell);
-          for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (const m of T.hash.get((cx + a) + ',' + (cz + b)) || []) { let dk = Math.abs(m - k); dk = Math.min(dk, N - dk); if (dk * T.ds < 40) continue;
-            if ((T.x[m] - p[0]) ** 2 + (T.z[m] - p[2]) ** 2 < (Math.max(T.barL[m], T.barR[m]) + 9) ** 2 && T.e[m] > top) top = T.e[m]; }
-          return top; };
+        // another stretch of the lap at (x, z): its sample when the point falls within its barriers (+ m), else -1
+        const other = (k, x, z, m) => { const cx = Math.floor(x / T.cell), cz = Math.floor(z / T.cell);
+          for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (const j of T.hash.get((cx + a) + ',' + (cz + b)) || []) { let dk = Math.abs(j - k); dk = Math.min(dk, N - dk); if (dk * T.ds < 40) continue;
+            const r = Math.max(T.barL[j], T.barR[j]) + m; if ((T.x[j] - x) ** 2 + (T.z[j] - z) ** 2 < r * r) return j; }
+          return -1; };
+        // the road one level up right behind the barrier (the two barriers almost touch): the wall reaches its surface. A road
+        // further back stands on its own wall and the ground between stays at the lower level; before v84 the lower barrier got a
+        // wall up to the road above (Tabac under Avenue d'Ostende: a 10 m stone wall where the model has pavement, palms and a block)
+        const above = (k) => { const p = this.P(k, this.barDf(side, k) + side * 2.5, 0), j = other(k, p[0], p[2], 0); return j >= 0 ? T.e[j] : -1e9; };
         const nat = (k, dd) => { const p = this.P(k, this.barDf(side, k) + side * dd, 0); return this.mGround.h(p[0], p[2]); };   // measured ground
-        const hiOf = (k) => Math.max(back(k, 9), back(k, 13), nat(k, 7), nat(k, 11), above(k)), hiA = hiOf(i), hiB = hiOf(i + 1);
+        // ground behind for the wall height: points on another road do not count (that road has its own wall)
+        const hiAt = (k, dd, f) => { const p = this.P(k, this.barDf(side, k) + side * dd, 0); return other(k, p[0], p[2], 1.5) >= 0 ? -1e9 : f(k, dd); };
+        const hiOf = (k) => Math.max(hiAt(k, 9, back), hiAt(k, 13, back), hiAt(k, 7, nat), hiAt(k, 11, nat), above(k)), hiA = hiOf(i), hiB = hiOf(i + 1);
         const loA = Math.min(back(i, 2), back(i, 5)), loB = Math.min(back(i + 1, 2), back(i + 1, 5));
         const eA = a[1], eB = b[1];
         if (hiA > eA + 1.2 || hiB > eB + 1.2) {   // retaining wall up to the ground behind (capped: a road above is there too)
-          const tA = Math.min(Math.max(hiA, eA + 1.2), eA + 24) + 0.4, tB = Math.min(Math.max(hiB, eB + 1.2), eB + 24) + 0.4;
+          // capped at 3 m unless a road runs right behind and above, or the measured ground rises within 7 m of the barrier (a real
+          // cliff): further back the slope shows above the wall as a planted bank, as on the model (v84; before, up to 24 m)
+          const capA = Math.max(above(i), nat(i, 7)) > eA + 3 ? 24 : 3, capB = Math.max(above(i + 1), nat(i + 1, 7)) > eB + 3 ? 24 : 3;
+          const tA = Math.min(Math.max(hiA, eA + 1.2), eA + capA) + 0.4, tB = Math.min(Math.max(hiB, eB + 1.2), eB + capB) + 0.4;
           wallB.quad([a[0], eA - 1.8, a[2]], [b[0], eB - 1.8, b[2]], [b[0], tB, b[2]], [a[0], tA, a[2]], white, [[0, (eA - 1.8) / 3], [L / 3, (eB - 1.8) / 3], [L / 3, tB / 3], [0, tA / 3]]);
           const cA = this.P(i, d0 + side * 0.5, 0), cB = this.P(i + 1, d1 + side * 0.5, 0);   // coping on top
           wallB.quad([a[0], tA, a[2]], [b[0], tB, b[2]], [cB[0], tB, cB[2]], [cA[0], tA, cA[2]], curbC, [[0, 0], [L / 3, 0], [L / 3, 0.15], [0, 0.15]]);
@@ -1303,7 +1356,7 @@ class World {
   buildTunnel(B) {
     const T = this.T, N = T.N, [sa, sb] = this.tunnel, i0 = Math.floor(sa / T.ds), i1 = Math.ceil(sb / T.ds), H = 6.6;
     const wall = new GeoBuilder(false), roof = new GeoBuilder(false), lamp = new GeoBuilder(false);
-    const wc = col3('#7b7a76'), wc2 = col3('#5f5e5a'), rc = col3('#46474a'), lc = col3('#ffe9b0');
+    const wc = col3('#c9c4b8'), wc2 = col3('#b8b2a5'), rc = col3('#6c6b68'), lc = col3('#fff3d6');   // pale tiled walls, as the real tunnel (v84)
     const bd = (side, i) => this.barDf(side, i) + side * 0.15;
     for (let i = i0; i < i1; i++) {
       for (const side of [1, -1]) { const a0 = this.P(i, bd(side, i), -0.4), a1 = this.P(i + 1, bd(side, i + 1), -0.4), b0 = this.P(i, bd(side, i), H), b1 = this.P(i + 1, bd(side, i + 1), H);
@@ -1312,7 +1365,7 @@ class World {
       const l0 = this.P(i, bd(1, i), H), l1 = this.P(i + 1, bd(1, i + 1), H), r0 = this.P(i, bd(-1, i), H), r1 = this.P(i + 1, bd(-1, i + 1), H);
       roof.quad(l0, l1, r1, r0, rc); roof.quad(r0, r1, [r1[0], r1[1] + 1.2, r1[2]], [r0[0], r0[1] + 1.2, r0[2]], rc);
       roof.quad([l0[0], l0[1] + 1.2, l0[2]], [r0[0], r0[1] + 1.2, r0[2]], [r1[0], r1[1] + 1.2, r1[2]], [l1[0], l1[1] + 1.2, l1[2]], rc);
-      if (i % 3 === 0) { const c0 = this.P(i, 0.6, H - 0.06), c1 = this.P(i, -0.6, H - 0.06), c2 = this.P(i + 1, -0.6, H - 0.06), c3 = this.P(i + 1, 0.6, H - 0.06); lamp.quad(c0, c1, c2, c3, lc);
+      if (i % 2 === 0) { const c0 = this.P(i, 0.6, H - 0.06), c1 = this.P(i, -0.6, H - 0.06), c2 = this.P(i + 1, -0.6, H - 0.06), c3 = this.P(i + 1, 0.6, H - 0.06); lamp.quad(c0, c1, c2, c3, lc);
         for (const side of [1, -1]) { const s0 = this.P(i, bd(side, i) - side * 0.1, 4.6), s1 = this.P(i + 1, bd(side, i + 1) - side * 0.1, 4.6); lamp.quad(s0, s1, [s1[0], s1[1] + 0.25, s1[2]], [s0[0], s0[1] + 0.25, s0[2]], lc); } }
     }
     // portals: a thick lintel across each end
@@ -1327,7 +1380,11 @@ class World {
     const q = this.T.project(cam.x, cam.z, this._tq === undefined ? -1 : this._tq), [a, b] = this.tunnel; this._tq = q.i;
     const k = cam.y < q.e + 6 ? smoothstep(a - 6, a + 25, q.s) * (1 - smoothstep(b - 25, b + 6, q.s)) : 0;
     this.tunK = k;
-    if (!(sky.w && sky.w.storm)) { sky.hemi.intensity = sky.hemiI0 * (1 - 0.62 * k); sky.sun.intensity = sky.sunI0 * (1 - 0.35 * k); }
+    // v84: the sky light drops less and the tunnel's own lamps light the car and the walls (warm fill); before, the walls went
+    // almost black. main.js also opens the exposure a little with tunK (the eye adapting)
+    if (!this.tunLight) { this.tunLight = new THREE.AmbientLight(0xffe3bd, 0); sky.hemi.parent.add(this.tunLight); }
+    this.tunLight.intensity = 1.25 * k;
+    if (!(sky.w && sky.w.storm)) { sky.hemi.intensity = sky.hemiI0 * (1 - 0.45 * k); sky.sun.intensity = sky.sunI0 * (1 - 0.35 * k); }
   }
   // ---------------------------------------------------------------------
   // Autódromo de Tocancipá: the venue's real reference points, after the aerial photo looking NW down the main straight.

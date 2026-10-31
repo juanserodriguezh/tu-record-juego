@@ -264,3 +264,25 @@
 - Observación, sin tocar: el blando dura muy poco en pistas lentas y cortas (Mónaco 4, Tocancipá 2-3 vueltas) porque se sobrecalienta, y en Tocancipá el desgaste por kilómetro es unas 4 veces el de Spa. Puede ser intencional por la altitud y las curvas lentas, pero merece una revisión del modelo de temperatura.
 
 - Publicada el 31-oct-2026 como versión 84 del artefacto (id 1793471697-140c). Solo cambió la página.
+
+## v85 (31-oct-2026) — Mónaco: boxes, túnel, Tabac y gradas
+- Pedido de Juanse: palmeras dentro de los boxes y gradas que atraviesan los pits; el túnel se ve demasiado negro por dentro; en la curva después de la chicane (Tabac) hay muros que no deberían estar; en general las gradas y el entorno se ven «puestos ahí», muy apretados.
+- Causas:
+  - Las palmeras del modelo se filtraban solo contra la pista y la salida de boxes, no contra `pitZone` (calle de boxes y garajes).
+  - Las gradas eran las ~90 piezas del modelo de AC (partidas en la v80 donde tocaban la pista), colocadas tal cual: trozos de 3×3 m sueltos, a distinta distancia del muro, y la franja entre la recta y Tabac montada sobre los garajes.
+  - Túnel: la luz del cielo bajaba al 38 %, con paredes gris oscuro (#7b7a76) y techo casi negro, sin luz propia.
+  - Tabac: la regla de muros de la v83 subía el muro de piedra hasta el suelo de 9-13 m detrás o hasta la calle de arriba (Avenue d'Ostende), hasta 24 m. El suelo medido en el modelo de AC está a nivel unos 14 m detrás del muro (acera, palmeras y un bloque bajo) y solo después sube: el muro de 10 m no existe. La malla de 8 m del terreno empezaba a subir justo detrás del muro.
+- Arreglo (`world.js`, solo Mónaco; `main.js` una línea):
+  - Palmeras: fuera de `pitZone`.
+  - Gradas: las piezas que miran al mismo tramo se unen en una tribuna continua que sigue el muro (`standRuns`): pasillo de 3 a 9 m detrás del muro, fondo 5-16 m y altura según las piezas, techo en las altas, paredes de cierre. Ningún tramo de tribuna en la calle de boxes, garajes, salida de boxes, otra calle, un bloque medido o el mar. Quedan 10 tribunas (568 m) en lugar de 88 piezas. El relleno de ciudad respeta su huella.
+  - Túnel: la luz del cielo baja al 55 %, una luz ambiente cálida (`tunLight`, 1,25) sube con la entrada, paredes claras (#c9c4b8), techo más claro, lámparas cada 10 m (antes 15 m) y la exposición sube un 22 % dentro (ojos adaptándose). Se mantiene la transición al entrar.
+  - Tabac: el muro de contención se limita a 3 m salvo que haya una calle justo detrás (barreras casi pegadas) o el suelo medido suba a menos de 7 m del muro. Los puntos que caen sobre otra calle no cuentan para la altura (esa calle tiene su propio muro). El terreno se talla al nivel de la calle baja hasta 16 m detrás del muro donde el suelo medido sigue a ese nivel, y el talud que queda se pinta como jardín (antes medio mampostería, se leía como arena).
+- Verificado:
+  - Capturas antes/después en `monaco-v85/`: boxes desde arriba y desde la calle de boxes, túnel por dentro, Tabac a ras de suelo y desde arriba, tribunas de la Piscine y del Casino, horquilla T6 sin regresión.
+  - Comparado con un render del modelo de AC desde la misma cámara (script de inspección en el scratchpad, no en el repo): en Tabac hay acera, palmeras y un bloque, y el desnivel está bajo la calle de arriba.
+  - `city`, `pits monaco` y `tyres` en verde; sin errores de página.
+  - Coste (`perf.mjs monaco amg_gt3 race medio`): 2,97 M triángulos y 515 llamadas de dibujo (v83: 3,02 M y 540).
+- Límites que quedan:
+  - Tabac conserva un muro de piedra de 3 m con talud plantado detrás; en el modelo de AC ahí hay paneles y árboles, no exactamente un muro.
+  - Las tribunas son genéricas (gradas con techo plano); no copian la forma de cada tribuna real.
+  - Mónaco es estrecho de verdad: los edificios están donde los pone el modelo medido y no se separaron de la pista.

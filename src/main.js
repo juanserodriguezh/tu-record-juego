@@ -2603,6 +2603,7 @@ function frame(now) {
   tyreFrame(dt);
   sky.update(dt, camera, model ? model.root.position : null);
   world.updateLOD(camera.position, dt); world.updateEscape(dt); world.updateTunnel(sky, camera.position);
+  if (world.tunnel) renderer.toneMappingExposure = WEATHER[S.weather].exposure * (1 + 0.22 * (world.tunK || 0));   // eyes adapting inside the Monaco tunnel (v84)
   if (COACH_ST && SES) COACH_ST.line.frame(Math.abs(car.u), car.q.i, S.settings.lineMode === 'activa');
   if (SES && (S.mode === 'race' || S.mode === 'pause' || S.mode === 'results')) updateHUD(S.mode === 'pause' ? 0 : dt);
   if (SES && SES.kind === 'race' && SES.resultsShown && !$('results').hidden) { resT += dt; if (resT > 1) { resT = 0; showRaceResults(); } }
