@@ -179,3 +179,18 @@
   - El piloto automático de nivel 10 con el GT3 del jugador también puede chocar ahí, por los neumáticos fríos del jugador.
 - Packs sin cambios (no cambió ningún GLB).
 - Publicada el 30-oct-2026 como versión 79 del artefacto (id 1793366473-e952). Solo cambió la página; los packs siguen como en v78.
+
+## v80 (31-oct-2026) — alrededores de Mónaco
+- Pedido de Juanse: «los edificios están atravesando la pista, los renders se ven mal en algunos lados; el trazado está bien, los alrededores no».
+- Causa principal: cada bloque de edificios era el rectángulo orientado de sus celdas de tejado. Un bloque en L o inclinado junto a la calle cubría también la esquina vacía, que era asfalto. Medido con el chequeo nuevo: 58 de 776 bloques y 4 tribunas llegaban por dentro del muro (hasta 6 m en Beau Rivage, la bajada del Casino, la salida del túnel, la chicane y Piscine). La tribuna del puerto era una sola caja de 196 × 50 m que cruzaba la recta en Sainte-Dévote.
+- Arreglo en `tools/prep_monaco/prep.mjs`: un bloque (o tribuna) cuyo rectángulo llega a menos de 1 m del muro se vuelve a partir por su lado largo hasta que no toca la pista; si aun así toca, se quita. Se mira contra la muestra más cercana en planta y contra la más cercana a su altura (en la ladera hay calles justo encima o debajo). Solo los bloques sobre el túnel pueden quedar por encima de la calzada. Resultado: 952 bloques (92 trozos pequeños quitados; superficie de edificios −5 %, casi toda la que pisaba la pista) y 88 tribunas.
+- `world.js`:
+  - Los bloques ya no flotan: todos bajan hasta el suelo salvo los que están sobre el túnel.
+  - Relleno de ciudad: el modelo de AC deja vacías gran parte de la ladera de Monte Carlo y la Roca (ahí usa tarjetas lejanas), y se veían como dunas de pavimento. Ahora el suelo pavimentado por encima de los muelles, a más de 10 m del muro de cualquier tramo, lejos de boxes y de los bloques medidos, recibe bloques sencillos en una rejilla de 16 m, girados hacia la calle más cercana; en la Roca, más bajos.
+  - Las pendientes fuertes se pintan como roca y los muelles como hormigón, no como arena.
+  - Palmeras: a contraluz se veían negras (el material de doble cara invertía la normal de la cara de abajo). Ahora cada hoja tiene dos caras con la normal hacia arriba.
+- Herramienta nueva: `node tools/headless.js city` comprueba que ningún bloque ni tribuna de Mónaco entra por dentro del muro (exit 1 si falla). Antes del arreglo daba 58 bloques y 4 tribunas; ahora 0 y 0.
+- No cambió nada de la pista: eje, anchos, muros, elevación y trazada son idénticos (solo cambian `buildings`, `stands` y `standRows` en `data_monaco.js`), así que la IA y las vueltas no cambian.
+- Verificado: `city`, `pits` y `tyres` en verde. Capturas antes y después (Beau Rivage, bajada del Casino, salida del túnel, aérea de Beau Rivage, tribuna de Piscine, la Roca y aérea de la ciudad) en la carpeta del proyecto `monaco-v80/`, sin errores de página. Coste (`perf.mjs monaco amg_gt3 race medio`): 2,86 M → 2,97 M triángulos (+4 %), 521 → 516 llamadas de dibujo.
+- Publicada el 31-oct-2026 como versión 80 del artefacto (id 1793464891-e5fb). Solo cambió la página; los packs siguen como en v78.
+- Límite que queda: los bloques siguen siendo cajas con la misma fachada; el relleno es genérico (no reproduce el Palacio ni la catedral de la Roca).

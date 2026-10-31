@@ -170,13 +170,25 @@ for (const m of pick(isBuilding)) raster(m.v, m.idx, BC, (ix, iz, y) => { const 
 for (const [k, r] of roof) { const ix = Math.floor(k / 65536) - OFS, iz = k - (ix + OFS) * 65536 - OFS, x = (ix + 0.5) * BC, z = (iz + 0.5) * BC, q = near(x, z, r[0]);
   if (q && Math.abs(q.d) < q.p.w + (q.d > 0 ? q.p.runL : q.p.runR) + 1.0 && r[0] < q.p.y + 6) roof.delete(k); }
 const BLD = [];
+// the rectangle of a block covers more than its cells: an L-shaped or slanted block next to the road would reach over the asphalt
+// and the barriers. A box that comes within 1 m of the barrier line (and not above the cars) is split again (v80)
+let dropped = 0;
+// Only the Fairmont over the tunnel may stand above the road; any other block hanging over it is a balcony or a bridge in the model.
+const overTunnel = (i) => i * DS >= TUNNEL[0] - 10 && i * DS <= TUNNEL[1] + 10;
+// (checked against the nearest sample in plan and the nearest at the block's height: on the hillside a road can pass right above or below)
+const intrudes = (o, base, top) => { const c = Math.cos(o.rot), s = Math.sin(o.rot), nu = Math.max(2, Math.ceil(o.hw)), nv = Math.max(2, Math.ceil(o.hd));
+  for (let a = 0; a <= nu; a++) for (let b = 0; b <= nv; b++) { const u = (2 * a / nu - 1) * o.hw, v = (2 * b / nv - 1) * o.hd, x = o.cx + u * c - v * s, z = o.cz + u * s + v * c;
+    for (const q of [near(x, z, base), near(x, z)]) if (q && Math.abs(q.d) < q.p.w + (q.d > 0 ? q.p.runL : q.p.runR) + 1.0 && (base < q.p.y + 6 || !overTunnel(q.i)) && top > q.p.y - 0.5) return true; }
+  return false; };
 // a block becomes one box only if it fills most of its rectangle; otherwise it is cut in two across its long side (and each half
 // re-split into connected parts), down to blocks that are box-like (fill > 62 %) or small
 const cellXY = (k) => { const ix = Math.floor(k / 65536) - OFS, iz = k - (ix + OFS) * 65536 - OFS; return [(ix + 0.5) * BC, (iz + 0.5) * BC]; };
 const addBlock = (keys, depth) => {
   if (keys.length < 6) return;
   const pts = keys.map(cellXY), o = obb(pts, BC / 2), fill = keys.length * BC * BC / (4 * o.hw * o.hd);
-  if (fill < 0.62 && depth < 9 && keys.length > 12) {
+  const base0 = Math.min(...keys.map((k) => roof.get(k)[0])), hit = intrudes(o, base0, Math.max(...keys.map((k) => roof.get(k)[1])));
+  if (hit && (keys.length <= 6 || depth >= 16)) { dropped++; return; }   // a box that still reaches over the circuit is left out
+  if ((fill < 0.62 && depth < 9 && keys.length > 12) || hit) {
     const ux = Math.cos(o.rot), uz = Math.sin(o.rot), lw = o.hw >= o.hd, key = (p) => lw ? (p[0] - o.cx) * ux + (p[1] - o.cz) * uz : -(p[0] - o.cx) * uz + (p[1] - o.cz) * ux;
     for (const half of [keys.filter((k, j) => key(pts[j]) < 0), keys.filter((k, j) => key(pts[j]) >= 0)]) { const sub = new Map(half.map((k) => [k, roof.get(k)])); for (const c of components(sub)) addBlock(c, depth + 1); }
     return;
@@ -185,7 +197,7 @@ const addBlock = (keys, depth) => {
   if (top - base >= 2.5) BLD.push({ ...o, base, top });
 };
 for (const comp of components(roof, (a, b) => Math.abs(a[1] - b[1]) < 3.5)) addBlock(comp, 0);
-console.log('buildings', BLD.length);
+console.log('buildings', BLD.length, 'dropped over the circuit', dropped);
 
 // ---------------------------------------------------------------- ground height map (8 m) and surface class: 0 sea, 1 paved, 2 green
 const GC = 8, gnd = new Map(), grn = new Map(), wat = new Set();
@@ -206,10 +218,18 @@ for (let o = 0; o < GH.length; o++) if (GH[o] !== GH[o]) { GH[o] = -3; GK[o] = 0
 console.log('ground', GNX, 'x', GNZ, 'sea cells', GK.filter((v) => v === 0).length);
 
 // ---------------------------------------------------------------- small things: grandstands, yachts, palms (components of a 1-2 m grid)
-const blobs = (meshes, c, minCells) => { const g = new Map(); for (const m of meshes) raster(m.v, m.idx, c, (ix, iz, y) => { const k = K(ix + OFS * 2, iz + OFS * 2), r = g.get(k); if (!r) g.set(k, [y, y]); else { r[0] = Math.min(r[0], y); r[1] = Math.max(r[1], y); } });
-  return components(g).filter((cp) => cp.length >= minCells).map((cp) => { const pts = cp.map((k) => { const ix = Math.floor(k / 65536) - OFS * 2, iz = k - (ix + OFS * 2) * 65536 - OFS * 2; return [(ix + 0.5) * c, (iz + 0.5) * c]; });
-    return { ...obb(pts, c / 2), base: Math.min(...cp.map((k) => g.get(k)[0])), top: Math.max(...cp.map((k) => g.get(k)[1])) }; }); };
-const STANDS = blobs(pick(isStand), 1, 20).map((b) => { const q = near(b.cx, b.cz); const along = Math.max(b.hw, b.hd); return { ...b, s: q.i * DS, d: q.d, len: along * 2 }; });
+// split: a blob whose rectangle reaches over the circuit (several grandstands joined into one long box) is cut across its long side (v80)
+const blobs = (meshes, c, minCells, split) => { const g = new Map(); for (const m of meshes) raster(m.v, m.idx, c, (ix, iz, y) => { const k = K(ix + OFS * 2, iz + OFS * 2), r = g.get(k); if (!r) g.set(k, [y, y]); else { r[0] = Math.min(r[0], y); r[1] = Math.max(r[1], y); } });
+  const xy = (k) => { const ix = Math.floor(k / 65536) - OFS * 2, iz = k - (ix + OFS * 2) * 65536 - OFS * 2; return [(ix + 0.5) * c, (iz + 0.5) * c]; }, out = [];
+  const add = (cp, depth) => { if (cp.length < minCells) return; const pts = cp.map(xy), o = obb(pts, c / 2), b = { ...o, base: Math.min(...cp.map((k) => g.get(k)[0])), top: Math.max(...cp.map((k) => g.get(k)[1])) };
+    if (split && intrudes(o, b.base, b.top)) { if (depth >= 14) { dropped++; return; }
+      const ux = Math.cos(o.rot), uz = Math.sin(o.rot), lw = o.hw >= o.hd, key = (p) => lw ? (p[0] - o.cx) * ux + (p[1] - o.cz) * uz : -(p[0] - o.cx) * uz + (p[1] - o.cz) * ux;
+      for (const half of [cp.filter((k, j) => key(pts[j]) < 0), cp.filter((k, j) => key(pts[j]) >= 0)]) { const sub = new Map(half.map((k) => [k, g.get(k)])); for (const cc of components(sub)) add(cc, depth + 1); }
+      return; }
+    out.push(b); };
+  for (const cp of components(g)) add(cp, 0);
+  return out; };
+const STANDS = blobs(pick(isStand), 1, 20, true).map((b) => { const q = near(b.cx, b.cz); const along = Math.max(b.hw, b.hd); return { ...b, s: q.i * DS, d: q.d, len: along * 2 }; });
 const BOATS = blobs(pick((n) => isBoat(n)), 1, 8);
 const PALMS = blobs(pick(isTree), 1, 1).filter((t) => t.hw < 8 && t.hd < 8);
 console.log('stands', STANDS.length, 'boats', BOATS.length, 'trees', PALMS.length);

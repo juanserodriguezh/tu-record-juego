@@ -21,6 +21,7 @@ npm run serve               # http://localhost:8000  (file:// no sirve: la pági
 node tools/headless.js accel amg_gt3,w17   # 0-100 / 0-200 / 0-300 / vmax con la física real del juego
 node tools/headless.js ailap monza amg_gt3,w17 5   # vueltas de la IA sola (pista, coches, nivel 1-10)
 node tools/headless.js tyres               # comprueba que las barreras de neumáticos quedan por fuera de la curva
+node tools/headless.js city                # Mónaco: ningún edificio ni tribuna dentro de los muros (exit 1 si falla)
 node tools/headless.js pits                # tribunas, boxes y postes no se pisan entre sí ni con la pista (exit 1 si falla)
 node tools/headless.js pitstop             # tiempo de parada por categoría y daño
 node tools/headless.js coach monza amg_gt3   # línea adaptativa: zonas y juicio de 3 pilotos IA (exit 1 si falla)
@@ -75,6 +76,7 @@ Ejemplos de capturas:
 - **Ajuste de cámara** en juego: teclas 1–0. Se guarda por coche y por vista.
 
 ## Historial reciente y decisiones
+- **v80:** alrededores de Mónaco: `prep_monaco` parte cualquier bloque o tribuna que llegue por dentro del muro (`node tools/headless.js city`, exit 1 si alguno invade); relleno de ciudad en la ladera y la Roca, roca en las pendientes y palmeras con normales hacia arriba.
 - **v79:** Mónaco desde el mod de AC (`tools/prep_monaco/`: `kn5.mjs` lee `.kn5` y `fast_lane.ai`; `prep.mjs` mide eje, anchos, muros reales, pianos, ciudad). Opciones de pista nuevas: `bar`/`barDs` (muros medidos por muestra; la cara del muro de neumáticos es la medida), `kerbs`, `lineMargin`, `passRoom` (la IA adelanta solo con hueco y en fila entre muros), `crane` (retira coches destrozados), `escape.handles`. La trazada nunca usa piano con muro detrás. `__spa.setAuto` gira con el entorno del jugador.
 - **v78:** Cadillac MAC-26 y Ferrari SF-26 (F1 2026, física del W17) preparados con `tools/prep_f1_2026/`; libreas texturizadas recoloreables con la máscara de pintura (`glbPaintMask`, alfa de la textura = peso); la parrilla F1 conserva las libreas.
 - **v77:** BYD Seagull (eléctrico, 55 kW, limitado a 130): modelo preparado con `tools/prep_seagull.mjs`; el color cambia solo la pintura (también mate/metal en cualquier coche escaneado).

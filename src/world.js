@@ -1006,10 +1006,13 @@ class World {
     const h = (x, z) => { const [fx, fz] = cell(x, z), ix = Math.floor(fx), iz = Math.floor(fz), ax = fx - ix, az = fz - iz, o = iz * G.nx + ix;
       return lerp(lerp(H[o], H[o + 1], ax), lerp(H[o + G.nx], H[o + G.nx + 1], ax), az); };
     const kind = (x, z) => { const [fx, fz] = cell(x, z); return K[Math.round(fz) * G.nx + Math.round(fx)]; };
-    const paved = col3('#b3aa9c'), paved2 = col3('#8f8a82'), green = col3('#5e7d45'), green2 = col3('#47613a'), sand = col3('#6f6a5a');
+    const paved = col3('#b3aa9c'), paved2 = col3('#8f8a82'), green = col3('#5e7d45'), green2 = col3('#47613a'), sand = col3('#8e8a82'), rockC = col3('#8a7f6c'), rockD = col3('#5f5747');
     const col = (x, z, y) => { const k = kind(x, z), nn = vnoise(x / 23, z / 23);
       if (k === 0 || y < 0.6) return sand.clone().multiplyScalar(0.8 + 0.2 * nn);
-      if (k === 2) return green.clone().lerp(green2, nn).multiplyScalar(0.9 + 0.15 * vnoise(x / 7, z / 7));
+      // steep ground (the Rock, the hillside under Beau Rivage) is bare stone, not paving
+      const sl = Math.hypot(h(x + 4, z) - h(x - 4, z), h(x, z + 4) - h(x, z - 4)) / 8, cliff = smoothstep(0.55, 1.1, sl);
+      if (k === 2) return green.clone().lerp(green2, nn).lerp(rockC, cliff * 0.6).multiplyScalar(0.9 + 0.15 * vnoise(x / 7, z / 7));
+      if (cliff > 0) return paved.clone().lerp(paved2, vnoise(x / 41, z / 41) * 0.7).lerp(rockC.clone().lerp(rockD, vnoise(x / 9, z / 9)), cliff).multiplyScalar(0.92 + 0.12 * vnoise(x / 6, z / 6));
       return paved.clone().lerp(paved2, vnoise(x / 41, z / 41) * 0.7).multiplyScalar(0.92 + 0.12 * vnoise(x / 6, z / 6)); };
     this.mGround = { h, kind, G };
     return { h, col };
@@ -1040,25 +1043,58 @@ class World {
     const ROOF = ['#9a5a43', '#8c8a86', '#a7684d', '#77746f'].map(col3);
     const E = T.esc, onExit = (x, z, m) => E && x > E.box[0] - m && x < E.box[1] + m && z > E.box[2] - m && z < E.box[3] + m && E.near(x, z)[0] < E.hw + m;   // the pit exit road
     const pitZone = (x, z) => { if (onExit(x, z, 3)) return true; const q = T.project(x, z, -1); const c = T.pitC[q.i]; return c === c && q.d * ps > 0 && Math.abs(q.d) < Math.abs(c) + T.pitHW + (this.D.pitDepth || 18) + 8 && Math.abs(q.e - this.heightAt(x, z)) < 8; };
-    let nB = 0;
+    let nB = 0, nF = 0;
+    // occupancy (4 m cells) of everything measured on the model, so the filler blocks below never overlap it
+    const OC = 4, occ = new Set(), okey = (x, z) => Math.floor(x / OC) * 100003 + Math.floor(z / OC);
+    const mark = (cx, cz, hw, hd, rot, pad) => { const c = Math.cos(rot), sn = Math.sin(rot);
+      for (let u = -hw - pad; u <= hw + pad; u += OC / 2) for (let v = -hd - pad; v <= hd + pad; v += OC / 2) occ.add(okey(cx + u * c - v * sn, cz + u * sn + v * c)); };
+    const block = (cs, rot, y0, y1, hw, hd, key) => {
+      const hh = hash2(key[0] * 0.37, key[1] * 0.91), col = PAL[Math.floor(hh * PAL.length)].clone().multiplyScalar(0.92 + 0.12 * hash2(key[1], key[0]));
+      for (let e = 0; e < 4; e++) { const a = cs[e], b = cs[(e + 1) % 4], L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+        const v0 = (y0 - 1) / 3.2, v1 = (y1 - 1) / 3.2;
+        fac.quad([b[0], y0, b[1]], [a[0], y0, a[1]], [a[0], y1, a[1]], [b[0], y1, b[1]], col, [[L / 3.6, v0], [0, v0], [0, v1], [L / 3.6, v1]]); }
+      roofB.quad([cs[0][0], y1, cs[0][1]], [cs[3][0], y1, cs[3][1]], [cs[2][0], y1, cs[2][1]], [cs[1][0], y1, cs[1][1]], ROOF[Math.floor(hash2(key[1], key[0] * 3) * ROOF.length)]);
+      if (hw > 6 && hd > 6 && hh > 0.5) { const c = Math.cos(rot), sn = Math.sin(rot), cx = (cs[0][0] + cs[2][0]) / 2, cz = (cs[0][1] + cs[2][1]) / 2, p = [cx + 0.3 * hw * c + 0.2 * hd * sn, cz + 0.3 * hw * sn - 0.2 * hd * c];
+        roofB.quad([p[0] - 1.5, y1 + 2.2, p[1] - 1.5], [p[0] - 1.5, y1 + 2.2, p[1] + 1.5], [p[0] + 1.5, y1 + 2.2, p[1] + 1.5], [p[0] + 1.5, y1 + 2.2, p[1] - 1.5], col3('#8f8c87')); B.box(p[0], y1, p[1], 3, 2.2, 3, rot, col3('#c9c3b8')); } };
     for (const r of MC.buildings.split(';')) {
       const [cx, cz, hw, hd, rot, base, top] = r.split(',').map(Number);
       const c = Math.cos(rot), sn = Math.sin(rot), corner = (u, v) => [cx + u * hw * c - v * hd * sn, cz + u * hw * sn + v * hd * c];
       const cs = [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)];
       if (cs.some(p => pitZone(p[0], p[1])) || pitZone(cx, cz)) continue;
       const g0 = Math.min(...cs.map(p => this.heightAt(p[0], p[1])));
-      const y0 = base > g0 + 4 ? base : Math.min(base, g0) - 1.5, y1 = Math.max(top, y0 + 3);
-      const hh = hash2(cx * 0.37, cz * 0.91), col = PAL[Math.floor(hh * PAL.length)].clone().multiplyScalar(0.92 + 0.12 * hash2(cz, cx));
-      for (let e = 0; e < 4; e++) { const a = cs[e], b = cs[(e + 1) % 4], L = Math.hypot(b[0] - a[0], b[1] - a[1]);
-        const v0 = (y0 - 1) / 3.2, v1 = (y1 - 1) / 3.2;
-        fac.quad([b[0], y0, b[1]], [a[0], y0, a[1]], [a[0], y1, a[1]], [b[0], y1, b[1]], col, [[L / 3.6, v0], [0, v0], [0, v1], [L / 3.6, v1]]); }
-      roofB.quad([cs[0][0], y1, cs[0][1]], [cs[3][0], y1, cs[3][1]], [cs[2][0], y1, cs[2][1]], [cs[1][0], y1, cs[1][1]], ROOF[Math.floor(hash2(cz, cx * 3) * ROOF.length)]);
-      if (hw > 6 && hd > 6 && hh > 0.5) { const p = corner(0.3, -0.2); roofB.quad([p[0] - 1.5, y1 + 2.2, p[1] - 1.5], [p[0] - 1.5, y1 + 2.2, p[1] + 1.5], [p[0] + 1.5, y1 + 2.2, p[1] + 1.5], [p[0] + 1.5, y1 + 2.2, p[1] - 1.5], col3('#8f8c87')); B.box(p[0], y1, p[1], 3, 2.2, 3, rot, col3('#c9c3b8')); }
+      // only the blocks over the tunnel stand on its roof; any other block reaches down to the ground (no floating balconies on the hillside)
+      let overTun = false; if (base > g0 + 4 && this.tunnel) { const q = T.project(cx, cz, -1); overTun = q.s >= this.tunnel[0] - 10 && q.s <= this.tunnel[1] + 10 && base > q.e + 5; }
+      const y0 = overTun ? base : Math.min(base, g0) - 1.5, y1 = Math.max(top, y0 + 3);
+      block(cs, rot, y0, y1, hw, hd, [cx, cz]); mark(cx, cz, hw, hd, rot, 3);
       addFP(cx, cz, Math.max(hw, hd) + 2); nB++;
+    }
+    for (const [, , cx, cz, hw, hd, rot] of MC.stands) mark(cx, cz, hw, hd, rot, 4);
+    for (const r of MC.palms.split(';')) { const [x, z] = r.split(',').map(Number); occ.add(okey(x, z)); }
+    // ---- filler town: the model leaves much of the hillside and the Rock as bare paved ground (its far blocks are flat cards).
+    // Paved land above the quays, away from every road of the lap, from the pits and from the measured blocks gets plain
+    // blocks on a 16 m lattice, turned to the nearest street of the circuit; lower and smaller on the old town of the Rock (v80)
+    { const G = this.mGround.G, gh = this.mGround.h, kind = this.mGround.kind, LOT = 16;
+      for (let x = G.x0 + LOT; x < G.x0 + G.nx * G.step - LOT; x += LOT) for (let z = G.z0 + LOT; z < G.z0 + G.nz * G.step - LOT; z += LOT) {
+        const jx = x + (hash2(x, z) - 0.5) * 3, jz = z + (hash2(z, x) - 0.5) * 3;
+        if (kind(jx, jz) !== 1 || hash2(jx * 1.3, jz * 0.7) < 0.12) continue;   // a few empty lots: squares and gardens
+        const q = T.project(jx, jz, -1), rot = Math.atan2(T.nx[q.i], -T.nz[q.i]);
+        const hw = 4.5 + hash2(jx, jz * 2) * 3, hd = 4.5 + hash2(jx * 2, jz) * 3, c = Math.cos(rot), sn = Math.sin(rot);
+        const cs = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => [jx + u * hw * c - v * hd * sn, jz + u * hw * sn + v * hd * c]);
+        const gs = cs.map(p => gh(p[0], p[1])), g0 = Math.min(...gs), g1 = Math.max(...gs);
+        if (g0 < 4 || g1 - g0 > 9) continue;   // quays and cliffs stay open
+        let ok = true;
+        for (const p of [[jx, jz], ...cs]) { if (kind(p[0], p[1]) !== 1 || occ.has(okey(p[0], p[1])) || pitZone(p[0], p[1])) { ok = false; break; }
+          const r = T.project(p[0], p[1], q.i); if (Math.abs(r.d) < (r.d > 0 ? r.bl : r.br) + 10) { ok = false; break; } }
+        if (!ok) continue;
+        for (let u = -1; u <= 1; u += 0.5) for (let v = -1; v <= 1; v += 0.5) if (occ.has(okey(jx + u * hw * c - v * hd * sn, jz + u * hw * sn + v * hd * c))) ok = false;
+        if (!ok) continue;
+        const rock = g0 > 38, hgt = rock ? 7 + hash2(jz, jx * 5) * 8 : 10 + hash2(jz * 3, jx) * 20;
+        block(cs, rot, g0 - 1.5, g1 + hgt, hw, hd, [jx, jz]); mark(jx, jz, hw, hd, rot, 1); addFP(jx, jz, Math.max(hw, hd) + 2); nF++;
+      }
     }
     { const m = new THREE.Mesh(fac.build(), new THREE.MeshLambertMaterial({ vertexColors: true, map: TEX.facade || (TEX.facade = this.facadeTex()) })); m.receiveShadow = true; this.group.add(m); }
     this.group.add(new THREE.Mesh(roofB.build(), new THREE.MeshLambertMaterial({ vertexColors: true })));
-    this.nBuildings = nB;
+    this.nBuildings = nB; this.nFiller = nF;
     // ---- grandstands (as on the model): seating that rises away from the track, crowd on the slope, roof on the tall ones
     const crowdB = new GeoBuilder(true);
     for (const [, , cx, cz, hw, hd, rot, base, top] of MC.stands) {
@@ -1090,11 +1126,17 @@ class World {
     this.group.add(new THREE.Mesh(yB.build(), new THREE.MeshLambertMaterial({ vertexColors: true })));
     // ---- palms (instanced: trunk + drooping fronds)
     { const fr = []; for (let k = 0; k < 7; k++) { const g = new THREE.PlaneGeometry(1.0, 3.6, 1, 3).translate(0, 1.8, 0); const p = g.attributes.position; for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setZ(i, -0.12 * y * y); } g.rotateX(-1.15).rotateY(k / 7 * Math.PI * 2); fr.push(g.toNonIndexed()); }
-      const crown = mergeGeos(fr.map(g => { g.deleteAttribute('normal'); g.computeVertexNormals(); const n = g.attributes.position.count, a = new Float32Array(n * 3).fill(1); g.setAttribute('color', new THREE.BufferAttribute(a, 3)); return g; }));
+      // both faces of each frond carry an upward-leaning normal: seen from below against the sky the fronds stay green, not black
+      // (a double-sided material flips the normal of the face seen from below, which then only gets the ground light)
+      const crown = mergeGeos(fr.flatMap(g => { g.deleteAttribute('normal'); g.computeVertexNormals(); const p = g.attributes.position, nm = g.attributes.normal;
+        for (let i = 0; i < p.count; i++) { const v = new THREE.Vector3(nm.getX(i), nm.getY(i), nm.getZ(i)); if (v.y < 0) v.negate(); v.y += 1.2; v.normalize(); nm.setXYZ(i, v.x, v.y, v.z); }
+        const b = g.clone(), bp = b.attributes.position, bn = b.attributes.normal, bu = b.attributes.uv;
+        for (let i = 0; i < bp.count; i += 3) for (const at of [bp, bn, bu]) { const k = at.itemSize, t = []; for (let c = 0; c < k; c++) t.push(at.array[(i + 1) * k + c]); for (let c = 0; c < k; c++) { at.array[(i + 1) * k + c] = at.array[(i + 2) * k + c]; at.array[(i + 2) * k + c] = t[c]; } }
+        return [g, b].map(q => { const n = q.attributes.position.count, a = new Float32Array(n * 3).fill(1); q.setAttribute('color', new THREE.BufferAttribute(a, 3)); return q; }); }));
       const trunk = colorize(new THREE.CylinderGeometry(0.18, 0.28, 1, 6, 1, true).translate(0, 0.5, 0), '#7b6a55'); trunk.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(trunk.attributes.position.count * 2).fill(0.02), 2));
       const pts = MC.palms.split(';').map(r => r.split(',').map(Number)).filter(([x, z]) => { if (onExit(x, z, 1.5)) return false; const q = T.project(x, z, -1); return Math.abs(q.d) > (q.d > 0 ? q.bl : q.br) + 1; });
       const m4 = new THREE.Matrix4(), q4 = new THREE.Quaternion(), sv = new THREE.Vector3(), pv = new THREE.Vector3(), yA = new THREE.Vector3(0, 1, 0);
-      const tMat = new THREE.MeshLambertMaterial({ vertexColors: true }), cMat = new THREE.MeshLambertMaterial({ vertexColors: true, map: TEX.leaves, alphaTest: 0.5, side: THREE.DoubleSide }); cMat.alphaToCoverage = this.q !== 'bajo';
+      const tMat = new THREE.MeshLambertMaterial({ vertexColors: true }), cMat = new THREE.MeshLambertMaterial({ vertexColors: true, map: TEX.leaves, alphaTest: 0.5 }); cMat.alphaToCoverage = this.q !== 'bajo';
       const it = new THREE.InstancedMesh(trunk, tMat, pts.length), ic = new THREE.InstancedMesh(crown, cMat, pts.length);
       pts.forEach(([x, z, top], k) => { const y = this.heightAt(x, z) - 0.2, h = clamp(top - y, 5, 16); q4.setFromAxisAngle(yA, hash2(x, z) * 6.28);
         sv.set(1, h, 1); pv.set(x, y, z); m4.compose(pv, q4, sv); it.setMatrixAt(k, m4); sv.set(1.2, 1.1, 1.2); pv.set(x, y + h - 0.3, z); m4.compose(pv, q4, sv); ic.setMatrixAt(k, m4); addFP(x, z, 3); });
