@@ -3,7 +3,7 @@ const fs = require('fs'), path = require('path');
 const SRC = path.join(__dirname, '..', 'src');
 const files = ['data_spa', 'data_monza', 'data_albertpark', 'data_toca', 'data_monaco', 'tracks', 'cars', 'physics', 'damage', 'line_offs', 'ai', 'coach', 'rewind'];
 const src = files.map(f => fs.readFileSync(path.join(SRC, f + '.js'), 'utf8').replace(/if \(typeof module[^\n]*\n/, '')).join('\n');
-const M = new Function(src + '\nreturn { buildTrack, Vehicle, CARS, TRACK_DEFS, ACCEL_CAL, LINE_OFFS, lineFromOffsets, wxInit, AIDriver, AI_PROFILES, qssProfile, aiProfile, newDamage, pitStopPlan, PIT_CREW, Coach, coachPlan, COACH, DMG, Rewind, REWIND, rwCopy, MONACO_CITY };')();
+const M = new Function(src + '\nreturn { newTyres, TYRES, buildTrack, Vehicle, CARS, TRACK_DEFS, ACCEL_CAL, LINE_OFFS, lineFromOffsets, wxInit, AIDriver, AI_PROFILES, qssProfile, aiProfile, newDamage, pitStopPlan, PIT_CREW, Coach, coachPlan, COACH, DMG, Rewind, REWIND, rwCopy, MONACO_CITY };')();
 const cmd = process.argv[2] || 'accel';
 if (cmd === 'accel') {   // standing-start acceleration on the Spa straight: 0-100 / 0-200 / 0-300 km/h and top speed
   const T = M.buildTrack('spa');
@@ -40,6 +40,24 @@ if (cmd === 'ailap') {   // flying laps of one AI driver alone, dry: node tools/
       if (ps > T.L * 0.8 && V.q.s < T.L * 0.2) { if (tl != null) laps.push(t - tl); tl = t; } ps = V.q.s; }
     const fly = laps.slice(1), best = fly.length ? Math.min(...fly) : 0;
     console.log(tid.padEnd(12), id.padEnd(13), 'diff', diff, ' qss', fmt(ai.profObj.time), ' laps', laps.map(fmt).join(' '), ' best', fmt(best), ' vmax', (vtop * 3.6).toFixed(0), resets ? ' STUCK' : ''); }
+}
+if (cmd === 'tyrelife') {   // laps until a compound reaches 80 % wear, measured with an AI driver at pace, dry: node tools/headless.js tyrelife [tracks] [car] [diff=9]
+  const tids = process.argv[3] ? process.argv[3].split(',') : Object.keys(M.TRACK_DEFS), id = process.argv[4] || 'amg_gt3', diff = +(process.argv[5] || 9);
+  const sp = M.CARS.find(c => c.id === id); M.DMG.scale = 0; const out = {};
+  for (const tid of tids) { const D = M.TRACK_DEFS[tid], T = M.buildTrack(D), offs = (M.LINE_OFFS[D.id] || '').split(',').map(v => +v / 100);
+    const LINE = M.lineFromOffsets(T, Float64Array.from(offs.length === T.N ? offs : new Array(T.N).fill(0))); M.wxInit(T, LINE, D); const row = {};
+    for (const c of ['S', 'M', 'H']) {
+      const V = new M.Vehicle(sp, T); V.reset(T.L - 150 * T.L / D.nom, 0); V.u = 0; V.ty = M.newTyres(c, true);
+      const ai = new M.AIDriver(V, T, LINE, { diff, react: 0 }); ai.setEnv({ grip: 1, wet: 0, water: 0, dryLine: 0 }, id); ai.startRolling();
+      const self = { id: 'me' }; let t = 0, n = -1, ps = V.q.s, w0 = 0, resets = 0; const dt = 1 / 120;
+      while (n < 3 && t < 900) { const inp = ai.drive(dt, [self], self, { hold: false }); V.step(dt, inp, ai.env); t += dt;
+        if (ai.needReset) { V.reset(V.q.s, 0, true); ai.stuckT = 0; ai.wrongT = 0; ai.needReset = false; ai.startRolling(); resets++; }
+        if (ps > T.L * 0.8 && V.q.s < T.L * 0.2) { n++; if (n === 1) w0 = Math.max(V.ty.wF, V.ty.wR); } ps = V.q.s; }
+      const perLap = n >= 3 ? (Math.max(V.ty.wF, V.ty.wR) - w0) / 2 : 0;   // the axle that wears faster decides
+      if (process.env.WHY && !(perLap > 0)) console.log('  ', c, 'laps', n, 't', t.toFixed(0), 'reset', !!ai.needReset, 's', Math.round(V.q.s), 'd', V.q.d.toFixed(1), 'u', (V.u * 3.6).toFixed(0), 'w', V.ty.wF.toFixed(2), V.ty.wR.toFixed(2), 'T', V.ty.tF.toFixed(0), V.ty.tR.toFixed(0));
+      row[c] = perLap > 0 ? Math.round(0.8 / perLap) : null; if (resets) row[c + '_resets'] = resets; }
+    out[tid] = row; console.log(tid.padEnd(14), id, 'diff', diff, ' laps to 80 %:', JSON.stringify(row)); }
+  if (process.env.JSON) console.log(JSON.stringify(out));
 }
 if (cmd === 'coach') {   // adaptive line: zones and how it judges three drivers (late / good / early): node tools/headless.js coach [track] [car] [laps=4]
   const tid = process.argv[3] || 'monza', id = process.argv[4] || 'amg_gt3', nl = +(process.argv[5] || 4);

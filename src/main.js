@@ -522,7 +522,8 @@ function renderQuick() {
       tp.appendChild(b);
     }
     box.appendChild(tp);
-    const h = document.createElement('div'); h.className = 'ty-hint'; h.textContent = tyreHint(g.mode === 'practica' ? 'practice' : 'race'); box.appendChild(h);
+    const h = document.createElement('div'); h.className = 'ty-hint'; h.textContent = tyreHint(g.mode === 'practica' ? 'practice' : 'race'); tp.appendChild(h);
+    const ll = document.createElement('div'); ll.className = 'ty-life'; tyreLifeCells(ll); tp.appendChild(ll);
   }
 }
 
@@ -700,9 +701,9 @@ function setMenuStep(k, o) {
 }
 function renderSummary() {
   const el = $('menuSummary'); if (!el) return;
-  const sp = carById(S.carId), tn = TRACK.id.startsWith('toca_') ? 'Tocancipá ' + TRACK.layout : (TRACK_CARDS.find(c => c[0] === TRACK.id) || [0, TRACK.name])[1];
+  const sp = carById(S.carId);
   el.innerHTML = '<b></b> · <b></b> · ' + MODES[S.game.mode];
-  el.querySelectorAll('b')[0].textContent = tn; el.querySelectorAll('b')[1].textContent = sp ? sp.name : '';
+  el.querySelectorAll('b')[0].textContent = trackLabel(); el.querySelectorAll('b')[1].textContent = sp ? sp.name : '';
   renderTrackRecords();
 }
 // menu camera: frame the car in the screen area the panels leave free
@@ -799,7 +800,7 @@ function initSettings() {
   segButtons($('setDraw'), DRAW, st.draw, (k) => { st.draw = k; save(); applyWeather(); });
   segButtons($('setFpsCap'), { 30: '30', 60: '60', no: 'Sin límite' }, st.fpsCap, (k) => { st.fpsCap = k; save(); });
   segButtons($('setDamage'), { off: 'Desactivado', low: 'Reducido', real: 'Realista' }, st.damage, (k) => { st.damage = k; save(); syncEnv(); });
-  segButtons($('setTyres'), { off: 'Desactivado', normal: 'Normal', fast: 'Acelerado ×2.5' }, st.tyres, (k) => { st.tyres = k; save(); syncEnv(); });
+  segButtons($('setTyres'), { off: 'Desactivado', normal: 'Normal', fast: 'Acelerado ×2.5' }, st.tyres, (k) => { st.tyres = k; save(); syncEnv(); renderStartHint(); });
   segButtons($('setLineMode'), LINE_MODES, st.lineMode, (k) => setLineMode(k, false));
   $('setLineForget').addEventListener('click', () => {
     try { for (const k of Object.keys(localStorage)) if (k.startsWith('spa_rec_coach_')) localStorage.removeItem(k); } catch (e) { }
@@ -2350,7 +2351,8 @@ function autoTyre(kind) {
   if (w0 >= 0.15) return 'I';
   if (kind === 'quali') return 'S';
   if (kind !== 'race') return 'M';
-  const eff = S.game.laps * (TYW.scale > 0 ? TYW.scale : 1);
+  const eff = S.game.laps * (TYW.scale > 0 ? TYW.scale : 1), life = TYRE_LIFE.cache.get(tyreLifeKey());
+  if (life) { for (const c of ['S', 'M']) if (life[c] && life[c] >= eff + 1) return c; return 'H'; }   // softest compound that lasts the race on this circuit
   return eff <= 9 ? 'S' : eff <= 16 ? 'M' : 'H';
 }
 function pickTyre(kind) { const c = S.game.tyre; return c !== 'auto' && TYRES[c] ? c : autoTyre(kind); }
@@ -2361,11 +2363,74 @@ function aiTyre() {
   if (k < 0.2) i = Math.max(0, i - 1); else if (k > 0.8) i = Math.min(2, i + 1);
   return o[i];
 }
+// ---- tyre life on the selected circuit: an AI driver at pace (level 9, dry) runs 4 laps per slick compound with the selected car,
+// in small slices while the menu is open; the wear of laps 2-4 gives the laps to 80 % (the same model and threshold as the race)
+const TYRE_LIFE = { cache: new Map(), job: null };
+const tyreLifeKey = () => TRACK.id + '|' + S.carId;
+function trackLabel() { return TRACK.id.startsWith('toca_') ? 'Tocancipá ' + TRACK.layout : (TRACK_CARDS.find(c => c[0] === TRACK.id) || [0, TRACK.name])[1]; }
+function tyreLifeGet() {
+  const key = tyreLifeKey(), hit = TYRE_LIFE.cache.get(key); if (hit) return hit;
+  if (S.mode === 'menu' && (!TYRE_LIFE.job || TYRE_LIFE.job.key !== key)) tyreLifeStart(key);
+  return null;
+}
+function tyreLifeStart(key) {
+  const sp = carById(S.carId), T0 = T, L0 = LINE, D0 = TRACK, comps = ['S', 'M', 'H'], dt = 1 / 120, job = { key, c: 0, res: {}, st: null };
+  TYRE_LIFE.job = job;
+  const wmax = (V) => Math.max(V.ty.wF, V.ty.wR);
+  const slice = () => {
+    if (TYRE_LIFE.job !== job) return;
+    if (T !== T0 || S.mode !== 'menu') { TYRE_LIFE.job = null; return; }
+    const t0 = performance.now(), dk = DMG.scale, tk = TYW.scale; DMG.scale = 0; TYW.scale = 1;
+    try {
+      while (performance.now() - t0 < 6) {
+        if (!job.st) {
+          const V = new Vehicle(sp, T0); V.reset(T0.L - 150 * T0.L / D0.nom, 0); V.u = 0; V.ty = newTyres(comps[job.c], true);
+          const ai = new AIDriver(V, T0, L0, { diff: 9, react: 0 }); ai.setEnv({ grip: 1, wet: 0, water: 0, dryLine: 0 }, sp.id); ai.startRolling();
+          job.st = { V, ai, n: -1, ps: V.q.s, w0: 0, t: 0, me: { id: 'tl' } };
+        }
+        const st = job.st, V = st.V, ai = st.ai;
+        for (let k = 0; k < 40 && st.n < 3 && st.t < 900; k++) {
+          const inp = ai.drive(dt, [st.me], st.me, { hold: false }); V.step(dt, inp, ai.env); st.t += dt;
+          if (ai.needReset) { V.reset(V.q.s, 0, true); ai.stuckT = 0; ai.wrongT = 0; ai.needReset = false; ai.startRolling(); }
+          if (st.ps > T0.L * 0.8 && V.q.s < T0.L * 0.2) { st.n++; if (st.n === 1) st.w0 = wmax(V); }
+          st.ps = V.q.s;
+        }
+        if (st.n >= 3 || st.t >= 900) {
+          const per = st.n >= 3 ? (wmax(V) - st.w0) / 2 : 0;
+          job.res[comps[job.c]] = per > 0 ? Math.max(1, 0.8 / per) : null; job.st = null;
+          if (++job.c >= comps.length) { TYRE_LIFE.cache.set(key, job.res); TYRE_LIFE.job = null; if (S.mode === 'menu') renderStartHint(); return; }
+        }
+      }
+    } finally { DMG.scale = dk; TYW.scale = tk; }
+    setTimeout(slice, 0);
+  };
+  setTimeout(slice, 50);
+}
+// laps for compound c on this circuit with the wear setting (null: still measuring or not measured)
+function tyreLaps(c) {
+  const lv = TYW_LEVELS[S.settings.tyres]; if (!(lv > 0)) return Infinity;
+  const L = TYRES[c].kind === 'slick' ? tyreLifeGet() : null;
+  return L ? (L[c] ? Math.max(1, Math.round(L[c] / lv)) : null) : null;
+}
+function tyreLifeLine() {
+  if (!(TYW_LEVELS[S.settings.tyres] > 0)) return 'Desgaste de neumáticos desactivado en Ajustes';
+  const L = tyreLifeGet(); if (!L) return 'Calculando cuánto dura cada compuesto en ' + trackLabel() + '…';
+  return 'Vida en ' + trackLabel() + ': ' + ['S', 'M', 'H'].map(c => TYRES[c].name + ' ~' + (tyreLaps(c) || '?')).join(' · ') + ' vueltas';
+}
+// the same as three cells (compound colour, name, laps) for the menu
+function tyreLifeCells(el) {
+  el.textContent = '';
+  if (!(TYW_LEVELS[S.settings.tyres] > 0) || !tyreLifeGet()) { el.textContent = tyreLifeLine(); el.classList.add('wait'); return; }
+  el.classList.remove('wait');
+  const h = document.createElement('span'); h.className = 'tl-h'; h.textContent = 'Vueltas hasta el 80 % de desgaste en ' + trackLabel(); el.appendChild(h);
+  for (const c of ['S', 'M', 'H']) { const d = document.createElement('span'); d.className = 'tl-c'; d.style.setProperty('--tc', TYRES[c].col);
+    d.innerHTML = '<i></i><span></span><b></b>'; d.querySelector('span').textContent = TYRES[c].name; d.querySelector('b').textContent = '~' + (tyreLaps(c) || '?'); el.appendChild(d); }
+}
 function tyreHint(kind) {
   const c = S.game.tyre, w0 = wxStart(), t = TYRES[c === 'auto' ? autoTyre(kind) : c];
-  const life = Math.round(t.life * (TYW.scale > 0 ? 1 : 1));
+  const life = Math.round(t.life * (TYW.scale > 0 ? 1 : 1)), laps = tyreLaps(t.id);
   let s = (c === 'auto' ? 'Auto → ' : '') + t.name + ' (' + t.code + ')';
-  if (t.kind === 'slick') s += ' · ~' + life + ' vueltas de vida en Spa';
+  if (t.kind === 'slick') s += laps === Infinity ? ' · sin desgaste' : laps ? ' · ~' + laps + (laps === 1 ? ' vuelta' : ' vueltas') + ' de vida en ' + trackLabel() : '';
   else s += t.kind === 'inter' ? ' · pista húmeda, ~' + life + ' vueltas' : ' · lluvia fuerte, ~' + life + ' vueltas';
   if (t.kind === 'slick' && w0 > 0.12) s += ' · ¡PELIGRO: slicks con pista mojada!';
   else if (t.kind !== 'slick' && w0 < 0.1) s += ' · en seco se sobrecalientan, hacen ampollas y se destruyen en 2-3 vueltas';
@@ -2611,7 +2676,7 @@ function nanScan() {
   for (let i = 0; i < buf.length; i++) { const e = (buf[i] >> 10) & 31; if (e === 31) { if (buf[i] & 1023) nan++; else inf++; if (!first) first = [(i >> 2) % sz.x, sz.y - 1 - Math.floor((i >> 2) / sz.x)]; } else if (e >= 29) big++; }
   return { nan, inf, big, first, w: sz.x, h: sz.y };
 }
-window.__spa = { S, menuStep(k, anim) { setMenuStep(k, { instant: !anim }); return MENU_UI.step; }, sheet(full) { MENU_UI.sheet.set(MENU_UI.det[full ? 0 : 1]); sheetSettled(); return MENU_UI.det; }, menuUI: MENU_UI, nanScan, freeze(on) { FREEZE = on ? { draw: false } : null; return 'ok'; }, redraw() { if (FREEZE) FREEZE.draw = true; return 'ok'; }, lod(on) { if (on != null) LOD_ON = on !== false; return { on: LOD_ON, jobs: LOD_JOBS.length, ms: Math.round(LOD_MS) }; }, async lodFlush() { for (let k = 0; k < 600 && (LOD_JOBS.length || (LOD_W && LOD_W.pend.size)); k++) await new Promise(r => setTimeout(r, 100)); return { worker: !!LOD_W, left: LOD_JOBS.length, ms: Math.round(LOD_MS) }; }, get INPUT() { return INPUT; }, switchTrack, post: () => POST.ready, get TRACK() { return TRACK; }, audioLab: { CarAudio, EngineVoice, engineProfile, engineWave }, get car() { return car; }, get model() { return model; }, get race() { return SES; }, get world() { return world; }, get skids() { return skids; }, get camera() { return camera; }, get T() { return T; }, get DFX() { return DFX; }, get coach() { return COACH_ST; }, setLineMode, crashTest, startSession, rewind, get RW() { return RW; }, selectCar, cycleCam, netDbg: () => ({ code: NET.code, host: NET.host, off: NET.offset, seen: NET.cfgSeen, peers: NET.peers.map(p => [p.peer, p.sameTab, pres(p).code, pres(p).host, pres(p).ph, pres(p).cfg && pres(p).cfg.seq, pres(p).cfg && pres(p).cfg.startAt - Date.now()]) }), setAuto(k) { AUTO = k != null ? { k } : null; }, renderer: () => renderer, menu: MENU, setWeather, WXS, TYRES, tyreRequestCycle, startFromMenu, endQuali,
+window.__spa = { S, tyreLife: () => ({ cache: Object.fromEntries(TYRE_LIFE.cache), job: TYRE_LIFE.job && { key: TYRE_LIFE.job.key, c: TYRE_LIFE.job.c, n: TYRE_LIFE.job.st && TYRE_LIFE.job.st.n, t: TYRE_LIFE.job.st && +TYRE_LIFE.job.st.t.toFixed(1) } }), menuStep(k, anim) { setMenuStep(k, { instant: !anim }); return MENU_UI.step; }, sheet(full) { MENU_UI.sheet.set(MENU_UI.det[full ? 0 : 1]); sheetSettled(); return MENU_UI.det; }, menuUI: MENU_UI, nanScan, freeze(on) { FREEZE = on ? { draw: false } : null; return 'ok'; }, redraw() { if (FREEZE) FREEZE.draw = true; return 'ok'; }, lod(on) { if (on != null) LOD_ON = on !== false; return { on: LOD_ON, jobs: LOD_JOBS.length, ms: Math.round(LOD_MS) }; }, async lodFlush() { for (let k = 0; k < 600 && (LOD_JOBS.length || (LOD_W && LOD_W.pend.size)); k++) await new Promise(r => setTimeout(r, 100)); return { worker: !!LOD_W, left: LOD_JOBS.length, ms: Math.round(LOD_MS) }; }, get INPUT() { return INPUT; }, switchTrack, post: () => POST.ready, get TRACK() { return TRACK; }, audioLab: { CarAudio, EngineVoice, engineProfile, engineWave }, get car() { return car; }, get model() { return model; }, get race() { return SES; }, get world() { return world; }, get skids() { return skids; }, get camera() { return camera; }, get T() { return T; }, get DFX() { return DFX; }, get coach() { return COACH_ST; }, setLineMode, crashTest, startSession, rewind, get RW() { return RW; }, selectCar, cycleCam, netDbg: () => ({ code: NET.code, host: NET.host, off: NET.offset, seen: NET.cfgSeen, peers: NET.peers.map(p => [p.peer, p.sameTab, pres(p).code, pres(p).host, pres(p).ph, pres(p).cfg && pres(p).cfg.seq, pres(p).cfg && pres(p).cfg.startAt - Date.now()]) }), setAuto(k) { AUTO = k != null ? { k } : null; }, renderer: () => renderer, menu: MENU, setWeather, WXS, TYRES, tyreRequestCycle, startFromMenu, endQuali,
   view(sN, d, h, back, lookD, fov) { $('menu').hidden = true; const s = ((sN + T.nom) % T.nom) * T.L / T.nom; const p = trackPoint(T, s - (back || 0), d), t = trackPoint(T, s, lookD != null ? lookD : d); DEBUGCAM = [p.x, p.e + h, p.z, t.x, t.e + 1, t.z, fov || 60]; return 'ok'; }, noview() { DEBUGCAM = null; }, cam(a, b, c, d, e, f, g) { $('menu').hidden = true; DEBUGCAM = [a, b, c, d, e, f, g || 60]; return 'ok'; },
   camAt(p, t, fov) { $('menu').hidden = true; model.root.updateMatrixWorld(true); const a = model.body.localToWorld(new THREE.Vector3(p[0], p[1], p[2])), b = model.body.localToWorld(new THREE.Vector3(t[0], t[1], t[2])); DEBUGCAM = [a.x, a.y, a.z, b.x, b.y, b.z, fov || 40]; return 'ok'; },
   orbit(ang, dist, h, fov) { $('menu').hidden = true; const a = car.h + ang, y = car.y; DEBUGCAM = [car.x + Math.sin(a) * dist, y + h, car.z + Math.cos(a) * dist, car.x, y + 0.55, car.z, fov || 35]; return 'ok'; },

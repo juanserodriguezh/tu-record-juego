@@ -24,6 +24,7 @@ node tools/headless.js tyres               # comprueba que las barreras de neum�
 node tools/headless.js city                # Mónaco: ningún edificio ni tribuna dentro de los muros (exit 1 si falla)
 node tools/headless.js pits                # tribunas, boxes y postes no se pisan entre sí ni con la pista (exit 1 si falla)
 node tools/headless.js pitstop             # tiempo de parada por categoría y daño
+node tools/headless.js tyrelife monaco amg_gt3 [nivel]   # vueltas hasta el 80 % de desgaste por compuesto (S/M/H) con IA a ritmo, en seco
 node tools/headless.js coach monza amg_gt3   # línea adaptativa: zonas y juicio de 3 pilotos IA (exit 1 si falla)
 node tools/headless.js rewind monza amg_gt3,w17   # rebobinado: restauración exacta, daño, coste y línea adaptativa (exit 1 si falla)
 node tools/shot.mjs <prefijo> <pista> <coche> "<js>|||<js>" [ancho]   # capturas en shots/
@@ -78,6 +79,7 @@ Ejemplos de capturas:
 - **Menú (v81):** tres pasos en una hoja de cristal: Pista (tarjetas con el trazado, trazados de Tocancipá, clima) · Coche (lista + ficha a la derecha) · Sesión (modo, detalles, «Más opciones»). Escritorio: panel lateral; móvil (≤ 820 px): hoja inferior con dos posiciones que se arrastra por la cabecera. Movimiento con muelles propios (`Spring`: amortiguamiento + respuesta, parten del valor y la velocidad actuales), proyección del gesto y rebote en los bordes, según la guía de diseño de Apple que pasó Juanse. Los ids de los controles antiguos se conservan. La cámara del menú encuadra el coche en el hueco libre (`menuFrame`). Capturas del menú: `node tools/menu_shot.mjs <prefijo> "__spa.menuStep('coche')" [ancho] [alto] [móvil=1]`.
 
 ## Historial reciente y decisiones
+- **v84:** la vida de los neumáticos en el menú se mide en la pista y con el coche elegidos (IA nivel 9, 4 vueltas por compuesto, en trozos de 6 ms mientras el menú está abierto: `tyreLifeStart` en `main.js`); antes decía siempre «en Spa» con un número fijo. «Auto» elige el compuesto más blando que aguanta la carrera con esa medida.
 - **v83:** Mónaco sin bancos de tierra: el terreno de 8 m se talla al nivel de la calle más baja en un pasillo de 6 m detrás del muro, y los muros de contención de piedra (`buildMonacoStreet` en `world.js`) tapan el desnivel. Además, aceras de ladrillo, la isla de la horquilla y árboles en jardines y taludes.
 - **v82:** salida de boxes de Spa: la vía sigue la cota de la pista (`escape.follow`), raíles solo donde la física para el coche (`T.drivable`), sin muro cruzado en la boca ni hierba encima.
 - **v81:** menú nuevo en tres pasos (Pista · Coche · Sesión) con hoja de cristal, muelles y gestos; en móvil el menú anterior se salía de la pantalla.

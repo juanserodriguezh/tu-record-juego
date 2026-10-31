@@ -253,3 +253,13 @@
   - Los edificios siguen siendo cajas genéricas: no son los de la foto (torre rosada, Hotel Hermitage).
   - No hay tribuna de andamios ni grúa.
   - La isla es una jardinera aproximada, no la forma exacta.
+
+## v84 (31-oct-2026) — vida de los neumáticos según la pista elegida
+- Pedido de Juanse: en Sesión › Neumáticos solo salía cuánto duran en Spa; debe mostrar cuánto dura cada compuesto en la pista elegida.
+- Causa: `tyreHint` mostraba `TYRES[c].life` (12/20/28) con el texto fijo «vueltas de vida en Spa». El modelo de desgaste normaliza por longitud de vuelta, pero el desgaste real depende del trabajo del neumático en cada curva y de la temperatura, así que el número no valía ni para Spa (medido: 17 vueltas el medio, no 20).
+- Arreglo (`main.js`): al abrir el menú se mide, con el coche y la pista elegidos, cuántas vueltas aguanta cada compuesto seco hasta el 80 % de desgaste (el mismo modelo y umbral que en carrera): IA nivel 9 sin daños, 4 vueltas por compuesto, desgaste de las vueltas 2-4 del eje que más gasta. Corre en trozos de 6 ms con `setTimeout` mientras el menú está abierto y se guarda por pista y coche durante la sesión; se cancela si cambias de pista o sales a pista. La opción «Acelerado ×2,5» divide las vueltas y «Desactivado» lo indica. En Sesión › Neumáticos sale una fila con Blando / Medio / Duro y sus vueltas en esa pista, y el texto del compuesto elegido dice la pista. «Auto» en carrera elige el más blando que aguanta las vueltas con esa medida (antes: 9/16 vueltas fijas).
+- Herramienta nueva: `node tools/headless.js tyrelife [pistas] [coche] [nivel=9]`, el mismo cálculo sin navegador.
+- Medido con el GT3 (Blando/Medio/Duro): Spa 10/17/23, Monza 10/17/24, Albert Park 5/15/21, Mónaco 4/15/22, Tocancipá Largo 2-3/11-13/16-19, Óvalo 6/11/15. Navegador y headless coinciden. Hay algo de variación entre ejecuciones (la IA tiene azar), de ±1-2 vueltas.
+- Verificado: capturas del paso Sesión en Spa, Mónaco (escritorio) y Tocancipá (móvil), sin errores de página. En Chromium sin GPU el cálculo tarda unos 15 s; en un navegador normal se espera en pocos segundos, pero no lo he podido medir aquí.
+- Observación, sin tocar: el blando dura muy poco en pistas lentas y cortas (Mónaco 4, Tocancipá 2-3 vueltas) porque se sobrecalienta, y en Tocancipá el desgaste por kilómetro es unas 4 veces el de Spa. Puede ser intencional por la altitud y las curvas lentas, pero merece una revisión del modelo de temperatura.
+
