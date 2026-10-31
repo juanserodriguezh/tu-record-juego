@@ -263,3 +263,4 @@
 - Verificado: capturas del paso Sesión en Spa, Mónaco (escritorio) y Tocancipá (móvil), sin errores de página. En Chromium sin GPU el cálculo tarda unos 15 s; en un navegador normal se espera en pocos segundos, pero no lo he podido medir aquí.
 - Observación, sin tocar: el blando dura muy poco en pistas lentas y cortas (Mónaco 4, Tocancipá 2-3 vueltas) porque se sobrecalienta, y en Tocancipá el desgaste por kilómetro es unas 4 veces el de Spa. Puede ser intencional por la altitud y las curvas lentas, pero merece una revisión del modelo de temperatura.
 
+- Publicada el 31-oct-2026 como versión 84 del artefacto (id 1793471697-140c). Solo cambió la página.
