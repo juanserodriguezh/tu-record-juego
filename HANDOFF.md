@@ -286,3 +286,4 @@
   - Tabac conserva un muro de piedra de 3 m con talud plantado detrás; en el modelo de AC ahí hay paneles y árboles, no exactamente un muro.
   - Las tribunas son genéricas (gradas con techo plano); no copian la forma de cada tribuna real.
   - Mónaco es estrecho de verdad: los edificios están donde los pone el modelo medido y no se separaron de la pista.
+- Publicada el 31-oct-2026 como versión 85 del artefacto (id 1793474181-78ae). Solo cambió la página.
