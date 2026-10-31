@@ -422,14 +422,22 @@ class World {
         const i2 = i + 1;
         const d0 = barD(side, i), d1 = barD(side, i2);
         const bot0 = this.P(i, d0, -0.3), bot1 = this.P(i2, d1, -0.3);
-        if (T.inEscape && (T.inEscape(bot0[0], bot0[2]) || T.inEscape(bot1[0], bot1[2]))) continue; // opening for the escape road
+        // opening for the escape road: a segment can cross the lane with both ends outside it (where the pit-lane band
+        // ends the wall steps 10 m sideways, straight across the mouth of the Spa pit exit road), so test inside it too
+        const LS = 8, inLane = (f) => T.inEscape && T.inEscape(bot0[0] + (bot1[0] - bot0[0]) * f, bot0[2] + (bot1[2] - bot0[2]) * f);
+        let cut = false; if (T.inEscape) for (let q = 0; q <= LS && !cut; q++) cut = inLane(q / LS);
         if (isStraight(i)) {
           const top0 = this.P(i, d0, 1.15), top1 = this.P(i2, d1, 1.15);
           const c = (Math.floor(i / 4) % 2) ? col3('#d8dadc') : col3(side > 0 ? '#2f63b8' : '#d8dadc');
-          wb.quad(bot0, bot1, top1, top0, c);
           const t0 = this.P(i, d0 + side * 0.3, 1.15), t1 = this.P(i2, d1 + side * 0.3, 1.15);
-          wb.quad(top0, top1, t1, t0, col3('#bfc2c5'));
-        } else {
+          const L = (a, b, f) => [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+          for (let q = 0; q < (cut ? LS : 1); q++) {   // a cut segment keeps the pieces outside the lane
+            const fa = cut ? q / LS : 0, fb = cut ? (q + 1) / LS : 1; if (cut && inLane((fa + fb) / 2)) continue;
+            const B0 = L(bot0, bot1, fa), B1 = L(bot0, bot1, fb), U0 = L(top0, top1, fa), U1 = L(top0, top1, fb);
+            wb.quad(B0, B1, U1, U0, c); wb.quad(U0, U1, L(t0, t1, fb), L(t0, t1, fa), col3('#bfc2c5'));
+          }
+        } else if (cut) continue;
+        else {
           const top0 = this.P(i, d0, 0.78), top1 = this.P(i2, d1, 0.78);
           const u0 = i * T.ds / 4, u1 = i2 * T.ds / 4;
           st[i] = b.p.length / 3;
@@ -551,14 +559,16 @@ class World {
   buildEscape(white) {
     const T = this.T, E = T.esc, pts = E.pts, hw = E.hw;
     const b = new GeoBuilder(true), sk = new GeoBuilder(false), ln = new GeoBuilder(false);
-    const cT = new THREE.Color(1.35, 1.35, 1.4), cS = col3('#3d4a33');
+    const cT = E.pit ? new THREE.Color(0.95, 0.95, 0.98) : new THREE.Color(1.35, 1.35, 1.4), cS = col3('#3d4a33');   // pit exit: the asphalt of the circuit, not a pale run-off
     const side = (j, o, dy) => { const p = pts[j], q = pts[Math.min(j + 1, pts.length - 1)], r = pts[Math.max(j - 1, 0)]; let tx = q[0] - r[0], tz = q[1] - r[1]; const l = Math.hypot(tx, tz); tx /= l; tz /= l; return [p[0] + tz * o, p[2] + (dy || 0), p[1] - tx * o]; };
+    // where the lane runs onto the circuit asphalt (the merge) the circuit itself is the surface: no lane, edge line or skirt
+    const onTrack = (p) => { const q = T.project(p[0], p[2], -1); return q.d < q.wl + 0.1 && q.d > -q.wr - 0.1; };
     for (let j = 0; j < pts.length - 1; j++) {
       const a0 = side(j, hw, 0.035), a1 = side(j, -hw, 0.035), b0 = side(j + 1, hw, 0.035), b1 = side(j + 1, -hw, 0.035);
       const uv = (p) => [p[0] / 9, p[2] / 9];
-      b.quad(a0, b0, b1, a1, cT, [uv(a0), uv(b0), uv(b1), uv(a1)]);
-      for (const o of [hw, -hw]) { const c0 = side(j, o, 0.035), c1 = side(j + 1, o, 0.035), d0 = side(j, o * 1.04, -1.2), d1 = side(j + 1, o * 1.04, -1.2); sk.quad(c0, c1, d1, d0, cS); sk.quad(c0, d0, d1, c1, cS); }
-      for (const o of [hw - 0.3, -hw + 0.3]) { const e0 = side(j, o + 0.12, 0.045), e1 = side(j, o - 0.12, 0.045), f0 = side(j + 1, o + 0.12, 0.045), f1 = side(j + 1, o - 0.12, 0.045); ln.quad(e0, f0, f1, e1, white); ln.quad(e0, e1, f1, f0, white); }
+      if (!(onTrack(a0) && onTrack(a1) && onTrack(b0) && onTrack(b1))) b.quad(a0, b0, b1, a1, cT, [uv(a0), uv(b0), uv(b1), uv(a1)]);
+      for (const o of [hw, -hw]) { const c0 = side(j, o, 0.035), c1 = side(j + 1, o, 0.035), d0 = side(j, o * 1.04, -1.2), d1 = side(j + 1, o * 1.04, -1.2); if (onTrack(c0) && onTrack(c1)) continue; sk.quad(c0, c1, d1, d0, cS); sk.quad(c0, d0, d1, c1, cS); }
+      for (const o of [hw - 0.3, -hw + 0.3]) { const e0 = side(j, o + 0.12, 0.045), e1 = side(j, o - 0.12, 0.045), f0 = side(j + 1, o + 0.12, 0.045), f1 = side(j + 1, o - 0.12, 0.045); if (onTrack(e0) || onTrack(f0)) continue; ln.quad(e0, f0, f1, e1, white); ln.quad(e0, e1, f1, f0, white); }
       if (j % 3 === 0) this.footprints.push([pts[j][0], pts[j][1], hw + 4]);
     }
     const lane = new THREE.Mesh(b.build(), new THREE.MeshLambertMaterial({ vertexColors: true, map: TEX.asphalt, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
@@ -566,15 +576,20 @@ class World {
     this.group.add(new THREE.Mesh(sk.build(), new THREE.MeshLambertMaterial({ vertexColors: true })));
     this.group.add(new THREE.Mesh(ln.build(), new THREE.MeshLambertMaterial({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 })));
     // rails along both edges of the lane (the physics holds the car at hw)
-    { const rl = new GeoBuilder(false), pb = new GeoBuilder(false), cR = col3('#d6d9dc'), cP = col3('#7d848a');
+    { const rl = new GeoBuilder(true), pb = new GeoBuilder(false), cR = col3('#ffffff'), cP = col3('#7d848a');
+      const ul = [0]; for (let j = 1; j < pts.length; j++) ul.push(ul[j - 1] + Math.hypot(pts[j][0] - pts[j - 1][0], pts[j][1] - pts[j - 1][1]) / 4);
       for (let j = 0; j < pts.length - 1; j++) for (const o of [hw + 0.05, -hw - 0.05]) {
-        { const m = side(j, o, 0), q = T.project(m[0], m[2], -1); if (q.d < q.wl + 0.8 && q.d > -(q.wr + 0.8)) continue; }   // no rail across the circuit itself
+        // a rail only where the car physics stops a car: not where the other side is the circuit (up to its barriers) or the pit lane
+        { const m = side(j, o + Math.sign(o) * 0.35, 0), m2 = side(j + 1, o + Math.sign(o) * 0.35, 0); if (T.drivable(m[0], m[2]) || T.drivable(m2[0], m2[2])) continue; }
         const a = side(j, o, -0.2), b = side(j + 1, o, -0.2), a2 = side(j, o, 0.78), b2 = side(j + 1, o, 0.78);
-        rl.quad(a, b, b2, a2, cR); rl.quad(b, a, a2, b2, cR);
+        const uv = [[ul[j], 0], [ul[j + 1], 0], [ul[j + 1], 1], [ul[j], 1]];   // same armco texture as the circuit rails
+        rl.quad(a, b, b2, a2, cR, uv); rl.quad(b, a, a2, b2, cR, [uv[1], uv[0], uv[3], uv[2]]);
         if (j % 3 === 0) { const pp = side(j, o + Math.sign(o) * 0.2, -0.3); pb.box(pp[0], pp[1], pp[2], 0.13, 1.0, 0.13, 0, cP); }
       }
       const rm = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
-      this.group.add(new THREE.Mesh(rl.build(), rm)); this.group.add(new THREE.Mesh(pb.build(), rm)); }
+      const am = this.q === 'bajo' ? new THREE.MeshLambertMaterial({ map: TEX.armco, vertexColors: true, side: THREE.DoubleSide })
+        : new THREE.MeshStandardMaterial({ map: TEX.armco, vertexColors: true, side: THREE.DoubleSide, metalness: 0.45, roughness: 0.4, envMapIntensity: 0.9 });
+      this.group.add(new THREE.Mesh(rl.build(), am)); this.group.add(new THREE.Mesh(pb.build(), rm)); }
     // foam blocks: white with red bands, each its own mesh
     const tex = (() => { const c = document.createElement('canvas'); c.width = 128; c.height = 32; const g = c.getContext('2d'); g.fillStyle = '#f2f2f0'; g.fillRect(0, 0, 128, 32); g.fillStyle = '#d12a1f'; for (let k = 0; k < 4; k++) { g.beginPath(); g.moveTo(k * 32 + 8, 0); g.lineTo(k * 32 + 24, 0); g.lineTo(k * 32 + 16, 32); g.lineTo(k * 32, 32); g.fill(); } const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
     const mat = new THREE.MeshLambertMaterial({ map: tex });
@@ -676,8 +691,10 @@ class World {
         h = Math.min(h, bed + perp * 0.18);
       }
       // escape road (Monza T1): the ground under and beside the flat lane never pokes through it
-      if (T.esc && T.inEscape) { const E = T.esc; if (px > E.box[0] - 6 && px < E.box[1] + 6 && pz > E.box[2] - 6 && pz < E.box[3] + 6) { const nr = E.near(px, pz);
-        if (nr[0] < E.hw + 6) { const ly = E.yAt(px, pz); h = Math.min(h, ly - 0.25 - Math.max(0, nr[0] - E.hw) * 0.15); } } }
+      // every grid vertex of a cell the lane crosses (up to a cell diagonal away) stays under it, else the 14 m terrain
+      // triangles cut through the 9 m lane as green wedges
+      if (T.esc && T.inEscape) { const E = T.esc, rr = Math.max(6, step * 1.45); if (px > E.box[0] - rr && px < E.box[1] + rr && pz > E.box[2] - rr && pz < E.box[3] + rr) { const nr = E.near(px, pz);
+        if (nr[0] < E.hw + rr) { const ly = E.yAt(px, pz); h = Math.min(h, ly - 0.25 - Math.max(0, nr[0] - E.hw - (rr - 6)) * 0.15); } } }
       H[k] = h;
       // colours
       const f = fbm(px / 300 + 50, pz / 300, 3);

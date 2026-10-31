@@ -103,7 +103,7 @@ const TRACK_DEFS = {
     pit: [6835, 6925, 210, 210],                        // band from a0 (full at a1) to b0 (fades out by b0, starts fading b1); here it ends at 210
     // pit exit road (as on the real circuit since 2007): leaves the pit lane before La Source, crosses inside the hairpin
     // and joins on the right of the run down to Eau Rouge
-    escape: { from: 210, to: 620, rejoin: -4, hw: 4.5, pit: true },
+    escape: { from: 210, to: 620, rejoin: -4, hw: 4.5, pit: true, follow: true },
     saus: [[6738, 6768, -1], [6798, 6830, 1]],
     startS: 190, brakeBanner: { s: 6642, text: 'SPA-FRANCORCHAMPS' }, boards: [355, 2385, 2995, 4905, 5120, 6735],
     bridges: [[1700, '#2f63b8'], [5620, '#c0392b']], vergeSkip: [6840, 330],

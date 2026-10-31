@@ -289,6 +289,13 @@ function buildEscape(T, def) {
   // flat lane: a straight grade from the circuit height where it leaves to where it rejoins (no dips where the global
   // projection jumps to another part of the lap)
   { const eA = T.e[iA], eB = T.e[iB]; for (let j = 0; j <= M; j++) pts[j][2] = eA + (eB - eA) * j / M; }
+  // follow: a long road beside the circuit (Spa pit exit) sits at the height of the nearest circuit point, smoothed
+  // (a straight grade left it up to 2.3 m below the run-off it crosses: the grass ribbons and banks covered it)
+  if (def.escape.follow) {
+    const raw = pts.map(p => T.project(p[0], p[1], -1).e), R = 8, sm = raw.slice();
+    for (let j = 0; j <= M; j++) { let s = 0, w = 0; for (let q = -R; q <= R; q++) { const jj = Math.min(M, Math.max(0, j + q)), g = Math.exp(-q * q / (2 * 16)); s += raw[jj] * g; w += g; } sm[j] = s / w; }
+    for (let j = 0; j <= M; j++) { const lin = pts[j][2], u = Math.min(1, j / 6, (M - j) / 6); pts[j][2] = lin + (sm[j] - lin) * u * u * (3 - 2 * u); }
+  }
   let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; for (const p of pts) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[1]); z1 = Math.max(z1, p[1]); }
   const E = T.esc = { pts, hw, pit: !!pit, box: [x0 - hw, x1 + hw, z0 - hw, z1 + hw], blocks: [], hits: 0 };
   // nearest point of the lane: [dist, segment, t]
@@ -302,6 +309,14 @@ function buildEscape(T, def) {
     return [Math.sqrt(best), bj, bt];
   };
   T.inEscape = (x, z) => x > E.box[0] && x < E.box[1] && z > E.box[2] && z < E.box[3] && E.near(x, z)[0] < hw;
+  // what the car physics lets a car reach at (x, z): the circuit up to its barriers, the pit-lane band or the lane
+  // (the visuals draw a rail only where one side of it is not drivable)
+  T.drivable = (x, z, m = 0) => {
+    const q = T.project(x, z, -1);
+    if (q.d < q.bl - m && q.d > -q.br + m) return true;
+    if (q.pc === q.pc && Math.abs(q.d - q.pc) < q.phw - m) return true;
+    return x > E.box[0] && x < E.box[1] && z > E.box[2] && z < E.box[3] && E.near(x, z)[0] < hw - m;
+  };
   E.yAt = (x, z) => { const [, j, t] = E.near(x, z); return pts[j][2] + (pts[j + 1][2] - pts[j][2]) * t; };
   // foam blocks: [position along the lane 0..1, lateral offset (m, + = left), width across, depth]
   for (const [u, off, w, dep] of blocks || []) {
