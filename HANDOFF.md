@@ -192,4 +192,5 @@
 - Herramienta nueva: `node tools/headless.js city` comprueba que ningún bloque ni tribuna de Mónaco entra por dentro del muro (exit 1 si falla). Antes del arreglo daba 58 bloques y 4 tribunas; ahora 0 y 0.
 - No cambió nada de la pista: eje, anchos, muros, elevación y trazada son idénticos (solo cambian `buildings`, `stands` y `standRows` en `data_monaco.js`), así que la IA y las vueltas no cambian.
 - Verificado: `city`, `pits` y `tyres` en verde. Capturas antes y después (Beau Rivage, bajada del Casino, salida del túnel, aérea de Beau Rivage, tribuna de Piscine, la Roca y aérea de la ciudad) en la carpeta del proyecto `monaco-v80/`, sin errores de página. Coste (`perf.mjs monaco amg_gt3 race medio`): 2,86 M → 2,97 M triángulos (+4 %), 521 → 516 llamadas de dibujo.
+- Publicada el 31-oct-2026 como versión 80 del artefacto (id 1793464891-e5fb). Solo cambió la página; los packs siguen como en v78.
 - Límite que queda: los bloques siguen siendo cajas con la misma fachada; el relleno es genérico (no reproduce el Palacio ni la catedral de la Roca).
