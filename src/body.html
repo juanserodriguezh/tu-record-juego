@@ -11,6 +11,7 @@
   </div>
 
   <!-- ===================== MAIN MENU ===================== -->
+  <!-- three steps (track, car, session) in one sheet: a side panel on wide screens, a draggable bottom sheet on phones -->
   <div id="menu" class="menu" hidden>
     <header class="topbar">
       <div class="brand">
@@ -21,29 +22,76 @@
         </div>
       </div>
       <nav class="topnav">
-        <div class="track-tabs" id="trackTabs" role="group" aria-label="Circuito"><button type="button" data-k="spa" aria-pressed="true">Spa</button><button type="button" data-k="monza" aria-pressed="false">Monza</button><button type="button" data-k="albertpark" aria-pressed="false">Albert Park</button><button type="button" data-k="toca_largo" aria-pressed="false">Tocancipá</button><button type="button" data-k="monaco" aria-pressed="false">Mónaco</button></div>
         <button class="ghost-btn icon-btn snd-toggle" id="btnSound" type="button" aria-label="Silenciar sonido" aria-pressed="false"><svg class="ic-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><svg class="ic-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16.5 9.5l5 5m0-5l-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
         <button class="ghost-btn" id="btnControls" type="button">Controles</button>
         <button class="ghost-btn" id="btnSettings" type="button">Ajustes</button>
       </nav>
     </header>
-    <div class="track-tabs layout-tabs" id="layoutTabs" role="group" aria-label="Trazado" hidden></div>
 
-    <aside class="garage panel" aria-label="Garaje">
-      <div class="panel-head">
-        <span class="eyebrow">Garaje</span>
-        <span id="carCount" class="count"></span>
+    <section class="sheet" id="menuSheet" aria-label="Preparar la sesión">
+      <div class="sheet-head" id="sheetHead">
+        <div class="grabber" aria-hidden="true"></div>
+        <div class="steps" id="menuSteps" role="tablist" aria-label="Pasos">
+          <span class="steps-thumb" id="stepsThumb" aria-hidden="true"></span>
+          <button type="button" role="tab" data-step="pista" aria-selected="true"><i>1</i>Pista</button>
+          <button type="button" role="tab" data-step="coche" aria-selected="false"><i>2</i>Coche</button>
+          <button type="button" role="tab" data-step="sesion" aria-selected="false"><i>3</i>Sesión</button>
+        </div>
       </div>
-      <div class="search"><input type="search" id="carSearch" placeholder="Buscar coche por nombre…" autocomplete="off" spellcheck="false" aria-label="Buscar coche por nombre"></div>
-      <div class="tabs" id="catTabs" role="tablist"></div>
-      <div class="brand-bar" id="brandBar" hidden><button type="button" id="brandBack" aria-label="Volver a las marcas">‹ Marcas</button><b id="brandName"></b></div>
-      <div class="brand-grid" id="brandGrid"></div>
-      <ul class="car-list" id="carList" hidden></ul>
-    </aside>
+      <div class="pages-clip">
+        <div class="pages" id="menuPages">
+          <div class="page" data-step="pista" role="tabpanel" aria-label="Pista">
+            <h2 class="pg-title">Elige el circuito</h2>
+            <div class="trk-list" id="trackTabs" role="group" aria-label="Circuito"></div>
+            <div class="pg-group" id="layoutGroup" hidden>
+              <h3 class="pg-h">Trazado de Tocancipá</h3>
+              <div class="layout-tabs" id="layoutTabs" role="group" aria-label="Trazado"></div>
+            </div>
+            <h3 class="pg-h">Clima</h3>
+            <div class="weather" id="weatherBtns"></div>
+          </div>
+          <div class="page" data-step="coche" role="tabpanel" aria-label="Coche">
+            <div class="pg-row">
+              <h2 class="pg-title">Elige tu coche</h2>
+              <span id="carCount" class="count"></span>
+            </div>
+            <div class="search"><input type="search" id="carSearch" placeholder="Buscar coche" autocomplete="off" spellcheck="false" aria-label="Buscar coche por nombre"></div>
+            <div class="tabs" id="catTabs" role="tablist"></div>
+            <div class="brand-bar" id="brandBar" hidden><button type="button" id="brandBack" aria-label="Volver a las marcas">‹ Marcas</button><b id="brandName"></b></div>
+            <div class="brand-grid" id="brandGrid"></div>
+            <ul class="car-list" id="carList" hidden></ul>
+          </div>
+          <div class="page" data-step="sesion" role="tabpanel" aria-label="Sesión">
+            <h2 class="pg-title">¿Qué quieres hacer?</h2>
+            <div class="modes" id="modeTabs" role="tablist" aria-label="Modo de juego"></div>
+            <h3 class="pg-h" id="quickTitle">Detalles</h3>
+            <div class="quick" id="quickOpts" aria-label="Opciones rápidas de la sesión"></div>
+            <button class="row-btn" id="sessBtn" type="button"><span>Más opciones</span><small>Salida, coches rivales, parrilla</small></button>
+          </div>
+        </div>
+      </div>
+      <footer class="sheet-foot">
+        <div class="summary" id="menuSummary"></div>
+        <div class="startrow">
+          <button class="next-btn" id="nextStep" type="button">Siguiente</button>
+          <button class="start-btn" id="startBtn" type="button">
+            <span id="startLbl">Salir a pista</span>
+            <small id="startHint">Salida parada</small>
+          </button>
+        </div>
+      </footer>
+    </section>
 
-    <section class="spec panel" aria-label="Ficha del coche">
+    <section class="spec" id="specPanel" aria-label="Ficha del coche">
       <div class="spec-head">
-        <span class="eyebrow" id="specCat">Deportivo</span>
+        <div class="spec-top">
+          <span class="eyebrow" id="specCat">Deportivo</span>
+          <span class="car-step">
+            <button class="look-btn" id="lookBtn" type="button" aria-expanded="false">Colores</button>
+            <button class="arrow" id="prevCar" type="button" aria-label="Coche anterior">‹</button>
+            <button class="arrow" id="nextCar" type="button" aria-label="Coche siguiente">›</button>
+          </span>
+        </div>
         <h1 id="specName">Honda Civic Type R</h1>
         <p id="specSub" class="sub">FL5 · 2.0 L turbo</p>
       </div>
@@ -53,8 +101,8 @@
         <div><span class="eyebrow">Mejor vuelta · lluvia</span><b id="bestWet">—</b></div>
       </div>
 
-      <div class="group">
-        <div class="group-title">Apariencia</div>
+      <details class="group" id="specLook">
+        <summary class="group-title">Apariencia</summary>
         <div class="field">
           <label for="col1">Color principal</label>
           <div class="swatches" id="sw1"></div>
@@ -79,27 +127,8 @@
             <div class="seg" id="segRim"></div>
           </div>
         </div>
-      </div>
-
-      <div class="group">
-        <div class="group-title">Clima</div>
-        <div class="weather" id="weatherBtns"></div>
-      </div>
+      </details>
     </section>
-
-    <footer class="startbar">
-      <div class="modes" id="modeTabs" role="tablist" aria-label="Modo de juego"></div>
-      <div class="quick" id="quickOpts" aria-label="Opciones rápidas de la sesión"></div>
-      <div class="startrow">
-        <button class="arrow" id="prevCar" type="button" aria-label="Coche anterior">‹</button>
-        <button class="start-btn" id="startBtn" type="button">
-          <span id="startLbl">Salir a pista</span>
-          <small id="startHint">Salida parada</small>
-        </button>
-        <button class="arrow" id="nextCar" type="button" aria-label="Coche siguiente">›</button>
-      </div>
-      <button class="link-btn" id="sessBtn" type="button">Opciones de sesión</button>
-    </footer>
     <div class="drag-hint">Arrastra para girar el coche</div>
   </div>
 

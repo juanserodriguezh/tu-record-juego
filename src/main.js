@@ -130,12 +130,12 @@ function applyTrackTexts() {
   document.querySelectorAll('.load-title, .brand-text strong').forEach(el => el.textContent = D.title);
   const sm = document.querySelector('.brand-text small'); if (sm) sm.textContent = D.sub;
   const fam = (id) => id.startsWith('toca_') ? 'toca' : id;
-  const tt = $('trackTabs'); if (tt) [...tt.children].forEach(b => b.setAttribute('aria-pressed', String(fam(b.dataset.k) === fam(D.id))));
+  const tt = $('trackTabs'); if (tt) tt.querySelectorAll('.trk').forEach(b => b.setAttribute('aria-pressed', String(fam(b.dataset.k) === fam(D.id))));
   // layouts of the selected circuit (Tocancipá): one button per layout
   const lt = $('layoutTabs');
   if (lt) { const lays = Object.values(TRACK_DEFS).filter(d => d.layout && fam(d.id) === fam(D.id));
-    lt.hidden = lays.length < 2;
-    if (!lt.hidden && lt.dataset.fam !== fam(D.id)) { lt.dataset.fam = fam(D.id); lt.innerHTML = '';
+    const lg = $('layoutGroup'); if (lg) { lg.hidden = lays.length < 2; const card = tt && [...tt.querySelectorAll('.trk')].find(b => fam(b.dataset.k) === fam(D.id)); if (card && !lg.hidden) card.after(lg); }
+    if (lays.length >= 2 && lt.dataset.fam !== fam(D.id)) { lt.dataset.fam = fam(D.id); lt.innerHTML = '';
       for (const d of lays) { const b = document.createElement('button'); b.type = 'button'; b.dataset.k = d.id; b.textContent = d.layout;
         b.addEventListener('click', () => { if (NET.code && !NET.host) return; switchTrack(d.id).then(ok => { if (ok && NET.code) netSet({ trk: TRACK.id }); }); }); lt.appendChild(b); } }
     [...lt.children].forEach(b => b.setAttribute('aria-pressed', String(b.dataset.k === D.id))); }
@@ -275,7 +275,8 @@ function initUI() {
   $('sessBtn').addEventListener('click', openSessionOptions);
   $('sessClose').addEventListener('click', () => { $('session').hidden = true; });
   $('sessGo').addEventListener('click', () => { $('session').hidden = true; startFromMenu(); });
-  for (const b of $('trackTabs').children) b.addEventListener('click', () => {
+  buildTrackCards();
+  for (const b of $('trackTabs').querySelectorAll('.trk')) b.addEventListener('click', () => {
     if (NET.code && !NET.host) { $('lobbyNote').textContent = 'El anfitrión elige el circuito.'; return; }
     if (b.dataset.k.startsWith('toca_') && TRACK.id.startsWith('toca_')) return;
     switchTrack(b.dataset.k).then(ok => { if (ok && NET.code) netSet({ trk: TRACK.id }); });
@@ -311,6 +312,7 @@ function initUI() {
   S.touch = isTouch;
   window.addEventListener('resize', onResize);
   initMinimap();
+  initMenuUI();
   renderStartHint();
 }
 function setWeather(k) {
@@ -429,7 +431,7 @@ function renderGarage() {
     li.appendChild(b); ul.appendChild(li);
     if (BRAND_MENU) thumbQueue(c, b.querySelector('img'));
   }
-  const curEl = ul.querySelector('[aria-current="true"]'); if (curEl) curEl.scrollIntoView({ block: 'nearest' });
+  const curEl = ul.querySelector('[aria-current="true"]'); if (curEl) scrollIntoPage(curEl);
 }
 function renderSpec() {
   const sp = carById(S.carId), liv = liveryOf(sp);
@@ -475,8 +477,8 @@ function renderStartHint() {
   else if (g.mode === 'completa') { lbl = 'Ir a clasificación'; hint = `Clasif. ${g.qualiMin} min + ${g.laps} ${g.laps === 1 ? 'vuelta' : 'vueltas'} · ${riv}`; }
   else { lbl = 'Abrir sala'; hint = 'Juega con amigos usando un código de sala'; }
   $('startLbl').textContent = lbl; $('startHint').textContent = hint;
-  $('sessBtn').hidden = g.mode === 'multi';
-  renderQuick();
+  $('sessBtn').hidden = g.mode === 'multi'; $('quickTitle').hidden = g.mode === 'multi';
+  renderQuick(); renderSummary();
 }
 
 // quick steppers under the mode tabs (difficulty, rivals, laps, qualifying)
@@ -522,6 +524,200 @@ function renderQuick() {
     box.appendChild(tp);
     const h = document.createElement('div'); h.className = 'ty-hint'; h.textContent = tyreHint(g.mode === 'practica' ? 'practice' : 'race'); box.appendChild(h);
   }
+}
+
+// ---------------------------------------------------------------------------
+//  Menu (v80): three steps (Pista · Coche · Sesión) in one sheet.
+//  Motion follows Apple's fluid-interface rules: springs (damping ratio + response) that start from the live value and
+//  take the gesture's velocity, momentum projection to choose the page / detent, rubber-banding at the ends, 1:1 tracking.
+// ---------------------------------------------------------------------------
+const MENU_STEPS = ['pista', 'coche', 'sesion'];
+const NEXT_LBL = { pista: 'Coche', coche: 'Sesión' };
+const TRACK_CARDS = [
+  ['spa', 'Spa-Francorchamps', 'Bélgica · 7,0 km · 19 curvas'], ['monza', 'Monza', 'Italia · 5,8 km · 11 curvas'],
+  ['albertpark', 'Albert Park', 'Australia · 5,3 km · 14 curvas'], ['toca_largo', 'Tocancipá', 'Colombia · 6 trazados · a 2.600 m'],
+  ['monaco', 'Mónaco', 'Callejero · 3,3 km · 19 curvas']
+];
+const MODE_INFO = {
+  practica: ['Vueltas libres para bajar tu récord', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 13.5V9.5M9.5 2.5h5M18.5 6.5l1.5-1.5"/></svg>'],
+  rapida: ['Directo a la parrilla contra la IA', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4M5 4h13l-2.5 4.5L18 13H5"/></svg>'],
+  completa: ['Clasificación y después carrera', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8.5 20.5h7M10 17h4l.5 3.5h-5z"/></svg>'],
+  multi: ['Sala con código para correr con amigos', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="8.5" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 5.2a3.5 3.5 0 0 1 0 6.6M18 14.2a6.5 6.5 0 0 1 3.5 5.8"/></svg>']
+};
+const REDUCED_MOTION = (() => { try { return matchMedia('(prefers-reduced-motion: reduce)'); } catch (e) { return { matches: false }; } })();
+// spring with Apple's parameters: damping ratio (1 = no overshoot) and response (s); always runs from the current value and velocity
+class Spring {
+  constructor(x, apply, eps) { this.x = x; this.v = 0; this.to = x; this.apply = apply; this.eps = eps || 1e-3; this.raf = 0; this.d = 1; this.r = 0.35; this.done = null; this.tick = this.tick.bind(this); }
+  stop() { if (this.raf) cancelAnimationFrame(this.raf); this.raf = 0; }
+  set(x) { this.stop(); this.x = this.to = x; this.v = 0; this.apply(x); }
+  go(to, o) {
+    o = o || {}; this.to = to; this.d = o.damping != null ? o.damping : 1; this.r = o.response || 0.35; if (o.v != null) this.v = o.v; this.done = o.done || null;
+    if (REDUCED_MOTION.matches) { this.set(to); if (this.done) this.done(); return; }
+    if (!this.raf) { this.t = performance.now(); this.raf = requestAnimationFrame(this.tick); }
+  }
+  tick(now) {
+    const dt = Math.min(0.05, Math.max(0, (now - this.t) / 1000)); this.t = now;
+    const k = Math.pow(2 * Math.PI / this.r, 2), c = 4 * Math.PI * this.d / this.r, n = 4, h = dt / n;
+    for (let i = 0; i < n; i++) { const a = -k * (this.x - this.to) - c * this.v; this.v += a * h; this.x += this.v * h; }
+    if (Math.abs(this.x - this.to) < this.eps && Math.abs(this.v) < this.eps * 10) { this.x = this.to; this.v = 0; this.raf = 0; this.apply(this.x); if (this.done) this.done(); return; }
+    this.apply(this.x); this.raf = requestAnimationFrame(this.tick);
+  }
+}
+// where a flick would come to rest (Apple's projection, deceleration rate per ms)
+const projectFlick = (v, rate) => (v / 1000) * rate / (1 - rate);
+// progressive resistance past an edge
+const rubber = (over, dim) => (over * dim * 0.55) / (dim + 0.55 * Math.abs(over));
+// short pointer history -> release velocity (px/s)
+function velTracker() {
+  const h = [];
+  return { add(x, y, ts) { const t = ts || performance.now(); h.push([x, y, t]); while (h.length > 2 && t - h[0][2] > 100) h.shift(); },
+    vel() { if (h.length < 2) return [0, 0]; const a = h[0], b = h[h.length - 1], dt = (b[2] - a[2]) / 1000; return dt > 0.004 ? [(b[0] - a[0]) / dt, (b[1] - a[1]) / dt] : [0, 0]; },
+    reset() { h.length = 0; } };
+}
+const MENU_UI = { step: 'pista', mobile: false, pages: null, sheet: null, sy: 0, det: [0, 0], cx: null, cy: null, rFit: null };
+const isPhoneLayout = () => window.innerWidth <= 820;
+// scrollIntoView would also scroll the clipped row of pages sideways: scroll only the page itself
+function scrollIntoPage(el) {
+  const pg = el.closest('.page'); if (!pg) return;
+  const a = el.getBoundingClientRect(), b = pg.getBoundingClientRect(), bot = b.bottom - (MENU_UI.mobile ? (parseFloat(getComputedStyle(pg).paddingBottom) || 0) : 0);
+  if (a.top < b.top + 8) pg.scrollTop += a.top - b.top - 8; else if (a.bottom > bot - 8) pg.scrollTop += a.bottom - bot + 8;
+}
+function trackOutlineSvg(D) {
+  const pts = D.raw().split(';').filter(Boolean).map(r => r.split(',').map(Number));
+  let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+  for (const p of pts) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, -p[1]); y1 = Math.max(y1, -p[1]); }
+  const W = 64, H = 48, sc = Math.min(W / (x1 - x0), H / (y1 - y0)), ox = (W - (x1 - x0) * sc) / 2, oy = (H - (y1 - y0) * sc) / 2;
+  const step = Math.max(1, Math.floor(pts.length / 160)), P = (p) => (ox + (p[0] - x0) * sc).toFixed(1) + ' ' + (oy + (-p[1] - y0) * sc).toFixed(1);
+  let d = ''; for (let i = 0; i < pts.length; i += step) d += (i ? 'L' : 'M') + P(pts[i]);
+  const s = P(pts[0]).split(' ');
+  return `<svg viewBox="0 0 ${W} ${H}" aria-hidden="true"><path d="${d}Z"/><circle cx="${s[0]}" cy="${s[1]}" r="2.6"/></svg>`;
+}
+function buildTrackCards() {
+  const box = $('trackTabs'); box.innerHTML = '';
+  for (const [k, name, info] of TRACK_CARDS) {
+    const D = TRACK_DEFS[k]; if (!D) continue;
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'trk'; b.dataset.k = k; b.setAttribute('aria-pressed', 'false');
+    b.innerHTML = trackOutlineSvg(D) + '<span class="tn"></span><span class="ts"></span><span class="tr"></span>';
+    b.querySelector('.tn').textContent = name; b.querySelector('.ts').textContent = info;
+    box.appendChild(b);
+  }
+}
+// personal best of the selected car on each circuit (dry), shown on the track cards
+function renderTrackRecords() {
+  for (const b of $('trackTabs').querySelectorAll('.trk')) {
+    const k = b.dataset.k, id = k.startsWith('toca_') && TRACK.id.startsWith('toca_') ? TRACK.id : k;
+    const t = S.times[(id === 'spa' ? '' : id + ':') + S.carId + '|dry'];
+    b.querySelector('.tr').innerHTML = t ? 'Tu récord<b>' + fmtTime(t) + '</b>' : '';
+  }
+}
+function buildModeRows() {
+  const mt = $('modeTabs');
+  for (const b of mt.children) { const [desc, ic] = MODE_INFO[b.dataset.k]; const t = b.textContent; b.innerHTML = ic + '<b></b><span></span>'; b.querySelector('b').textContent = t; b.querySelector('span').textContent = desc; }
+}
+function initMenuUI() {
+  const pages = $('menuPages'), clip = pages.parentElement; clip.addEventListener('scroll', () => { clip.scrollLeft = 0; clip.scrollTop = 0; });
+  const sheet = $('menuSheet'), head = $('sheetHead'), thumb = $('stepsThumb');
+  MENU_UI.pages = new Spring(0, (x) => { pages.style.transform = `translate3d(${-x * 100}%,0,0)`; thumb.style.transform = `translateX(${clamp(x, -0.15, 2.15) * 100}%)`; }, 1e-4);
+  MENU_UI.sheet = new Spring(0, (y) => { MENU_UI.sy = y; sheet.style.setProperty('--sy', y.toFixed(1) + 'px'); sheet.style.setProperty('--foot-y', Math.max(0, y).toFixed(1) + 'px'); }, 0.2);
+  buildModeRows();
+  for (const b of $('menuSteps').querySelectorAll('button')) b.addEventListener('click', () => { if (!MENU_UI.swallow) setMenuStep(b.dataset.step); });
+  $('nextStep').addEventListener('click', () => { const i = MENU_STEPS.indexOf(MENU_UI.step); if (i < 2) setMenuStep(MENU_STEPS[i + 1]); });
+  $('lookBtn').addEventListener('click', () => { const on = !$('specPanel').classList.contains('look'); $('specPanel').classList.toggle('look', on); $('lookBtn').setAttribute('aria-expanded', String(on)); $('specLook').open = on; });
+  // choosing something moves you on: a circuit or a mode picked by tap is the answer to that step
+  // horizontal swipe between steps (vertical stays native scroll)
+  const vt = velTracker(); let g = null;
+  clip.addEventListener('pointerdown', (e) => { if (e.button) return; g = { id: e.pointerId, x: e.clientX, y: e.clientY, st: 0 }; vt.reset(); vt.add(e.clientX, e.clientY, e.timeStamp); });
+  clip.addEventListener('pointermove', (e) => {
+    if (!g || e.pointerId !== g.id) return;
+    const dx = e.clientX - g.x, dy = e.clientY - g.y; vt.add(e.clientX, e.clientY, e.timeStamp);
+    if (g.st === 0) {
+      if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.2) { g.st = 1; g.x0 = MENU_UI.pages.x; g.x = e.clientX; MENU_UI.pages.stop(); try { clip.setPointerCapture(e.pointerId); } catch (er) { } }
+      else if (Math.abs(dy) > 10) g = null;
+      return;
+    }
+    const w = clip.clientWidth; let x = g.x0 - (e.clientX - g.x) / w;
+    if (x < 0) x = -rubber(-x * w, w) / w; else if (x > 2) x = 2 + rubber((x - 2) * w, w) / w;
+    MENU_UI.pages.x = x; MENU_UI.pages.apply(x);
+  });
+  const endSwipe = (e) => {
+    if (!g || e.pointerId !== g.id) return; const st = g.st; g = null; if (st !== 1) return;
+    MENU_UI.swallow = true; setTimeout(() => { MENU_UI.swallow = false; }, 0);
+    const w = clip.clientWidth, vx = -vt.vel()[0] / w, x = MENU_UI.pages.x, cur = MENU_STEPS.indexOf(MENU_UI.step);
+    const proj = x + projectFlick(vx * w, 0.99) / w;
+    const to = clamp(Math.round(proj), Math.max(0, cur - 1), Math.min(2, cur + 1));
+    setMenuStep(MENU_STEPS[to], { v: vx });
+  };
+  clip.addEventListener('pointerup', endSwipe); clip.addEventListener('pointercancel', endSwipe);
+  clip.addEventListener('click', (e) => { if (MENU_UI.swallow) { e.stopPropagation(); e.preventDefault(); } }, true);
+  // phones: the sheet has two detents (half and full); drag it by its head, flick to throw it
+  const vs = velTracker(); let s = null;
+  head.addEventListener('pointerdown', (e) => { if (!MENU_UI.mobile || e.button) return; s = { id: e.pointerId, y: e.clientY, st: 0 }; vs.reset(); vs.add(0, e.clientY, e.timeStamp); });
+  head.addEventListener('pointermove', (e) => {
+    if (!s || e.pointerId !== s.id) return; vs.add(0, e.clientY, e.timeStamp);
+    const dy = e.clientY - s.y;
+    if (s.st === 0) { if (Math.abs(dy) < 10) return; s.st = 1; s.y0 = MENU_UI.sheet.x; s.y = e.clientY; MENU_UI.sheet.stop(); try { head.setPointerCapture(e.pointerId); } catch (er) { } }
+    const [hi, lo] = MENU_UI.det; let y = s.y0 + (e.clientY - s.y);
+    if (y < hi) y = hi - rubber(hi - y, window.innerHeight); else if (y > lo) y = lo + rubber(y - lo, window.innerHeight);
+    MENU_UI.sheet.x = y; MENU_UI.sheet.apply(y);
+  });
+  const endSheet = (e) => {
+    if (!s || e.pointerId !== s.id) return; const st = s.st; s = null;
+    const [hi, lo] = MENU_UI.det;
+    if (st !== 1) { if (e.type === 'pointerup' && e.target.closest('.grabber')) sheetTo(MENU_UI.sheet.to > (hi + lo) / 2 ? hi : lo, 0); return; }
+    MENU_UI.swallow = true; setTimeout(() => { MENU_UI.swallow = false; }, 0);
+    const vy = vs.vel()[1], proj = MENU_UI.sheet.x + projectFlick(vy, 0.99);
+    sheetTo(Math.abs(proj - hi) < Math.abs(proj - lo) ? hi : lo, vy);
+  };
+  head.addEventListener('pointerup', endSheet); head.addEventListener('pointercancel', endSheet);
+  window.addEventListener('resize', layoutMenu);
+  layoutMenu(); setMenuStep('pista', { instant: true });
+}
+function sheetTo(y, v) {
+  // a flick keeps a little of its energy (slight overshoot); a plain release settles without bounce
+  MENU_UI.sheet.go(y, { v: v || 0, damping: Math.abs(v || 0) > 300 ? 0.8 : 1, response: 0.32, done: sheetSettled });
+}
+function sheetSettled() { const sh = $('menuSheet'); sh.style.setProperty('--hidden-h', Math.max(0, MENU_UI.sheet.x).toFixed(0) + 'px'); sh.style.setProperty('--sheet-top', sh.getBoundingClientRect().top.toFixed(0) + 'px'); }
+function layoutMenu() {
+  const sh = $('menuSheet'); if (!sh) return;
+  MENU_UI.mobile = isPhoneLayout();
+  sh.style.setProperty('--foot-h', sh.querySelector('.sheet-foot').offsetHeight + 'px');
+  if (!MENU_UI.mobile) { MENU_UI.det = [0, 0]; MENU_UI.sheet.set(0); sh.style.removeProperty('--hidden-h'); return; }
+  const H = sh.offsetHeight, vis = clamp(Math.round(window.innerHeight * 0.5), 300, H);
+  const was = MENU_UI.det[1] && MENU_UI.sheet.to <= MENU_UI.det[0] + 1;
+  MENU_UI.det = [0, Math.max(0, H - vis)];
+  MENU_UI.sheet.set(was ? 0 : MENU_UI.det[1]); sheetSettled();
+}
+function setMenuStep(k, o) {
+  o = o || {}; const i = MENU_STEPS.indexOf(k); if (i < 0) return;
+  MENU_UI.step = k;
+  for (const b of $('menuSteps').querySelectorAll('button')) b.setAttribute('aria-selected', String(b.dataset.step === k));
+  for (const p of $('menuPages').children) { const on = p.dataset.step === k; p.inert = !on; p.setAttribute('aria-hidden', String(!on)); }
+  if (o.instant) MENU_UI.pages.set(i); else MENU_UI.pages.go(i, { v: o.v || 0, damping: 1, response: 0.38 });
+  $('nextStep').hidden = !NEXT_LBL[k]; if (NEXT_LBL[k]) $('nextStep').textContent = NEXT_LBL[k] + ' ›';
+  const spec = $('specPanel'); spec.classList.toggle('off', k !== 'coche');
+  if (k !== 'coche') { spec.classList.remove('look'); $('lookBtn').setAttribute('aria-expanded', 'false'); }
+  if (k === 'coche') { const cur = $('carList').querySelector('[aria-current="true"]'); if (cur) scrollIntoPage(cur); }
+}
+function renderSummary() {
+  const el = $('menuSummary'); if (!el) return;
+  const sp = carById(S.carId), tn = TRACK.id.startsWith('toca_') ? 'Tocancipá ' + TRACK.layout : (TRACK_CARDS.find(c => c[0] === TRACK.id) || [0, TRACK.name])[1];
+  el.innerHTML = '<b></b> · <b></b> · ' + MODES[S.game.mode];
+  el.querySelectorAll('b')[0].textContent = tn; el.querySelectorAll('b')[1].textContent = sp ? sp.name : '';
+  renderTrackRecords();
+}
+// menu camera: frame the car in the screen area the panels leave free
+function menuFrame(dt) {
+  const W = window.innerWidth, Hh = window.innerHeight, sh = $('menuSheet').getBoundingClientRect(), sp = $('specPanel'), spOn = !sp.classList.contains('off');
+  let x0, x1, y0, y1;
+  if (!MENU_UI.mobile) { x0 = sh.right; x1 = spOn ? sp.getBoundingClientRect().left : W; y0 = 56; y1 = Hh; }
+  else { x0 = 0; x1 = W; y0 = spOn ? sp.getBoundingClientRect().bottom : 56; y1 = Math.min(Hh, sh.top); }
+  const wF = Math.max(80, x1 - x0), hF = Math.max(80, y1 - y0), tanH = Math.tan(THREE.MathUtils.degToRad(19));
+  // distance that fits the car in the free area (length across the width, height down the height)
+  const rFit = Math.max(model.L * (MENU_UI.mobile ? 1.15 : 0.95) * Hh / (2 * tanH * wF), model.H * 2.6 * Hh / (2 * tanH * hF));
+  const tx = (x0 + x1) / 2, ty = (y0 + y1) / 2 + (MENU_UI.mobile ? 0 : Hh * 0.04), a = 1 - Math.exp(-dt * 7);
+  if (MENU_UI.cx == null || dt === 0) { MENU_UI.cx = tx; MENU_UI.cy = ty; MENU_UI.rFit = rFit; }
+  MENU_UI.cx += (tx - MENU_UI.cx) * a; MENU_UI.cy += (ty - MENU_UI.cy) * a; MENU_UI.rFit += (rFit - MENU_UI.rFit) * a;
+  return { ox: W / 2 - MENU_UI.cx, oy: Hh / 2 - MENU_UI.cy, rFit: MENU_UI.rFit };
 }
 
 // ---------------------------------------------------------------------------
@@ -935,6 +1131,7 @@ function coachStep(dt) {
 function enterMenu() {
   S.mode = 'menu';
   $('menu').hidden = false; $('hud').hidden = true; $('touch').hidden = true; $('results').hidden = true;
+  layoutMenu();
   if (audio) audio.mute();
   const sp = carById(S.carId); car = new Vehicle(sp, T); car.reset(GRID_S(), GRID_D);
   placeModel(); updateModelTransform(0);
@@ -1430,15 +1627,12 @@ function updateCamera(dt) {
   if (DEBUGCAM) { camera.clearViewOffset(); camera.position.set(DEBUGCAM[0], DEBUGCAM[1], DEBUGCAM[2]); camera.lookAt(DEBUGCAM[3], DEBUGCAM[4], DEBUGCAM[5]); camera.fov = DEBUGCAM[6] || 60; camera.near = 0.1; camera.updateProjectionMatrix(); return; }
   if (S.mode === 'menu' || S.mode === 'loading') {
     MENU.idle += dt; if (MENU.idle > 2.5) MENU.ang += dt * 0.12;
-    const r = (model.L * 1.25 + 3.4) * MENU.zoom;
+    const fr = menuFrame(dt), r = Math.max(model.L * 1.25 + 3.4, fr.rFit) * MENU.zoom;
     const cx = car.x, cz = car.z, cy = car.y;
     const h = car.h + MENU.ang;
     camera.position.set(cx + Math.sin(h) * r * Math.cos(MENU.pitch), cy + 0.35 + r * Math.sin(MENU.pitch) + 0.6, cz + Math.cos(h) * r * Math.cos(MENU.pitch));
     camera.lookAt(cx, cy + model.H * 0.42, cz);
-    const W = window.innerWidth, Hh = window.innerHeight, wide = W > 820;
-    const gar = $('menu').querySelector('.garage').getBoundingClientRect(), spc = $('menu').querySelector('.spec').getBoundingClientRect();
-    const cxFree = wide ? (gar.right + spc.left) / 2 : W / 2;
-    camera.setViewOffset(W, Hh, W / 2 - cxFree, wide ? -Hh * 0.04 : Hh * 0.12, W, Hh);
+    camera.setViewOffset(window.innerWidth, window.innerHeight, fr.ox, fr.oy, window.innerWidth, window.innerHeight);
     camera.fov = 38; camera.near = 0.1; camera.updateProjectionMatrix();
     setInterior(false);
     return;
@@ -2417,7 +2611,7 @@ function nanScan() {
   for (let i = 0; i < buf.length; i++) { const e = (buf[i] >> 10) & 31; if (e === 31) { if (buf[i] & 1023) nan++; else inf++; if (!first) first = [(i >> 2) % sz.x, sz.y - 1 - Math.floor((i >> 2) / sz.x)]; } else if (e >= 29) big++; }
   return { nan, inf, big, first, w: sz.x, h: sz.y };
 }
-window.__spa = { S, nanScan, freeze(on) { FREEZE = on ? { draw: false } : null; return 'ok'; }, redraw() { if (FREEZE) FREEZE.draw = true; return 'ok'; }, lod(on) { if (on != null) LOD_ON = on !== false; return { on: LOD_ON, jobs: LOD_JOBS.length, ms: Math.round(LOD_MS) }; }, async lodFlush() { for (let k = 0; k < 600 && (LOD_JOBS.length || (LOD_W && LOD_W.pend.size)); k++) await new Promise(r => setTimeout(r, 100)); return { worker: !!LOD_W, left: LOD_JOBS.length, ms: Math.round(LOD_MS) }; }, get INPUT() { return INPUT; }, switchTrack, post: () => POST.ready, get TRACK() { return TRACK; }, audioLab: { CarAudio, EngineVoice, engineProfile, engineWave }, get car() { return car; }, get model() { return model; }, get race() { return SES; }, get world() { return world; }, get skids() { return skids; }, get camera() { return camera; }, get T() { return T; }, get DFX() { return DFX; }, get coach() { return COACH_ST; }, setLineMode, crashTest, startSession, rewind, get RW() { return RW; }, selectCar, cycleCam, netDbg: () => ({ code: NET.code, host: NET.host, off: NET.offset, seen: NET.cfgSeen, peers: NET.peers.map(p => [p.peer, p.sameTab, pres(p).code, pres(p).host, pres(p).ph, pres(p).cfg && pres(p).cfg.seq, pres(p).cfg && pres(p).cfg.startAt - Date.now()]) }), setAuto(k) { AUTO = k != null ? { k } : null; }, renderer: () => renderer, menu: MENU, setWeather, WXS, TYRES, tyreRequestCycle, startFromMenu, endQuali,
+window.__spa = { S, menuStep(k, anim) { setMenuStep(k, { instant: !anim }); return MENU_UI.step; }, sheet(full) { MENU_UI.sheet.set(MENU_UI.det[full ? 0 : 1]); sheetSettled(); return MENU_UI.det; }, menuUI: MENU_UI, nanScan, freeze(on) { FREEZE = on ? { draw: false } : null; return 'ok'; }, redraw() { if (FREEZE) FREEZE.draw = true; return 'ok'; }, lod(on) { if (on != null) LOD_ON = on !== false; return { on: LOD_ON, jobs: LOD_JOBS.length, ms: Math.round(LOD_MS) }; }, async lodFlush() { for (let k = 0; k < 600 && (LOD_JOBS.length || (LOD_W && LOD_W.pend.size)); k++) await new Promise(r => setTimeout(r, 100)); return { worker: !!LOD_W, left: LOD_JOBS.length, ms: Math.round(LOD_MS) }; }, get INPUT() { return INPUT; }, switchTrack, post: () => POST.ready, get TRACK() { return TRACK; }, audioLab: { CarAudio, EngineVoice, engineProfile, engineWave }, get car() { return car; }, get model() { return model; }, get race() { return SES; }, get world() { return world; }, get skids() { return skids; }, get camera() { return camera; }, get T() { return T; }, get DFX() { return DFX; }, get coach() { return COACH_ST; }, setLineMode, crashTest, startSession, rewind, get RW() { return RW; }, selectCar, cycleCam, netDbg: () => ({ code: NET.code, host: NET.host, off: NET.offset, seen: NET.cfgSeen, peers: NET.peers.map(p => [p.peer, p.sameTab, pres(p).code, pres(p).host, pres(p).ph, pres(p).cfg && pres(p).cfg.seq, pres(p).cfg && pres(p).cfg.startAt - Date.now()]) }), setAuto(k) { AUTO = k != null ? { k } : null; }, renderer: () => renderer, menu: MENU, setWeather, WXS, TYRES, tyreRequestCycle, startFromMenu, endQuali,
   view(sN, d, h, back, lookD, fov) { $('menu').hidden = true; const s = ((sN + T.nom) % T.nom) * T.L / T.nom; const p = trackPoint(T, s - (back || 0), d), t = trackPoint(T, s, lookD != null ? lookD : d); DEBUGCAM = [p.x, p.e + h, p.z, t.x, t.e + 1, t.z, fov || 60]; return 'ok'; }, noview() { DEBUGCAM = null; }, cam(a, b, c, d, e, f, g) { $('menu').hidden = true; DEBUGCAM = [a, b, c, d, e, f, g || 60]; return 'ok'; },
   camAt(p, t, fov) { $('menu').hidden = true; model.root.updateMatrixWorld(true); const a = model.body.localToWorld(new THREE.Vector3(p[0], p[1], p[2])), b = model.body.localToWorld(new THREE.Vector3(t[0], t[1], t[2])); DEBUGCAM = [a.x, a.y, a.z, b.x, b.y, b.z, fov || 40]; return 'ok'; },
   orbit(ang, dist, h, fov) { $('menu').hidden = true; const a = car.h + ang, y = car.y; DEBUGCAM = [car.x + Math.sin(a) * dist, y + h, car.z + Math.cos(a) * dist, car.x, y + 0.55, car.z, fov || 35]; return 'ok'; },
