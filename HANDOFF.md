@@ -248,6 +248,7 @@
   - Capturas antes y después (aérea de la horquilla como la foto, Mirabeau bajo, entrada a la horquilla y salida de Mirabeau) en `monaco-v83/`, junto a la foto de referencia.
   - `city`, `pits` y `tyres` en verde, sin errores de página.
   - Coste (`perf.mjs monaco amg_gt3 race medio`): 3,02 M triángulos y 540 llamadas de dibujo (v80: 2,97 M y 516).
+- Publicada el 31-oct-2026 como versión 83 del artefacto (id 1793470274-b938). Solo cambió la página.
 - Límites que quedan:
   - Los edificios siguen siendo cajas genéricas: no son los de la foto (torre rosada, Hotel Hermitage).
   - No hay tribuna de andamios ni grúa.
