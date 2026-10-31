@@ -210,3 +210,4 @@
 - Verificado: capturas de los tres pasos a 1280 y 1000 px, en móvil vertical (390 × 844, hoja media y completa) y horizontal (844 × 390). Prueba de interacción con Playwright (ratón en escritorio y toques reales por CDP en móvil): deslizar de Pista a Coche, arrastrar la hoja hasta arriba, pestañas, elegir modo (el botón pasa a «Empezar carrera»), elegir Tocancipá (aparecen sus 6 trazados), elegir coche y salir a pista (HUD visible); sin errores de página. `headless.js pits` en verde (no cambia la física).
 - Límite: al abrir el paso Coche la lista se desplaza hasta el coche elegido, así que el buscador queda arriba fuera de vista hasta que subes.
 
+- Publicada el 31-oct-2026 como versión 81 del artefacto (id 1793465960-6134). Solo cambió la página; los packs siguen como en v78.
