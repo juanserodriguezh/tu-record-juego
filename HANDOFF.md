@@ -211,3 +211,24 @@
 - Límite: al abrir el paso Coche la lista se desplaza hasta el coche elegido, así que el buscador queda arriba fuera de vista hasta que subes.
 
 - Publicada el 31-oct-2026 como versión 81 del artefacto (id 1793465960-6134). Solo cambió la página; los packs siguen como en v78.
+
+## v82 (31-oct-2026) — salida de boxes de Spa
+- Juanse: en la salida de boxes de Spa había barreras que se atravesaban, zonas verdes donde no debían y fallos visuales en general.
+- Causas (medidas con `buildTrack` y capturas a ras de la vía):
+  - La vía iba en rampa recta de la cota de boxes (58,1 m) a la de incorporación (52,7 m) y quedaba hasta 2,3 m por debajo del terreno y de la escapatoria que cruza. La hierba de la escapatoria (cinta a la cota de la pista) tapaba casi toda la vía en la incorporación, y las celdas del terreno (14 m, más anchas que la vía de 9 m) asomaban como cuñas verdes dentro del asfalto.
+  - Donde acaba la banda de boxes (s = 210) el muro de la recta salta 10 m de lado; ese tramo cruzaba en diagonal la boca de la vía. Solo se abría el muro si un extremo del tramo caía dentro de la vía, y aquí los dos quedaban fuera.
+  - Los guardarraíles de la vía solo se quitaban sobre el asfalto de la pista: en la incorporación quedaban dentro de la escapatoria, que la física deja recorrer (se atravesaban). Además eran losas grises lisas.
+- Arreglo:
+  - `escape.follow` (solo Spa): la vía toma la cota del punto de pista más cercano, suavizada, con los extremos fijos. La rampa recta se conserva en Monza y Mónaco.
+  - `T.drivable(x, z)` (`physics.js`): lo que la física deja recorrer (pista hasta sus barreras, banda de boxes o vía). Un guardarraíl de la vía solo se dibuja si por fuera no es recorrible. Usan la textura de armco de la pista.
+  - Muros y raíles de la pista: se mira todo el tramo (9 puntos), no solo los extremos. El muro de hormigón cortado conserva los trozos que quedan fuera de la vía.
+  - Terreno: se baja bajo la vía todo vértice a menos de una diagonal de celda (antes, 6 m).
+  - Donde la vía pisa el asfalto de la pista no se dibujan la vía, sus líneas ni su faldón. El asfalto de la vía es el de boxes, no el gris claro de una escapatoria.
+- Verificado:
+  - Capturas antes y después: aérea, boca de la vía, curva interior e incorporación.
+  - Piloto automático desde el pit lane (s = 150): recorre la vía sin golpes; altura continua de 58,0 a 52,1 m; se incorpora en s ≈ 607 a 73 km/h. Antes la altura caía 1,2 m respecto a la pista.
+  - El choque posterior en Raidillon ya existía (v70).
+  - `pits` y `tyres` en verde. Monza (escapatoria T1) y Mónaco (salida de boxes) se ven igual en vista aérea, salvo el color del asfalto de boxes en Mónaco.
+- Sin tocar:
+  - El piloto automático recorre la vía a unos 28 km/h, ya antes de este cambio.
+  - Mónaco usa la misma rampa recta en su salida de boxes; si tiene el mismo fallo, basta con añadir `follow: true`.
