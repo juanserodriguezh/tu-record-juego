@@ -3,7 +3,7 @@ const fs = require('fs'), path = require('path');
 const SRC = path.join(__dirname, '..', 'src');
 const files = ['data_spa', 'data_monza', 'data_albertpark', 'data_toca', 'data_monaco', 'tracks', 'cars', 'physics', 'damage', 'line_offs', 'ai', 'coach', 'rewind'];
 const src = files.map(f => fs.readFileSync(path.join(SRC, f + '.js'), 'utf8').replace(/if \(typeof module[^\n]*\n/, '')).join('\n');
-const M = new Function(src + '\nreturn { buildTrack, Vehicle, CARS, TRACK_DEFS, ACCEL_CAL, LINE_OFFS, lineFromOffsets, wxInit, AIDriver, AI_PROFILES, qssProfile, aiProfile, newDamage, pitStopPlan, PIT_CREW, Coach, coachPlan, COACH, DMG, Rewind, REWIND, rwCopy };')();
+const M = new Function(src + '\nreturn { buildTrack, Vehicle, CARS, TRACK_DEFS, ACCEL_CAL, LINE_OFFS, lineFromOffsets, wxInit, AIDriver, AI_PROFILES, qssProfile, aiProfile, newDamage, pitStopPlan, PIT_CREW, Coach, coachPlan, COACH, DMG, Rewind, REWIND, rwCopy, MONACO_CITY };')();
 const cmd = process.argv[2] || 'accel';
 if (cmd === 'accel') {   // standing-start acceleration on the Spa straight: 0-100 / 0-200 / 0-300 km/h and top speed
   const T = M.buildTrack('spa');
@@ -82,6 +82,19 @@ if (cmd === 'coach') {   // adaptive line: zones and how it judges three drivers
     if (miss.length) console.log('    other verdicts:', [...new Set(miss)].slice(0, 6).join(' · '));
   }
   if (fail) { console.log(fail, 'driver(s) misjudged'); process.exit(1); }
+}
+if (cmd === 'city') {   // measured town (Monaco): no building block or grandstand may reach inside the barriers of any part of the lap (exit 1)
+  const C = M.MONACO_CITY, D = M.TRACK_DEFS.monaco, T = M.buildTrack('monaco'), sN = q => Math.round(q.s * D.nom / T.L); let bad = 0;
+  const inside = (cx, cz, hw, hd, rot, top) => { const c = Math.cos(rot), s = Math.sin(rot); let w = null;
+    for (let a = 0, nu = Math.max(2, Math.ceil(hw)); a <= nu; a++) for (let b = 0, nv = Math.max(2, Math.ceil(hd)); b <= nv; b++) {
+      const u = (2 * a / nu - 1) * hw, v = (2 * b / nv - 1) * hd, q = T.project(cx + u * c - v * s, cz + u * s + v * c, -1), m = Math.abs(q.d) - (q.d > 0 ? q.bl : q.br);
+      if (top > q.e && m < 0 && (!w || m < w[1])) w = [sN(q), m]; }
+    return w; };
+  const B = C.buildings.split(';').map(r => r.split(',').map(Number)); let nb = 0;
+  for (const [cx, cz, hw, hd, rot, base, top] of B) { const w = inside(cx, cz, hw, hd, rot, top); if (w) { nb++; console.log('  building at s', w[0], 'reaches', (-w[1]).toFixed(1), 'm inside the barrier'); } }
+  let ns = 0; for (const [, , cx, cz, hw, hd, rot, base, top] of C.stands) { const w = inside(cx, cz, hw, hd, rot, top); if (w) { ns++; console.log('  grandstand at s', w[0], 'reaches', (-w[1]).toFixed(1), 'm inside the barrier'); } }
+  bad = nb + ns; console.log('monaco         buildings', B.length, 'over the circuit', nb, '| grandstands', C.stands.length, 'over the circuit', ns);
+  if (bad) process.exit(1);
 }
 if (cmd === 'pits') {   // grandstands, pit lane and pit buildings must not overlap the circuit or each other: node tools/headless.js pits [track]
   let bad = 0;
