@@ -616,7 +616,7 @@ class World {
     const gnd = MC ? this.monacoGround() : null;   // measured ground (height above the sea, class 0 sea / 1 paved / 2 green)
     const nx = Math.ceil((x1 - x0) / step) + 1, nz = Math.ceil((z1 - z0) / step) + 1;
     const cnt = nx * nz;
-    const dist = new Float32Array(cnt).fill(1e9), eNear = new Float32Array(cnt), barNear = new Float32Array(cnt), iNear = new Int32Array(cnt);
+    const dist = new Float32Array(cnt).fill(1e9), eNear = new Float32Array(cnt), barNear = new Float32Array(cnt), iNear = new Int32Array(cnt), eLow = new Float32Array(cnt).fill(1e9);
     const R = 170, rc = Math.ceil(R / step);
     // flat ground under the grandstands (depth measured from the barrier)
     const standDepthL = new Float32Array(N), standDepthR = new Float32Array(N);
@@ -630,6 +630,7 @@ class World {
         const gx = cx + a, gz = cz + b; if (gx < 0 || gz < 0 || gx >= nx || gz >= nz) continue;
         const k = gz * nx + gx, px = x0 + gx * step, pz = z0 + gz * step;
         const d = Math.hypot(px - T.x[i], pz - T.z[i]);
+        if (d < Math.max(T.barL[i], T.barR[i]) + 6 && T.e[i] < eLow[k]) eLow[k] = T.e[i];   // lowest road whose corridor holds this vertex
         if (d < dist[k]) {
           dist[k] = d; eNear[k] = T.e[i]; iNear[k] = i;
           const side = (px - T.x[i]) * T.nx[i] + (pz - T.z[i]) * T.nz[i];
@@ -674,9 +675,16 @@ class World {
       if (dN > 1e8) h = natural;
       else {
         const nearH = eNear[k] - (dN < barNear[k] + 0.5 ? 1.6 : 0.4);
-        const t = gnd ? smoothstep(barNear[k] + 0.5, barNear[k] + 9, dN) : smoothstep(barNear[k] + 3, barNear[k] + 70, dN);
+        // Monaco: ground above the road stays at road level for 7 m behind the barrier (the retaining wall stands there and hides the
+        // rise); on an 8 m grid a slope starting at the barrier showed in front of the wall as a bank of bare paving (v83)
+        const up = gnd && natural > eNear[k] + 1;
+        const t = gnd ? smoothstep(barNear[k] + (up ? 7 : 0.5), barNear[k] + (up ? 12 : 9), dN) : smoothstep(barNear[k] + 3, barNear[k] + 70, dN);
         const bank = (dN - barNear[k]) * 0.04 * (fbm(px / 60, pz / 60, 2) - 0.5);
         h = gnd ? lerp(nearH, natural, t) : lerp(nearH, lerp(eNear[k] - 0.4 + bank, natural, smoothstep(barNear[k] + 25, barNear[k] + 220, dN)), t);
+        // Monaco: the corridor of every road (6 m behind its barrier) is carved down to the lowest road there. Retaining walls
+        // (buildMonacoStreet) close it on both sides, so no 8 m terrain triangle slopes across the view: a road one level up
+        // stands on its wall, the ground above the road starts behind the wall
+        if (gnd && eLow[k] < 1e8) h = Math.min(h, eLow[k] - 1.6);
       }
       // lake (Albert Park): carve a basin where the point is well inside the outline and away from the track
       if (lake) {
@@ -699,7 +707,9 @@ class World {
       // colours
       const f = fbm(px / 300 + 50, pz / 300, 3);
       let c;
-      if (gnd) c = gnd.col(px, pz, h);
+      if (gnd) { c = gnd.col(px, pz, h);
+        // a bank right behind the barrier (between two levels of the town): masonry and planting, not bare paving that reads as sand
+        if (dN < barNear[k] + 14 && Math.abs(h - eNear[k]) > 1.5) c.lerp(col3('#7d7563').lerp(col3('#4a5a34'), vnoise(px / 11, pz / 11)), smoothstep(1.5, 4, Math.abs(h - eNear[k])) * 0.85); }
       else if (dN < 45) c = mown.clone().multiplyScalar(0.92 + 0.14 * vnoise(px / 9, pz / 9));
       else if (f < 0.4) c = field.clone().lerp(grass, vnoise(px / 80, pz / 80) * 0.6);
       else c = grass.clone().lerp(grassDark, smoothstep(0.45, 0.62, f)).multiplyScalar(0.9 + 0.15 * vnoise(px / 25, pz / 25));
@@ -1158,7 +1168,126 @@ class World {
       pts.forEach(([x, z, top], k) => { const y = this.heightAt(x, z) - 0.2, h = clamp(top - y, 5, 16); q4.setFromAxisAngle(yA, hash2(x, z) * 6.28);
         sv.set(1, h, 1); pv.set(x, y, z); m4.compose(pv, q4, sv); it.setMatrixAt(k, m4); sv.set(1.2, 1.1, 1.2); pv.set(x, y + h - 0.3, z); m4.compose(pv, q4, sv); ic.setMatrixAt(k, m4); addFP(x, z, 3); });
       this.group.add(it, ic); }
+    this.buildMonacoStreet(B, occ, okey, onExit, addFP);
     this.buildTunnel(B);
+  }
+  // Monaco street furniture (v83): what the 8 m terrain cannot show. (1) retaining walls in stone along the barrier wherever the
+  // ground behind it rises above the road (hillside, the road above) or falls away below it: before, an earth slope ran from the
+  // foot of the barrier up to the next level, like a sand bank across the view. (2) red-brick pavements behind the barrier where
+  // the ground is level with the road. (3) the Grand Hotel hairpin island: a raised round planter with shrubs and palms.
+  // (4) the hillside gardens (green ground) get dense broadleaf trees instead of open lawn.
+  buildMonacoStreet(B, occ, okey, onExit, addFP) {
+    const T = this.T, N = T.N, ps = T.pitSide, [ta, tb] = this.tunnel || [-1, -1];
+    const wallB = new GeoBuilder(true), paveB = new GeoBuilder(true), white = col3('#ffffff'), curbC = col3('#bdb6aa');
+    const inTun = (i) => { const s = i * T.ds; return s > ta - 8 && s < tb + 8; };
+    const pitSideAt = (i, side) => side === ps && T.pitC[i] === T.pitC[i];
+    let wallLen = 0, paveLen = 0;
+    for (const side of [1, -1]) {
+      for (let i = 0; i < N; i++) {
+        if (inTun(i) || inTun(i + 1) || pitSideAt(i, side) || pitSideAt((i + 1) % N, side)) continue;
+        const d0 = this.barDf(side, i) + side * 0.6, d1 = this.barDf(side, i + 1) + side * 0.6;
+        const a = this.P(i, d0, 0), b = this.P(i + 1, d1, 0);
+        if (onExit(a[0], a[2], 2) || onExit(b[0], b[2], 2)) continue;   // a wall hidden inside a building costs nothing; a missing one shows the bank
+        const L = Math.hypot(b[0] - a[0], b[2] - a[2]); if (L > 8) continue;
+        // ground just behind: highest of the terrain a few metres back (the slope the wall has to hide), lowest close by
+        const back = (k, dd) => { const p = this.P(k, this.barDf(side, k) + side * dd, 0); return this.heightAt(p[0], p[2]); };
+        // another stretch of the lap just behind and above (the road one level up): the wall reaches its surface
+        const above = (k) => { let top = -1e9; const p = this.P(k, this.barDf(side, k) + side * 9, 0), cx = Math.floor(p[0] / T.cell), cz = Math.floor(p[2] / T.cell);
+          for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (const m of T.hash.get((cx + a) + ',' + (cz + b)) || []) { let dk = Math.abs(m - k); dk = Math.min(dk, N - dk); if (dk * T.ds < 40) continue;
+            if ((T.x[m] - p[0]) ** 2 + (T.z[m] - p[2]) ** 2 < (Math.max(T.barL[m], T.barR[m]) + 9) ** 2 && T.e[m] > top) top = T.e[m]; }
+          return top; };
+        const nat = (k, dd) => { const p = this.P(k, this.barDf(side, k) + side * dd, 0); return this.mGround.h(p[0], p[2]); };   // measured ground
+        const hiOf = (k) => Math.max(back(k, 9), back(k, 13), nat(k, 7), nat(k, 11), above(k)), hiA = hiOf(i), hiB = hiOf(i + 1);
+        const loA = Math.min(back(i, 2), back(i, 5)), loB = Math.min(back(i + 1, 2), back(i + 1, 5));
+        const eA = a[1], eB = b[1];
+        if (hiA > eA + 1.2 || hiB > eB + 1.2) {   // retaining wall up to the ground behind (capped: a road above is there too)
+          const tA = Math.min(Math.max(hiA, eA + 1.2), eA + 24) + 0.4, tB = Math.min(Math.max(hiB, eB + 1.2), eB + 24) + 0.4;
+          wallB.quad([a[0], eA - 1.8, a[2]], [b[0], eB - 1.8, b[2]], [b[0], tB, b[2]], [a[0], tA, a[2]], white, [[0, (eA - 1.8) / 3], [L / 3, (eB - 1.8) / 3], [L / 3, tB / 3], [0, tA / 3]]);
+          const cA = this.P(i, d0 + side * 0.5, 0), cB = this.P(i + 1, d1 + side * 0.5, 0);   // coping on top
+          wallB.quad([a[0], tA, a[2]], [b[0], tB, b[2]], [cB[0], tB, cB[2]], [cA[0], tA, cA[2]], curbC, [[0, 0], [L / 3, 0], [L / 3, 0.15], [0, 0.15]]);
+          wallLen += L; continue;
+        }
+        if (loA < eA - 1.6 || loB < eB - 1.6) {   // the road stands on a wall: its face down to the ground below
+          wallB.quad([a[0], Math.min(loA, eA - 1.6) - 0.5, a[2]], [b[0], Math.min(loB, eB - 1.6) - 0.5, b[2]], [b[0], eB + 0.05, b[2]], [a[0], eA + 0.05, a[2]], white,
+            [[0, (loA - 0.5) / 3], [L / 3, (loB - 0.5) / 3], [L / 3, eB / 3], [0, eA / 3]]);
+          wallLen += L;
+        }
+        // pavement: from the barrier 2.8 m out at kerb height, with a kerb face down to the ground at its outer edge
+        const o0 = this.barDf(side, i) + side * 0.2, o1 = this.barDf(side, i + 1) + side * 0.2, w = side * 2.8;
+        if (back(i, 3) > eA + 0.1 || back(i + 1, 3) > eB + 0.1 || occ.has(okey(a[0], a[2]))) continue;
+        const p0 = this.P(i, o0, 0.12), p1 = this.P(i + 1, o1, 0.12), q0 = this.P(i, o0 + w, 0.12), q1 = this.P(i + 1, o1 + w, 0.12);
+        const uv = [[0, 0], [L / 2.4, 0], [L / 2.4, 1.17], [0, 1.17]];
+        paveB.quad(p0, p1, q1, q0, white, uv);
+        paveB.quad(q0, q1, [q1[0], q1[1] - 1.8, q1[2]], [q0[0], q0[1] - 1.8, q0[2]], curbC, [[0, 0], [L / 2.4, 0], [L / 2.4, 0.05], [0, 0.05]]);
+        paveLen += L;
+      }
+    }
+    this.monacoWalls = Math.round(wallLen); this.monacoPave = Math.round(paveLen);
+    // ---- the hairpin island (Grand Hotel): inside edge of the barrier around the apex
+    const hp = (this.D.corners || []).find(c => c.n === 6);
+    const plant = [];   // [x, y, z, kind 0 shrub / 1 palm]
+    if (hp) {
+      const i0 = this.idx(hp.s - 32), i1 = this.idx(hp.s + 32), ia = this.idx(hp.s), mid = (i0 + i1) / 2;
+      const cE = [(T.x[i0] + T.x[i1]) / 2, (T.z[i0] + T.z[i1]) / 2];
+      const side = Math.sign((cE[0] - T.x[ia]) * T.nx[ia] + (cE[1] - T.z[ia]) * T.nz[ia]) || -1;   // the island is on this side
+      const ring = []; for (let i = i0; i <= i1; i++) { const p = this.P(i, this.barDf(side, i) + side * 0.3, 0); ring.push(p); }
+      const cx = ring.reduce((a, p) => a + p[0], 0) / ring.length, cz = ring.reduce((a, p) => a + p[2], 0) / ring.length, ey = Math.max(...ring.map(p => p[1]));
+      const inset = (p, k) => [cx + (p[0] - cx) * k, p[1], cz + (p[2] - cz) * k];
+      const soil = col3('#5a4a36'), stone = col3('#d8d0c2');
+      for (let k = 0; k < ring.length - 1; k++) { const a = ring[k], b = ring[k + 1];   // brick ring round the planter
+        const a2 = inset(a, 0.72), b2 = inset(b, 0.72), y = ey + 0.14;
+        paveB.quad([a[0], y, a[2]], [b[0], y, b[2]], [b2[0], y, b2[2]], [a2[0], y, a2[2]], white, [[0, 0], [1, 0], [1, 0.4], [0, 0.4]]);
+        const t = ey + 0.75;   // planter wall and soil
+        wallB.quad([a2[0], y, a2[2]], [b2[0], y, b2[2]], [b2[0], t, b2[2]], [a2[0], t, a2[2]], stone, [[0, 0], [1, 0], [1, 0.25], [0, 0.25]]);
+        B.quad([a2[0], t - 0.05, a2[2]], [b2[0], t - 0.05, b2[2]], [cx, t - 0.05, cz], [cx, t - 0.05, cz], soil); }
+      { const a = ring[ring.length - 1], b = ring[0], a2 = inset(a, 0.72), b2 = inset(b, 0.72), t = ey + 0.75;   // close the planter across the open end
+        wallB.quad([a2[0], ey, a2[2]], [b2[0], ey, b2[2]], [b2[0], t, b2[2]], [a2[0], t, a2[2]], stone, [[0, 0], [1, 0], [1, 0.25], [0, 0.25]]);
+        B.quad([a2[0], t - 0.05, a2[2]], [b2[0], t - 0.05, b2[2]], [cx, t - 0.05, cz], [cx, t - 0.05, cz], soil); }
+      for (let k = 0; k < 26; k++) { const r = ring[Math.floor(hash2(k, 3) * ring.length)], f = 0.15 + 0.5 * hash2(k, 7), p = inset(r, f); plant.push([p[0], ey + 0.7, p[2], k % 9 === 0 ? 1 : 0]); }
+      addFP(cx, cz, 8); this.hairpinIsland = [cx, cz];
+    }
+    this.group.add(new THREE.Mesh(paveB.build(), new THREE.MeshLambertMaterial({ vertexColors: true, map: TEX.brick || (TEX.brick = this.brickTex()), side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 })));
+    { const wm = new THREE.Mesh(wallB.build(), new THREE.MeshLambertMaterial({ vertexColors: true, map: TEX.stoneWall || (TEX.stoneWall = this.stoneWallTex()), side: THREE.DoubleSide })); wm.receiveShadow = true; this.group.add(wm); }
+    // ---- broadleaf trees on the green ground of the town (gardens, the hillside), and the island shrubs: two instanced meshes
+    const trees = [], G = this.mGround.G, kind = this.mGround.kind, TS = 8;
+    for (let x = G.x0 + TS; x < G.x0 + G.nx * G.step - TS; x += TS) for (let z = G.z0 + TS; z < G.z0 + G.nz * G.step - TS; z += TS) {
+      const jx = x + (hash2(x * 0.7, z) - 0.5) * 5, jz = z + (hash2(z, x * 0.3) - 0.5) * 5;
+      const kd = kind(jx, jz); if (kd === 0 || occ.has(okey(jx, jz))) continue;
+      const y = this.heightAt(jx, jz); if (y > 160 || y < 1) continue;
+      const q = T.project(jx, jz, -1), gap = Math.abs(q.d) - (q.d > 0 ? q.bl : q.br); if (gap < 1.5 || gap > 260) continue;
+      const bank = gap < 30 && y > q.e + 2;
+      if (gap < 3 && !bank) continue;   // ground rising behind the barrier: always planted (it read as a bare sand bank)
+      if (!bank && hash2(jx, jz * 1.7) < 0.18) continue;
+      // paved ground: only the banks between two levels of the town near the circuit (terraced gardens, as round the hairpin)
+      if (kd === 1 && !bank) { const sl = Math.hypot(this.heightAt(jx + 4, jz) - this.heightAt(jx - 4, jz), this.heightAt(jx, jz + 4) - this.heightAt(jx, jz - 4)) / 8; if (sl < 0.16 || gap > 70) continue; }
+      trees.push([jx, y, jz, 0.8 + 0.6 * hash2(jz, jx), gap > 60]);
+    }
+    for (const [x, y, z, k] of plant) trees.push([x, y - 0.4, z, k ? 0.5 : 0.22 + 0.12 * hash2(x, z)]);
+    if (trees.length) {
+      const mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }), m4 = new THREE.Matrix4(), q4 = new THREE.Quaternion(), yA = new THREE.Vector3(0, 1, 0), cc = new THREE.Color();
+      const G1 = col3('#3f5a2c'), G2 = col3('#2c4321'), G3 = col3('#566d34');
+      for (const far of [false, true]) {   // near the circuit a rounder canopy (80 faces), further out 20 faces
+        const list = trees.filter(t => !!t[4] === far); if (!list.length) continue;
+        const can = colorize(new THREE.IcosahedronGeometry(1, far ? 0 : 1).scale(3.2, 2.6, 3.2).translate(0, 5.2, 0), '#ffffff'), tr = colorize(new THREE.CylinderGeometry(0.22, 0.32, 3.4, far ? 3 : 5, 1, true).translate(0, 1.7, 0), '#6b5a46');
+        const geo = mergeGeos([can, tr].map(g => { if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2)); return g; }));
+        const im = new THREE.InstancedMesh(geo, mat, list.length);
+        list.forEach(([x, y, z, sc], k) => { q4.setFromAxisAngle(yA, hash2(x, z) * 6.28); m4.compose(new THREE.Vector3(x, y - 0.2, z), q4, new THREE.Vector3(sc, sc * (0.85 + 0.3 * hash2(z, x)), sc)); im.setMatrixAt(k, m4);
+          cc.copy(G1).lerp(G2, hash2(x * 3, z)).lerp(G3, hash2(z * 3, x) * 0.5); im.setColorAt(k, cc); if (sc > 0.5) addFP(x, z, 3); });
+        im.castShadow = !far; this.group.add(im);
+      }
+      this.monacoTrees = trees;
+    }
+  }
+  stoneWallTex() {   // warm limestone blocks with darker joints (Monaco retaining walls), tinted by the vertex colour
+    return canvasTex(128, 128, (g, w, h) => { g.fillStyle = '#a99c86'; g.fillRect(0, 0, w, h);
+      for (let r = 0; r < 8; r++) { const off = (r % 2) * 16; for (let c = -1; c < 5; c++) { const v = 150 + Math.floor(hash2(r, c) * 40);
+        g.fillStyle = `rgb(${v + 12},${v + 2},${v - 14})`; g.fillRect(c * 32 + off + 1, r * 16 + 1, 30, 14); } }
+      for (let i = 0; i < 500; i++) { g.fillStyle = `rgba(60,50,40,${0.08 + hash2(i, 9) * 0.1})`; g.fillRect(hash2(i, 1) * w, hash2(i, 2) * h, 2, 2); } }, true);
+  }
+  brickTex() {   // red-brick pavement in a herringbone-ish running bond
+    return canvasTex(128, 128, (g, w, h) => { g.fillStyle = '#7e3e33'; g.fillRect(0, 0, w, h);
+      for (let r = 0; r < 16; r++) { const off = (r % 2) * 8; for (let c = -1; c < 9; c++) { const v = hash2(r, c);
+        g.fillStyle = `rgb(${158 + Math.floor(v * 30)},${78 + Math.floor(v * 18)},${62 + Math.floor(v * 12)})`; g.fillRect(c * 16 + off + 1, r * 8 + 1, 14, 6); } } }, true);
   }
   pavingTex() {   // light, neutral town ground (pavements, squares): fine speckle and joints, tinted by the vertex colours
     return canvasTex(128, 128, (g, w, h) => { g.fillStyle = '#e2e0dc'; g.fillRect(0, 0, w, h);

@@ -233,3 +233,22 @@
   - El piloto automático recorre la vía a unos 28 km/h, ya antes de este cambio.
   - Mónaco usa la misma rampa recta en su salida de boxes; si tiene el mismo fallo, basta con añadir `follow: true`.
 - Publicada el 31-oct-2026 como versión 82 del artefacto (id 1793466846-80b5). Solo cambió la página; los packs siguen como en v78.
+
+## v83 (31-oct-2026) — horquilla del Grand Hotel (T6) y bancos de tierra en Mónaco
+- Pedido de Juanse, con foto real de la T6: «se ven como bancos de arena ahí atravesados y en general la estética no está realista».
+- Causa: el terreno de Mónaco es una malla de 8 m. Pegado al muro bajaba al nivel de la calle y en la celda siguiente subía hasta el suelo medido, así que entre dos tramos a distinta altura (Mirabeau alto y bajo, que van casi pegados con 8 m de desnivel) quedaba un talud de pavimento claro que cruzaba la vista, justo delante del muro. Además los jardines eran césped abierto y la isla de la horquilla estaba vacía.
+- Arreglo (`world.js`, solo Mónaco):
+  - Terreno: el pasillo de cada calle (6 m detrás del muro) se talla hasta la calle más baja que lo toca, y el suelo que sube empieza 7 m detrás del muro.
+  - Muros de contención de piedra (`buildMonacoStreet`) a lo largo del muro. Donde el suelo de detrás sube, el muro llega hasta él o hasta la calle de arriba. Donde la calle va en alto, el muro baja hasta el suelo.
+  - Aceras de ladrillo rojo donde el suelo queda a nivel.
+  - Isla de la horquilla: anillo de ladrillo, jardinera de piedra y arbustos.
+  - 1,8 k árboles de copa redonda en jardines y taludes cerca de la pista, con dos niveles de detalle. Antes eran césped.
+- No cambió nada de la física ni de la pista.
+- Verificado:
+  - Capturas antes y después (aérea de la horquilla como la foto, Mirabeau bajo, entrada a la horquilla y salida de Mirabeau) en `monaco-v83/`, junto a la foto de referencia.
+  - `city`, `pits` y `tyres` en verde, sin errores de página.
+  - Coste (`perf.mjs monaco amg_gt3 race medio`): 3,02 M triángulos y 540 llamadas de dibujo (v80: 2,97 M y 516).
+- Límites que quedan:
+  - Los edificios siguen siendo cajas genéricas: no son los de la foto (torre rosada, Hotel Hermitage).
+  - No hay tribuna de andamios ni grúa.
+  - La isla es una jardinera aproximada, no la forma exacta.
