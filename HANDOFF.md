@@ -359,7 +359,7 @@
 - Causa 2 (árboles): los árboles de jardín de Mónaco (`buildMonacoStreet`) solo miraban la distancia a los muros de la pista principal. Junto a boxes la proyección global cae en la carretera del puerto (Tabac), así que ni `pitZone` los habría quitado: había copas sobre la vía de salida y sobre el techo de los garajes.
 - Arreglo 2: ningún árbol de jardín en `pitZone`, en la zona de boxes medida sobre las propias muestras de la banda (`inPitArea`) ni a menos de radio de copa + 1,5 m de la vía de salida.
 - Verificado: capturas antes/después en `monaco-v92/` (salida a ras, aérea de boxes, unión desde arriba y la salida de Spa). `city`, `pits` y `tyres` en verde; sin errores de página.
-- Publicada el 3-nov-2026 como versión 92 del artefacto. Solo cambió la página.
+- Publicada el 3-nov-2026 como versión 92 del artefacto (id 1793738218-0e33). Solo cambió la página.
 
 ## Web pública en GitHub Pages (3-nov-2026, sin cambios del juego)
 - Pedido de Juanse: que cualquiera pueda jugar (también en multijugador) con solo un enlace, sin cuenta de Claude. En el artefacto, la sala usa `window.claude.use('room')` y exige sesión de Claude.
