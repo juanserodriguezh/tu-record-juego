@@ -309,3 +309,9 @@
 - Navegador (Tocancipá Largo, GT3 blando, autopiloto 9, sin daños; temperatura máxima cada 20 s): antes 76 91 105 108 119 125 126 126 126 127 127 127 °C (el autopiloto se salió en la vuelta 2); después 74 90 100 99 107 110 108 112 112 111 108 112 °C y 3 vueltas completas. Capturas en `neumaticos-v86/`. Sin errores de página.
 - Herramienta nueva: `node tools/headless.js tyretemp [pistas] [coche] [nivel=9] [vueltas=4]` (`COMP=S,M` elige compuestos).
 - Publicada el 3-nov-2026 como versión 86 del artefacto (id 1793708140-a715). Solo cambió la página.
+
+## v87 (3-nov-2026) — Mónaco: sin árboles dentro del túnel
+- Pedido de Juanse (captura onboard): una copa verde atravesaba la pared del túnel.
+- Causa (`buildMonacoStreet`, árboles de jardín sobre suelo verde): el filtro solo exigía 1,5-3 m entre el tronco y el muro, pero la copa mide 3,2·escala de radio (hasta 4,5 m). Junto al túnel el suelo medido queda ~4,7 m por debajo de la calle (lado del puerto), así que la copa quedaba a la altura del coche y cruzaba la pared. Medidos 3 árboles así (s ≈ 1537, 1625, 1669).
+- Arreglo general, no uno por uno: si la copa llega por encima del muro, el árbol solo se planta cuando el fondo de la copa queda por encima del techo del túnel (8 m sobre la pista) o, fuera del túnel, a más de 3 m sobre la pista. Quita 13 de 1861 árboles: los 3 del túnel y 10 que colgaban sobre el asfalto a la altura del coche.
+- Verificado: sonda en el navegador (copas que cruzan el muro por debajo del techo): túnel 3 → 0. Capturas antes/después en `monaco-v87/` (desde dentro del túnel y en Rascasse; fuera del túnel no quedan huecos). `city` y `pits` en verde; sin errores de página.

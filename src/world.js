@@ -1302,7 +1302,7 @@ class World {
     this.group.add(new THREE.Mesh(paveB.build(), new THREE.MeshLambertMaterial({ vertexColors: true, map: TEX.brick || (TEX.brick = this.brickTex()), side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 })));
     { const wm = new THREE.Mesh(wallB.build(), new THREE.MeshLambertMaterial({ vertexColors: true, map: TEX.stoneWall || (TEX.stoneWall = this.stoneWallTex()), side: THREE.DoubleSide })); wm.receiveShadow = true; this.group.add(wm); }
     // ---- broadleaf trees on the green ground of the town (gardens, the hillside), and the island shrubs: two instanced meshes
-    const trees = [], G = this.mGround.G, kind = this.mGround.kind, TS = 8;
+    const trees = [], G = this.mGround.G, kind = this.mGround.kind, TS = 8, [tunA, tunB] = this.tunnel || [-1e9, -1e9];
     for (let x = G.x0 + TS; x < G.x0 + G.nx * G.step - TS; x += TS) for (let z = G.z0 + TS; z < G.z0 + G.nz * G.step - TS; z += TS) {
       const jx = x + (hash2(x * 0.7, z) - 0.5) * 5, jz = z + (hash2(z, x * 0.3) - 0.5) * 5;
       const kd = kind(jx, jz); if (kd === 0 || occ.has(okey(jx, jz))) continue;
@@ -1313,7 +1313,13 @@ class World {
       if (!bank && hash2(jx, jz * 1.7) < 0.18) continue;
       // paved ground: only the banks between two levels of the town near the circuit (terraced gardens, as round the hairpin)
       if (kd === 1 && !bank) { const sl = Math.hypot(this.heightAt(jx + 4, jz) - this.heightAt(jx - 4, jz), this.heightAt(jx, jz + 4) - this.heightAt(jx, jz - 4)) / 8; if (sl < 0.16 || gap > 70) continue; }
-      trees.push([jx, y, jz, 0.8 + 0.6 * hash2(jz, jx), gap > 60]);
+      const sc = 0.8 + 0.6 * hash2(jz, jx);
+      // v87: the canopy (radius 3.2·sc, from 2.4·sc over the foot) must not reach over the barrier into the road space: inside the
+      // tunnel (walls on the barrier lines, roof at 6.6 m) a tree on the ground below the road showed through the wall; in the open
+      // a canopy lower than 3 m hung over the asphalt at car height
+      if (gap < 3.2 * sc + 0.5) { const inT = q.s > tunA - 12 && q.s < tunB + 12, bot = y - 0.2 + 2.6 * sc - q.e;
+        if (bot < (inT ? 8 : 3)) continue; }
+      trees.push([jx, y, jz, sc, gap > 60]);
     }
     for (const [x, y, z, k] of plant) trees.push([x, y - 0.4, z, k ? 0.5 : 0.22 + 0.12 * hash2(x, z)]);
     if (trees.length) {
