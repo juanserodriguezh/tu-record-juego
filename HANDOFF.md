@@ -339,3 +339,4 @@
   - La huella del hotel se marca en `occ`, así que ningún bloque de relleno, tribuna ni árbol de jardín cae encima.
 - Verificado: capturas antes/después en `monaco-v90/` (entrada desde Portier, salida, aérea desde el mar e interior del túnel sin cambios). `city` y `pits` en verde, sin errores de página.
 - Límite: es un volumen genérico con la forma y escala del hotel, no un modelo del edificio real (no hay rótulo ni detalles de la fachada real).
+- Publicada el 3-nov-2026 como versión 90 del artefacto (id 1793718612-8543). Solo cambió la página.
