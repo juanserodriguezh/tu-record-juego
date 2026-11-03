@@ -115,7 +115,7 @@ El juego público es el artefacto de Claude **https://claude.ai/artifact/Y3YH8j5
 
 **Regla de versiones:** cada versión publicada sube el número (v67, v68…). Se anota en `HANDOFF.md` (versión, fecha, qué cambió y cómo se verificó) y se hace commit con ese número en el mensaje. Cada cambio verificado se fusiona a `main` y se publica sin pedir permiso (decisión de Juanse, 26-oct-2026); si el cambio va por PR, el PR se fusiona antes de publicar.
 
-Alternativa: alojar `dist/` en cualquier hosting estático (GitHub Pages, Netlify, Vercel), sirviendo `.wasm` como `application/wasm`.
+**Web pública (GitHub Pages, 3-nov-2026): https://juanserodriguezh.github.io/tu-record-juego/**. Se publica sola en cada push a `main` (`.github/workflows/pages.yml`: `node build.js`, `dist/spa.html` → `index.html` + `models/`). No hace falta cuenta de Claude: el multijugador usa PeerJS (señalización pública de PeerJS + STUN). En el artefacto de Claude, en cambio, usa la sala de Claude y cada jugador necesita sesión iniciada. El repo es público desde ese día (decisión de Juanse) porque Pages gratis lo exige. Se siguen publicando las dos cosas: el artefacto a mano y Pages automático al fusionar.
 
 ## Fuentes originales (no están en el repo)
 Los 28 archivos originales (zips de coches de Sketchfab/vecarz, circuitos de Assetto Corsa, el F40 y Tocancipá en `.rar`; 2,1 GB, verificados por sha256) **no están en el repo**: viven en el Mac de Juanse, en `~/Documents/juego-carreras/fuentes/` (`fuentes/` está en `.gitignore`). En `assets/` solo están los GLB ya optimizados.

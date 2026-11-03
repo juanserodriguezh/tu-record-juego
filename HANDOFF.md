@@ -351,3 +351,10 @@
 - Verificado: `node tools/net_test.mjs p2p` (servidor PeerJS local, 3 navegadores: 33 comprobaciones en verde: errores, unirse escribiendo, perfil, sala llena, listo, ajustes, carrera con nombres en la tabla y sobre el coche, entrar con la carrera empezada, anfitrión que se va en carrera y en la sala) y `room` (lo mismo con la sala de Claude emulada). Capturas `shots/net_*`.
 - Límites: estrella sin migración de anfitrión (si se va en carrera con PeerJS, los invitados dejan de verse entre sí); sin servidor autoritativo; en la sala de Claude el límite de 8 lo comprueba quien entra (dos entradas simultáneas podrían pasar de 8). En el contenedor de pruebas el navegador va a ~2 FPS, así que el envío real a 20 Hz solo se midió en el laboratorio.
 - Publicada el 3-nov-2026 como versión 91 del artefacto (id 1793729200-95f4). Solo cambió la página.
+
+## Web pública en GitHub Pages (3-nov-2026, sin cambios del juego)
+- Pedido de Juanse: que cualquiera pueda jugar (también en multijugador) con solo un enlace, sin cuenta de Claude. En el artefacto, la sala usa `window.claude.use('room')` y exige sesión de Claude.
+- `.github/workflows/pages.yml`: en cada push a `main` (o a mano, workflow_dispatch) corre `node build.js` (sin dependencias; los GLB ya están en git) y publica `dist/spa.html` como `index.html` más `models/pack*.wasm` (58 MB; ningún archivo pasa de 8 MB). URL: https://juanserodriguezh.github.io/tu-record-juego/
+- Fuera de Claude, `net.js` cae solo en PeerJS (cdnjs/jsDelivr + servidor público de PeerJS). Todas las rutas son relativas (packs, enlace de sala `…#CODIGO`), así que funciona bajo `/tu-record-juego/`.
+- Repo hecho público (decisión de Juanse; Pages gratis no sirve con repo privado). Antes se revisó: sin claves ni tokens en el historial, ningún blob > 20 MB, correos solo el de Juanse y el de Claude en los commits.
+- Verificado: `node tools/net_test.mjs p2p` (página compilada sin `window.claude`, servidor PeerJS local, 3 navegadores) en verde.
