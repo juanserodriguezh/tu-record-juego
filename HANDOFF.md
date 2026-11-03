@@ -308,3 +308,4 @@
 - Sin efecto en la IA (usa el modelo simple): `ailap` en Spa, Mónaco y Tocancipá da los mismos tiempos al milisegundo. `rewind` y `coach` en verde.
 - Navegador (Tocancipá Largo, GT3 blando, autopiloto 9, sin daños; temperatura máxima cada 20 s): antes 76 91 105 108 119 125 126 126 126 127 127 127 °C (el autopiloto se salió en la vuelta 2); después 74 90 100 99 107 110 108 112 112 111 108 112 °C y 3 vueltas completas. Capturas en `neumaticos-v86/`. Sin errores de página.
 - Herramienta nueva: `node tools/headless.js tyretemp [pistas] [coche] [nivel=9] [vueltas=4]` (`COMP=S,M` elige compuestos).
+- Publicada el 3-nov-2026 como versión 86 del artefacto (id 1793708140-a715). Solo cambió la página.
