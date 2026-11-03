@@ -1100,6 +1100,7 @@ class World {
       block(cs, rot, y0, y1, hw, hd, [cx, cz]); mark(cx, cz, hw, hd, rot, 3);
       addFP(cx, cz, Math.max(hw, hd) + 2); nB++;
     }
+    if (this.tunnel) this.buildFairmont(occ, okey, addFP);
     // ---- grandstands, planned here so the filler town keeps clear of them (built further down). v85: the model's stands come in
     // ~90 pieces (split where they touched the track); placed as they were they looked dropped in at random, some crossed the pit
     // lane and the garages. The pieces facing the same stretch are joined into one stand that follows the barrier: a walkway of at
@@ -1358,6 +1359,82 @@ class World {
       g.fillStyle = '#34404a'; g.fillRect(20, 14, 24, 34); g.fillStyle = '#5a6b78'; g.fillRect(22, 16, 20, 14); g.fillStyle = '#d8d2c6'; g.fillRect(18, 48, 28, 3);
       g.fillStyle = '#4f6d4a'; g.fillRect(11, 14, 8, 34); g.fillRect(45, 14, 8, 34); }, true);
   }
+  // v90: the hotel over the tunnel. Before, the tunnel was a bare grey box on the open hillside (Juanse: "no hay detalles en los
+  // alrededores del túnel"). The real hotel is built over the road and follows its bend: a long curved block from the entry portal
+  // for ~250 m, cream facades with continuous balconies, the sea front reaching down to the shore, upper floors set back. The rest
+  // of the tunnel, to the exit, carries a roof garden with a balustrade. Its footprint is marked so no filler block, tree or stand
+  // lands on it.
+  buildFairmont(occ, okey, addFP) {
+    const T = this.T, N = T.N, [sa, sb] = this.tunnel, H = 6.6, md = (i) => ((i % N) + N) % N;
+    const i0 = Math.floor(sa / T.ds), iH = Math.min(Math.ceil(sb / T.ds) - Math.round(40 / T.ds), i0 + Math.round(250 / T.ds)), i1 = Math.ceil(sb / T.ds);
+    const SEA = 16, LAND = 12, SET = 4;   // facade offsets beyond the barriers (sea side = left, +d), upper-floor setback
+    let eTop = -1e9; for (let i = i0; i <= iH; i++) eTop = Math.max(eTop, T.e[md(i)]);
+    const yTop = eTop + 31, ySet = yTop - 6.4;
+    const hB = new GeoBuilder(true), rB = new GeoBuilder(false), cream = col3('#efe7d6'), cream2 = col3('#e6dcc6'), roofC = col3('#9b968d'), podC = col3('#d9d0bd');
+    const dS = (i, k) => this.barDf(1, i) + SEA - k, dL = (i, k) => this.barDf(-1, i) - LAND + k;
+    const xz = (i, d) => { const p = this.P(i, d, 0); return [p[0], p[2]]; };
+    // a facade strip along the curve: d(i), from y0(i) to y1(i); u in 3.6 m bays from the arc length, v in 3.2 m floors
+    const strip = (dF, y0F, y1F, col, flip) => { let u = 0;
+      for (let i = i0; i < iH; i++) { const a = xz(i, dF(i)), b = xz(i + 1, dF(i + 1)), L = Math.hypot(b[0] - a[0], b[1] - a[1]), ya0 = y0F(i), yb0 = y0F(i + 1), ya1 = y1F(i), yb1 = y1F(i + 1);
+        const uv = [[u / 3.6, (ya0 - eTop) / 3.2], [(u + L) / 3.6, (yb0 - eTop) / 3.2], [(u + L) / 3.6, (yb1 - eTop) / 3.2], [u / 3.6, (ya1 - eTop) / 3.2]];
+        const q = [[a[0], ya0, a[1]], [b[0], yb0, b[1]], [b[0], yb1, b[1]], [a[0], ya1, a[1]]];
+        if (flip) hB.quad(q[1], q[0], q[3], q[2], col, [uv[1], uv[0], uv[3], uv[2]]); else hB.quad(q[0], q[1], q[2], q[3], col, uv); u += L; } };
+    const gnd = (i, d) => { const p = xz(i, d); return Math.min(this.heightAt(p[0], p[1]), T.e[md(i)]) - 1.5; };
+    // sea front: from the shore up to the setback, then the set-back upper floors; land side the same, from its own ground
+    strip(i => dS(i, 0), i => gnd(i, dS(i, 0)), () => ySet, cream);
+    strip(i => dS(i, SET), () => ySet, () => yTop, cream2);
+    strip(i => dL(i, 0), i => gnd(i, dL(i, 0)), () => ySet, cream, true);
+    strip(i => dL(i, SET), () => ySet, () => yTop, cream2, true);
+    // roofs: the terrace in front of the setback (both sides) and the main roof
+    for (let i = i0; i < iH; i++) {
+      const R = (d, y) => { const p = this.P(i, d, 0), q = this.P(i + 1, d, 0); return [[p[0], y, p[2]], [q[0], y, q[2]]]; };
+      const rq = (dA0, dA1, dB0, dB1, y) => { const a0 = this.P(i, dA0, 0), a1 = this.P(i + 1, dA1, 0), b1 = this.P(i + 1, dB1, 0), b0 = this.P(i, dB0, 0); rB.quad([a0[0], y, a0[2]], [a1[0], y, a1[2]], [b1[0], y, b1[2]], [b0[0], y, b0[2]], roofC); };
+      rq(dS(i, 0), dS(i + 1, 0), dS(i, SET), dS(i + 1, SET), ySet); rq(dL(i, SET), dL(i + 1, SET), dL(i, 0), dL(i + 1, 0), ySet);
+      rq(dS(i, SET), dS(i + 1, SET), dL(i, SET), dL(i + 1, SET), yTop);
+      if (i % Math.round(18 / T.ds) === 0) { const c = this.P(i, (dS(i, SET) + dL(i, SET)) / 2, 0); rB.box(c[0], yTop, c[2], 6, 2.4, 4, T.hd[md(i)], col3('#c9c3b8')); }   // plant rooms
+    }
+    // end walls: closed above and beside the tunnel mouth (the portal opening stays: barrier to barrier, road to roof)
+    for (const [i, flip] of [[i0, false], [iH, true]]) {
+      const e = T.e[md(i)], bl = this.barDf(1, i) + 0.15, br = this.barDf(-1, i) - 0.15, top = H + 1.2;
+      const wq = (d0, d1, y0, y1, col) => { const a = xz(i, d0), b = xz(i, d1), L = Math.abs(d1 - d0);
+        const q = [[a[0], y0, a[1]], [b[0], y0, b[1]], [b[0], y1, b[1]], [a[0], y1, a[1]]], uv = [[0, (y0 - eTop) / 3.2], [L / 3.6, (y0 - eTop) / 3.2], [L / 3.6, (y1 - eTop) / 3.2], [0, (y1 - eTop) / 3.2]];
+        if (flip) hB.quad(q[1], q[0], q[3], q[2], col, [uv[1], uv[0], uv[3], uv[2]]); else hB.quad(q[0], q[1], q[2], q[3], col, uv); };
+      wq(bl, dS(i, 0), Math.min(gnd(i, dS(i, 0)), e - 1.5), ySet, cream);
+      wq(dL(i, 0), br, Math.min(gnd(i, dL(i, 0)), e - 1.5), ySet, cream);
+      wq(br, bl, e + top, ySet, cream);
+      wq(dL(i, SET), dS(i, SET), ySet, yTop, cream2);
+      // the opening's reveal: a stone frame round the mouth
+      const fr = col3('#cfc5b2'); for (const d of [bl, br]) { const p = this.P(i, d, 0); rB.box(p[0], e - 0.4, p[2], 1.4, top + 0.4, 1.0, T.hd[md(i)], fr); }
+    }
+    // roof garden over the rest of the tunnel, to the exit: lawn, low hedges and a stone balustrade on both edges
+    const lawn = col3('#5f7a3c'), hedge = col3('#3e5a2a'), bal = col3('#d8d0bf');
+    for (let i = iH; i < i1; i++) {
+      const y = T.e[md(i)] + H + 1.22, a0 = this.P(i, this.barDf(1, i), 0), a1 = this.P(i + 1, this.barDf(1, i + 1), 0), b1 = this.P(i + 1, this.barDf(-1, i + 1), 0), b0 = this.P(i, this.barDf(-1, i), 0);
+      rB.quad([a0[0], y, a0[2]], [a1[0], y, a1[2]], [b1[0], y, b1[2]], [b0[0], y, b0[2]], lawn);
+      for (const side of [1, -1]) { const p = this.P(i, this.barDf(side, i) - side * 0.25, 0), q = this.P(i + 1, this.barDf(side, i + 1) - side * 0.25, 0), L = Math.hypot(q[0] - p[0], q[2] - p[2]) + 0.05;
+        rB.box((p[0] + q[0]) / 2, y, (p[2] + q[2]) / 2, 0.4, 1.0, L, T.hd[md(i)], bal);
+        if (i % 3 === 0) { const h = this.P(i, this.barDf(side, i) - side * 1.6, 0); rB.box(h[0], y, h[2], 1.4, 0.9, 2.4, T.hd[md(i)], hedge); } }
+    }
+    const hm = new THREE.Mesh(hB.build(), new THREE.MeshLambertMaterial({ vertexColors: true, map: TEX.hotel || (TEX.hotel = this.hotelTex()), side: THREE.DoubleSide }));
+    hm.castShadow = true; hm.receiveShadow = true; this.group.add(hm);
+    const rm = new THREE.Mesh(rB.build(), new THREE.MeshLambertMaterial({ vertexColors: true })); rm.castShadow = true; rm.receiveShadow = true; this.group.add(rm);
+    // footprint: no filler block, stand or garden tree on the hotel or the roof garden
+    for (let i = i0; i <= i1; i++) { const hotel = i <= iH, d0 = hotel ? dL(i, 0) - 2 : this.barDf(-1, i) - 2, d1 = hotel ? dS(i, 0) + 2 : this.barDf(1, i) + 2;
+      for (let d = d0; d <= d1; d += 2) { const p = xz(i, d); occ.add(okey(p[0], p[1])); }
+      if (hotel && i % 6 === 0) { const c = xz(i, (dS(i, 0) + dL(i, 0)) / 2); addFP(c[0], c[1], (SEA + LAND) / 2 + 6); } }
+    this.fairmont = { i0, iH, i1, yTop: yTop - eTop };
+  }
+  bannerTex() {   // the game's own board over the tunnel mouths (no real sponsor): navy, a red-white stripe, the name
+    return canvasTex(512, 128, (g, w, h) => { g.fillStyle = '#14233d'; g.fillRect(0, 0, w, h); g.fillStyle = '#d6202f'; g.fillRect(0, 0, w, 14); g.fillStyle = '#ffffff'; g.fillRect(0, 14, w, 5);
+      g.fillStyle = '#d6202f'; g.fillRect(0, h - 14, w, 14); g.fillStyle = '#ffffff'; g.font = 'bold 64px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText('ARMK RACING', w / 2, h / 2 + 4); });
+  }
+  hotelTex() {   // one bay x one floor of the hotel: a continuous balcony slab, glass railing, dark sliding windows, a thin pier
+    return canvasTex(64, 64, (g, w, h) => { g.fillStyle = '#ffffff'; g.fillRect(0, 0, w, h);
+      g.fillStyle = '#56697a'; g.fillRect(8, 10, 48, 36); g.fillStyle = '#8aa1b2'; g.fillRect(10, 12, 21, 14); g.fillRect(33, 12, 21, 14); g.fillStyle = '#ffffff'; g.fillRect(31, 10, 2, 36);
+      g.fillStyle = '#c4d3dc'; g.fillRect(0, 40, w, 10); g.fillStyle = '#f4f1ea'; g.fillRect(0, 50, w, 10); g.fillStyle = '#c9c1b1'; g.fillRect(0, 60, w, 4);
+      g.fillStyle = '#ebe5d8'; g.fillRect(0, 0, 4, 50); g.fillRect(60, 0, 4, 50); }, true);
+  }
   // tunnel under the Fairmont: side walls on the barrier lines, a roof that casts the sun's shadow, lamp strips, portals
   buildTunnel(B) {
     const T = this.T, N = T.N, [sa, sb] = this.tunnel, i0 = Math.floor(sa / T.ds), i1 = Math.ceil(sb / T.ds), H = 6.6;
@@ -1376,6 +1453,15 @@ class World {
     }
     // portals: a thick lintel across each end
     for (const i of [i0, i1]) { const p = this.P(i, 0, 0), w = (T.wl[i % N] + T.wr[i % N]) + 4; B.box(p[0], p[1] + H - 0.2, p[2], w + 3, 3.4, 1.6, T.hd[i % N], col3('#c9c1b0')); }
+    // v90: a banner on the outer face of each lintel (the real portals carry a sponsor board) and a row of lamps under it
+    { const ban = new GeoBuilder(true), wh = col3('#ffffff'), lp = new GeoBuilder(false), lc2 = col3('#fff1c8');
+      for (const [i, out] of [[i0, -1], [i1, 1]]) { const k = i % N, tx = Math.sin(T.hd[k]) * out * 0.83, tz = Math.cos(T.hd[k]) * out * 0.83;
+        const l = this.P(i, bd(1, i) - 0.3, 0), r = this.P(i, bd(-1, i) + 0.3, 0), y0 = l[1] + H - 1.6, y1 = l[1] + H + 1.0;
+        const a = [l[0] + tx, y0, l[2] + tz], b = [r[0] + tx, y0, r[2] + tz], c = [r[0] + tx, y1, r[2] + tz], d = [l[0] + tx, y1, l[2] + tz];
+        if (out > 0) ban.quad(a, b, c, d, wh, [[1, 0], [0, 0], [0, 1], [1, 1]]); else ban.quad(b, a, d, c, wh, [[1, 0], [0, 0], [0, 1], [1, 1]]);
+        for (let f = 0.1; f < 0.95; f += 0.16) { const x = l[0] + (r[0] - l[0]) * f + tx * 1.1, z = l[2] + (r[2] - l[2]) * f + tz * 1.1, y = y0 - 0.25; lp.box(x, y, z, 1.0, 0.18, 0.3, T.hd[k], lc2); } }
+      this.group.add(new THREE.Mesh(ban.build(), new THREE.MeshLambertMaterial({ map: TEX.tunBanner || (TEX.tunBanner = this.bannerTex()), side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1 })));
+      this.group.add(new THREE.Mesh(lp.build(), new THREE.MeshBasicMaterial({ vertexColors: true }))); }
     this.group.add(new THREE.Mesh(wall.build(), new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })));
     const rm = new THREE.Mesh(roof.build(), new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })); rm.castShadow = true; this.group.add(rm);
     this.group.add(new THREE.Mesh(lamp.build(), new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })));

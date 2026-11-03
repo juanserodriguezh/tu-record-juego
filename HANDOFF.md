@@ -329,3 +329,13 @@
 - Arreglo en `glb.js`: el `Glass` de Rexy sigue transparente por fuera y en cabina se oculta entero (`cabHide`, el mismo mecanismo que la lámina del AMG Red Bull). Se quita el atlas de cabina de la v88 (`GLB_GLASSMAP`), ya no hace falta. El limpiaparabrisas sigue: es del coche real.
 - Verificado: cabina en Mónaco con FOV normal y FOV 30 (zoom), sin la línea; vista exterior de frente igual que en la v88; sin errores de página.
 - Publicada el 3-nov-2026 como versión 89 del artefacto (id 1793716297-28f8). Solo cambió la página.
+
+## v90 (3-nov-2026) — Mónaco: hotel sobre el túnel y bocas con detalle
+- Pedido de Juanse (captura desde Portier): «no hay detalles en los alrededores del túnel». El túnel era una caja gris suelta en la ladera: techo plano, sin nada encima, bocas desnudas.
+- Arreglo (`buildFairmont` en `world.js`, llamado desde `buildMonaco` antes de las tribunas y el relleno):
+  - Hotel curvo encima del túnel, como el real: sigue la curva desde la boca de entrada unos 250 m (termina 40 m antes de la salida), 31 m sobre la pista, fachadas color crema con balcones corridos (`hotelTex`), la fachada del mar baja hasta la orilla, las dos últimas plantas retranqueadas 4 m con azotea y casetas. Fachadas de cierre en ambos extremos con la boca abierta y marco de piedra.
+  - Resto del túnel hasta la salida: azotea con césped, setos y balaustrada.
+  - Cada boca lleva una pancarta propia del juego («ARMK RACING», sin marcas reales) y una fila de luces bajo el dintel.
+  - La huella del hotel se marca en `occ`, así que ningún bloque de relleno, tribuna ni árbol de jardín cae encima.
+- Verificado: capturas antes/después en `monaco-v90/` (entrada desde Portier, salida, aérea desde el mar e interior del túnel sin cambios). `city` y `pits` en verde, sin errores de página.
+- Límite: es un volumen genérico con la forma y escala del hotel, no un modelo del edificio real (no hay rótulo ni detalles de la fachada real).
