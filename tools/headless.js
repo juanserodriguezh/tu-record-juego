@@ -247,3 +247,21 @@ if (cmd === 'rewind') {   // practice rewind: exact restore (replay = same lap),
     console.log(`line: ${rw} rewinds at the apex, ${retried} landed before the braking point, ${judgedRetry} of those retries judged · verdicts good ${cnt.good} late ${cnt.late} early ${cnt.early} ${ok ? 'OK' : 'FAIL'}`); }
   if (fail) { console.log(fail, 'rewind check(s) failed'); process.exit(1); }
 }
+if (cmd === 'reverse') {   // reverse and full lock at walking pace: the car must move and turn, never spin: node tools/headless.js reverse [cars]
+  const T = M.buildTrack('spa'), ids = process.argv[3] ? process.argv[3].split(',') : M.CARS.map(c => c.id); let fail = 0;
+  const mk = (sp) => { const V = new M.Vehicle(sp, T); V.collide = () => {}; V.surfaceAt = () => 'asphalt'; V.reset(1800 * T.L / 7000, 0); V.u = 0; return V; };
+  for (const grip of [1, 0.6]) { const env = { grip, abs: true, tc: true, esc: true, autoShift: true, steerAssist: true, slipCap: true, noGrade: true };
+    for (const id of ids) { const sp = M.CARS.find(c => c.id === id); if (!sp) { console.log('?', id); continue; }
+      // a) hold brake to engage R, then full lock from standstill for 3 s
+      let V = mk(sp), t = 0; while (V.gear !== -1 && t < 3) { V.step(1 / 120, { throttle: 0, brake: 1, steer: 0 }, env); t += 1 / 120; }
+      const h0 = V.h, x0 = V.x, z0 = V.z; for (t = 0; t < 3; t += 1 / 120) V.step(1 / 120, { throttle: 0, brake: 1, steer: 1 }, env);
+      const turn = Math.abs(V.h - h0) * 180 / Math.PI, dist = Math.hypot(V.x - x0, V.z - z0);
+      // b) full reverse speed in a straight line, then full lock for 6 s: must keep going backwards (no spin)
+      const W = mk(sp); let maxU = -99; for (t = 0; t < 10; t += 1 / 120) { W.step(1 / 120, { throttle: 0, brake: 1, steer: t > 4 ? 1 : 0 }, env); if (t > 4) maxU = Math.max(maxU, W.u); }
+      // c) forward, 30 % throttle and full lock from standstill
+      const F = mk(sp); for (t = 0; t < 3; t += 1 / 120) F.step(1 / 120, { throttle: 0.3, brake: 0, steer: 1 }, env);
+      const ok = turn > 45 && dist > 4 && maxU < -1 && F.u > 1;
+      if (!ok) fail++;
+      console.log('grip', grip, id.padEnd(13), 'R full lock 3 s: turn', turn.toFixed(0).padStart(4), '° moved', dist.toFixed(1).padStart(5), 'm  · late lock at', (-W.u * 3.6).toFixed(0), 'km/h, worst u', (maxU * 3.6).toFixed(1), ' · fwd lock', (F.u * 3.6).toFixed(1), 'km/h', ok ? 'OK' : 'FAIL'); } }
+  if (fail) { console.log(fail, 'reverse check(s) failed'); process.exit(1); }
+}

@@ -653,6 +653,9 @@ class Vehicle {
       if (target > 0) target = Math.min(target, Math.max(thF, 0) + Math.max(ms - apk * 1.05, 0) + apk * 1.35);
       else if (target < 0) target = Math.max(target, Math.min(thF, 0) - Math.max(ms - apk * 1.05, 0) - apk * 1.35);
     }
+    // reverse: the steered axle trails, so lock is limited to a turn the tyres hold easily (else the tail swaps ends)
+    this.revLock = Math.abs(target); // lock asked for (reverse speed follows it, so a full-lock reverse stays a tight circle)
+    if (this.gear === -1 && u < -1) { const lim = Math.atan(P.wb * 0.5 * P.mu * env.grip * G / (u * u)); target = clamp(target, -lim, lim); }
     const rate = (P.race ? 3.2 : 3.2) / (env.slipCap ? 1 + au / 60 : 1); // rad/s at the wheels (player: slower hands at speed)
     this.delta += clamp(target - this.delta, -rate * dt, rate * dt);
     // a bent front corner pulls the car to its side (toe change), more under braking
@@ -743,7 +746,10 @@ class Vehicle {
       if (u < -0.5) Fdrive = Math.max(Fdrive, 0);
     } else {
       this.rpm = lerp(this.rpm, (0.15 + 0.5 * throttle) * P.red, clamp(dt * 10, 0, 1));
-      Fdrive = u > -9 ? -throttle * P.m * 3.2 : 0;
+      // reverse: up to 32 km/h straight; with lock on, only as fast as a gentle turn allows (the steered axle trails
+      // backwards, so a fast reverse at full lock would just spin the car)
+      const curv = Math.tan(Math.min(this.revLock || 0, Math.abs(this.delta) + 0.05, 1.2)) / P.wb, vRev = Math.min(9, Math.sqrt(0.5 * P.mu * env.grip * G / Math.max(curv, 1e-3)));
+      Fdrive = u > -vRev ? -throttle * P.m * 3.2 : 0;
     }
     const brakeMax = 1.3 * P.mu * env.grip * (P.m * G + DF) * (fxd ? fxd.brk : 1);
     let Bdem = brake * brakeMax;
@@ -841,7 +847,7 @@ class Vehicle {
     const kb = clamp((spd2 - 1.2) / 2.5, 0, 1);
     if (kb < 1) {
       const rk = u * Math.tan(delta) / P.wb;
-      r = lerp(rk, r, kb); v = lerp(0, v, kb);
+      r = lerp(rk, r, kb); v = lerp(P.b * rk, v, kb); // rolling without slip: the rear axle has no sideways speed (v - b·r = 0), so steering at walking pace (reverse, pit box) does not scrub
     }
     if (this.sausT > 0) { // the kerb kicks the car away from it and scrubs speed
       if (this.sausKick) { r += this.sausKick * 0.24 * Math.min(1, Math.abs(u) / 15); v += this.sausKick * 0.6; this.sausKick = 0; }
