@@ -36,6 +36,14 @@ async function loadGlbs(progress) {
         const MM = new THREE.MeshStandardMaterial({ color: 0x0c1015, metalness: 0.85, roughness: 0.1, envMapIntensity: 0.5 });
         gltf.scene.traverse(o => { if (o.isMesh && /mirror/i.test(o.name)) o.material = MM; });
       }
+      // Porsche "Rexy": the windows live in the 'Glass' atlas with their transparency in the texture alpha, but the GLB marks it OPAQUE,
+      // so from the cockpit the lower windscreen drew as a dark slab over the bonnet. Blend it; the cockpit gets a copy of the atlas whose
+      // translucent texels are a light tint (swapped in setInterior), decals and trim (opaque texels) stay as they are.
+      if (id === 'rexy') gltf.scene.traverse(o => { if (!o.isMesh || !o.material || o.material.name !== 'Glass' || !o.material.map) return;
+        const m = o.material; m.transparent = true; m.userData.glassMap = m.map.uuid; if (!GLB_GLASSMAP.has(m.map.uuid)) GLB_GLASSMAP.set(m.map.uuid, [m.map, glassInMap(m.map)]); });
+      // Red Bull AMG: the windscreen sticker sheet lost its texture -> an untextured near-black sheet (alpha 0.56 > mask cutoff 0.4) that
+      // covered the windscreen from the inside. Hidden in the cockpit view only (applyGlb collects it, setInterior toggles it).
+      if (id === 'gt3rb') gltf.scene.traverse(o => { if (o.isMesh && o.material && o.material.name === 'MI_Vehicle_Windows_Stickers' && !o.material.map) o.material.userData.cabHide = 1; });
       // tinted glass: darker / less mirror-like so windows read as glass and not as flat grey holes; clearer from the cockpit (setInterior)
       gltf.scene.traverse(o => { if (!o.isMesh) return; for (const m of (Array.isArray(o.material) ? o.material : [o.material])) {
         if (m && m.transparent && m.color && m.color.r + m.color.g + m.color.b < 0.35 && m.opacity < 0.75 && !m.userData.isGlass) { m.userData.isGlass = 1; m.userData.hiOp = Math.max(m.opacity, 0.72); m.opacity = m.userData.hiOp; m.envMapIntensity = 0.45; m.roughness = Math.max(m.roughness, 0.15); m.metalness = 0; m.depthWrite = false; m.needsUpdate = true; } } });
@@ -47,6 +55,14 @@ async function loadGlbs(progress) {
     } catch (e) { console.warn('GLB failed', id, e); }
     i++;
   }
+}
+// windows atlas -> [outside map, cockpit map]; userData only carries the uuid (Material.copy JSON-clones userData)
+const GLB_GLASSMAP = new Map();
+function glassInMap(tex) {
+  const im = tex.image, w = im.width, h = im.height, cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  const cx = cv.getContext('2d', { willReadFrequently: true }); cx.drawImage(im, 0, 0); const d = cx.getImageData(0, 0, w, h), a = d.data;
+  for (let i = 3; i < a.length; i += 4) if (a[i] < 230) a[i] = Math.round(a[i] * 0.15);
+  cx.putImageData(d, 0, 0); const t = tex.clone(); t.image = cv; t.needsUpdate = true; return t;
 }
 // Scanned cars come as hundreds of tiny meshes: with 20+ of them on the grid that is thousands of draw calls (lag). Everything that never
 // moves relative to the body (not the wheel hubs) is welded into one mesh per material / cockpit-tag.
@@ -160,6 +176,7 @@ function applyGlb(out, spec) {
     if (out.cams && out.cams.onboard && spec.cdzCam !== false) { out.cams.onboard.z += cdz; out.cams.onboard.x += cdx; if (spec.cdyCam) out.cams.onboard.y += cdy; }
     out.cdz = cdz; out.cdx = cdx; out.cdy = cdy;
   }
+  out.glbCabHide = []; g.traverse(o => { if (o.isMesh && o.material && o.material.userData && o.material.userData.cabHide) out.glbCabHide.push(o); });
   out.glbDims = { fz: fz + dz, rz: rz + dz };
   if (spec.noCluster && out.interior && out.dash) out.interior.traverse(o => { if (o.isMesh && o.material && o.material.map === out.dash.tex) o.visible = false; });
   if (spec.onb && out.cams) { out.cams.onboard.set(spec.onb[0], spec.onb[1], spec.onb[2]); if (spec.onb[3] != null) out.cams.onPitch = spec.onb[3]; }

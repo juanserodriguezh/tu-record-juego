@@ -316,3 +316,9 @@
 - Arreglo general, no uno por uno: si la copa llega por encima del muro, el árbol solo se planta cuando el fondo de la copa queda por encima del techo del túnel (8 m sobre la pista) o, fuera del túnel, a más de 3 m sobre la pista. Quita 13 de 1861 árboles: los 3 del túnel y 10 que colgaban sobre el asfalto a la altura del coche.
 - Verificado: sonda en el navegador (copas que cruzan el muro por debajo del techo): túnel 3 → 0. Capturas antes/después en `monaco-v87/` (desde dentro del túnel y en Rascasse; fuera del túnel no quedan huecos). `city` y `pits` en verde; sin errores de página.
 - Publicada el 3-nov-2026 como versión 87 del artefacto (id 1793715021-a874). Solo cambió la página.
+
+## v88 (3-nov-2026) — vista de cabina despejada en los GT3
+- Causa (Porsche 911 GT3 R «Rexy», la captura de Juanse): el material `Glass` del modelo lleva la transparencia de las ventanas en el alfa de la textura, pero el GLB lo marca como opaco. El recorte de la cabina quitaba la parte alta del parabrisas y la baja quedaba como una losa oscura encima del capó, tapando la pista.
+- Segunda causa (AMG GT3 Red Bull): la lámina de pegatinas del parabrisas (`MI_Vehicle_Windows_Stickers`) perdió su textura en el asset; sin ella es una hoja casi negra (alfa 0,56 > corte 0,4) que tapaba media vista de la carretera.
+- Arreglo en `glb.js` al cargar: el `Glass` de Rexy pasa a transparente y, en cabina, usa una copia del atlas con los texeles translúcidos al 15 % (`GLB_GLASSMAP`/`glassInMap`; `setInterior` cambia el mapa solo en los materiales clonados del jugador). La lámina sin textura del Red Bull se oculta solo en la vista de cabina (`glbCabHide`).
+- Revisados en cabina en Mónaco los 5 GT (AMG GT3, GT3 Evo, GT3 Red Bull, 992 GT3 R, Rexy): solo esos dos tenían el fallo. Capturas antes y después de los dos y vista exterior de frente (Rexy ahora deja ver el interior por el parabrisas; el Red Bull no cambia por fuera). Sin errores de página.
