@@ -1741,7 +1741,7 @@ function setInterior(on, tcam) {
   if (model.cockAero) model.cockAero.visible = on;
   if (model.glbInt) for (const h of model.glbInt) h.visible = !model.interior.visible;
   // window glass: almost clear from the cockpit (own cloned materials only), tinted from outside
-  if (model.cabClip && model.glb && model._glassOn !== on) { model._glassOn = on; model.glb.traverse(o => { if (!o.isMesh) return; for (const m of (Array.isArray(o.material) ? o.material : [o.material])) { const gm = m.userData && m.userData.glassMap && GLB_GLASSMAP.get(m.userData.glassMap); if (gm) m.map = gm[on ? 1 : 0]; } for (const m of (Array.isArray(o.material) ? o.material : [o.material])) if (m.userData && m.userData.isGlass) { const inC = on && !['f1', 'f1h', 'indy', 'fe'].includes(model.spec.body); m.opacity = inC ? 0.045 : m.userData.hiOp; m.envMapIntensity = inC ? 0.12 : 0.45; } }); }
+  if (model.cabClip && model.glb && model._glassOn !== on) { model._glassOn = on; model.glb.traverse(o => { if (!o.isMesh) return; for (const m of (Array.isArray(o.material) ? o.material : [o.material])) if (m.userData && m.userData.isGlass) { const inC = on && !['f1', 'f1h', 'indy', 'fe'].includes(model.spec.body); m.opacity = inC ? 0.045 : m.userData.hiOp; m.envMapIntensity = inC ? 0.12 : 0.45; } }); }
   // the scanned cars carry their own steering column / dash in an INTERIOR node: hide it in the cockpit (the procedural wheel replaces it)
   if (model.glb && ['f1', 'f1h', 'indy', 'fe'].includes(model.spec.body)) model.glb.traverse(o => { if (o.isMesh && /INTERIOR/i.test(o.name)) o.visible = !on; });
 }

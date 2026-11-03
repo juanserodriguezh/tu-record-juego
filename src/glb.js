@@ -37,10 +37,9 @@ async function loadGlbs(progress) {
         gltf.scene.traverse(o => { if (o.isMesh && /mirror/i.test(o.name)) o.material = MM; });
       }
       // Porsche "Rexy": the windows live in the 'Glass' atlas with their transparency in the texture alpha, but the GLB marks it OPAQUE,
-      // so from the cockpit the lower windscreen drew as a dark slab over the bonnet. Blend it; the cockpit gets a copy of the atlas whose
-      // translucent texels are a light tint (swapped in setInterior), decals and trim (opaque texels) stay as they are.
-      if (id === 'rexy') gltf.scene.traverse(o => { if (!o.isMesh || !o.material || o.material.name !== 'Glass' || !o.material.map) return;
-        const m = o.material; m.transparent = true; m.userData.glassMap = m.map.uuid; if (!GLB_GLASSMAP.has(m.map.uuid)) GLB_GLASSMAP.set(m.map.uuid, [m.map, glassInMap(m.map)]); });
+      // so from the cockpit the lower windscreen drew as a dark slab over the bonnet. Blend it (outside view). In the cockpit the whole
+      // 'Glass' mesh is hidden: the clip box slices the thick windscreen and its cut edge drew a dark line across the view.
+      if (id === 'rexy') gltf.scene.traverse(o => { if (!o.isMesh || !o.material || o.material.name !== 'Glass') return; o.material.transparent = true; o.material.userData.cabHide = 1; });
       // Red Bull AMG: the windscreen sticker sheet lost its texture -> an untextured near-black sheet (alpha 0.56 > mask cutoff 0.4) that
       // covered the windscreen from the inside. Hidden in the cockpit view only (applyGlb collects it, setInterior toggles it).
       if (id === 'gt3rb') gltf.scene.traverse(o => { if (o.isMesh && o.material && o.material.name === 'MI_Vehicle_Windows_Stickers' && !o.material.map) o.material.userData.cabHide = 1; });
@@ -55,14 +54,6 @@ async function loadGlbs(progress) {
     } catch (e) { console.warn('GLB failed', id, e); }
     i++;
   }
-}
-// windows atlas -> [outside map, cockpit map]; userData only carries the uuid (Material.copy JSON-clones userData)
-const GLB_GLASSMAP = new Map();
-function glassInMap(tex) {
-  const im = tex.image, w = im.width, h = im.height, cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-  const cx = cv.getContext('2d', { willReadFrequently: true }); cx.drawImage(im, 0, 0); const d = cx.getImageData(0, 0, w, h), a = d.data;
-  for (let i = 3; i < a.length; i += 4) if (a[i] < 230) a[i] = Math.round(a[i] * 0.15);
-  cx.putImageData(d, 0, 0); const t = tex.clone(); t.image = cv; t.needsUpdate = true; return t;
 }
 // Scanned cars come as hundreds of tiny meshes: with 20+ of them on the grid that is thousands of draw calls (lag). Everything that never
 // moves relative to the body (not the wheel hubs) is welded into one mesh per material / cockpit-tag.

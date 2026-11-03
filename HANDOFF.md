@@ -323,3 +323,8 @@
 - Arreglo en `glb.js` al cargar: el `Glass` de Rexy pasa a transparente y, en cabina, usa una copia del atlas con los texeles translúcidos al 15 % (`GLB_GLASSMAP`/`glassInMap`; `setInterior` cambia el mapa solo en los materiales clonados del jugador). La lámina sin textura del Red Bull se oculta solo en la vista de cabina (`glbCabHide`).
 - Revisados en cabina en Mónaco los 5 GT (AMG GT3, GT3 Evo, GT3 Red Bull, 992 GT3 R, Rexy): solo esos dos tenían el fallo. Capturas antes y después de los dos y vista exterior de frente (Rexy ahora deja ver el interior por el parabrisas; el Red Bull no cambia por fuera). Sin errores de página.
 - Publicada el 3-nov-2026 como versión 88 del artefacto (id 1793715479-c68a). Solo cambió la página.
+
+## v89 (3-nov-2026) — Rexy: sin la línea del marco del parabrisas en cabina
+- Causa: tras la v88 quedaba una línea oscura curva cruzando la vista (captura de Juanse). Era el canto del parabrisas del modelo (cristal con grosor) justo donde lo corta la caja de recorte de la cabina; ocultando la malla `Glass` desaparece.
+- Arreglo en `glb.js`: el `Glass` de Rexy sigue transparente por fuera y en cabina se oculta entero (`cabHide`, el mismo mecanismo que la lámina del AMG Red Bull). Se quita el atlas de cabina de la v88 (`GLB_GLASSMAP`), ya no hace falta. El limpiaparabrisas sigue: es del coche real.
+- Verificado: cabina en Mónaco con FOV normal y FOV 30 (zoom), sin la línea; vista exterior de frente igual que en la v88; sin errores de página.
