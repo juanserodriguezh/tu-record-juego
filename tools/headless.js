@@ -59,6 +59,23 @@ if (cmd === 'tyrelife') {   // laps until a compound reaches 80 % wear, measured
     out[tid] = row; console.log(tid.padEnd(14), id, 'diff', diff, ' laps to 80 %:', JSON.stringify(row)); }
   if (process.env.JSON) console.log(JSON.stringify(out));
 }
+if (cmd === 'tyretemp') {   // tyre temperature with an AI driver at pace, dry: time to the window, mean / peak per lap, time overheated: node tools/headless.js tyretemp [tracks] [car] [diff=9] [laps=4]
+  const tids = process.argv[3] ? process.argv[3].split(',') : Object.keys(M.TRACK_DEFS), id = process.argv[4] || 'amg_gt3', diff = +(process.argv[5] || 9), nl = +(process.argv[6] || 4);
+  const sp = M.CARS.find(c => c.id === id); M.DMG.scale = 0;
+  for (const tid of tids) { const D = M.TRACK_DEFS[tid], T = M.buildTrack(D), offs = (M.LINE_OFFS[D.id] || '').split(',').map(v => +v / 100);
+    const LINE = M.lineFromOffsets(T, Float64Array.from(offs.length === T.N ? offs : new Array(T.N).fill(0))); M.wxInit(T, LINE, D);
+    for (const c of (process.env.COMP || 'S,M,H').split(',')) { const t0 = M.TYRES[c];
+      const V = new M.Vehicle(sp, T); V.reset(T.L - 150 * T.L / D.nom, 0); V.u = 0; V.ty = M.newTyres(c, true);
+      const ai = new M.AIDriver(V, T, LINE, { diff, react: 0 }); ai.setEnv({ grip: 1, wet: 0, water: 0, dryLine: 0 }, id); ai.startRolling();
+      const self = { id: 'me' }, dt = 1 / 120; let t = 0, n = -1, ps = V.q.s, tWin = 0, lt = 0, acc = 0, pk = 0, over = 0; const laps = [];
+      while (n < nl && t < 1200) { const inp = ai.drive(dt, [self], self, { hold: false }); V.step(dt, inp, ai.env); t += dt;
+        if (ai.needReset) { V.reset(V.q.s, 0, true); ai.stuckT = 0; ai.wrongT = 0; ai.needReset = false; ai.startRolling(); }
+        const Tm = Math.max(V.ty.tF, V.ty.tR); if (!tWin && Tm >= t0.topt - 10) tWin = t;
+        acc += Tm * dt; lt += dt; pk = Math.max(pk, Tm); if (Tm > t0.topt + t0.win * 0.9) over += dt;
+        if (ps > T.L * 0.8 && V.q.s < T.L * 0.2) { if (n >= 0) laps.push(`${(acc / lt).toFixed(0)}/${pk.toFixed(0)}${over > 0.5 ? ' +' + Math.round(100 * over / lt) + '%' : ''}`); n++; acc = 0; lt = 0; pk = 0; over = 0; } ps = V.q.s; }
+      const wear = Math.max(V.ty.wF, V.ty.wR);
+      console.log(tid.padEnd(13), c, `opt ${t0.topt}±${t0.win}`, ` window ${tWin.toFixed(0)} s`, ' laps mean/peak (+% overheated):', laps.join('  '), ` wear ${(wear * 100).toFixed(0)} %`); } }
+}
 if (cmd === 'coach') {   // adaptive line: zones and how it judges three drivers (late / good / early): node tools/headless.js coach [track] [car] [laps=4]
   const tid = process.argv[3] || 'monza', id = process.argv[4] || 'amg_gt3', nl = +(process.argv[5] || 4);
   const D = M.TRACK_DEFS[tid], T = M.buildTrack(D), offs = (M.LINE_OFFS[D.id] || '').split(',').map(v => +v / 100);

@@ -371,6 +371,8 @@ const TYRES = {
 };
 const TYRE_ORDER = ['S', 'M', 'H', 'I', 'W'];
 const TYW = { scale: 1 }; // tyre wear/temperature intensity: 0 off, 1 normal, 2.5 accelerated
+// tyre heat (v86): heat gain, rolling share, cooling with the square of the excess, thermal rate (see tyreTick)
+const TYH = { heat: 0.9 * 1.39 * 1.35 * 2.0, roll: 0.15, sq: 0.0002, rate: 0.6 };
 // absolute grip of a compound for a water level (1 = dry soft)
 function tyreWetG(t, w) {
   if (t.kind === 'slick') return t.g * (1 - 0.62 * smoothstep(0.03, 0.55, w) - 0.12 * smoothstep(0.55, 1.0, w));
@@ -465,9 +467,16 @@ function tyreTick(v, dt, uF, uR, spd, wl, wr, env, T) {
   if (ty.sim) {
     for (let a = 0; a < 2; a++) {
       const u = a ? uR : uF, w = a ? wr : wl, Tp = a ? ty.tR : ty.tF;
-      const work = u * u * (0.3 + spd / 70);
+      const work = u * u * (0.3 + spd / 70);   // tyre work (wear reference)
+      // heat = sliding power: grows with the sliding speed, so a slow corner puts in far less than a fast one at the same
+      // grip use (small constant part: carcass flex). Before v86 the constant part was as big as a 90 km/h corner, so
+      // slow, twisty tracks (Tocancipá, Mónaco) ran 30-50 °C hotter than Spa and the soft ran away (hotter -> less grip ->
+      // more slide -> hotter). Cooling: air + track (linear, more with speed) and a term that grows with the square of the
+      // excess (hot rubber sheds heat faster), which stops the runaway. TYH.rate = thermal mass: same balance, slower swing.
+      const dT = Math.max(0, Tp - tenv);
+      const heat = t.hk * TYH.heat * u * u * (TYH.roll + spd / 70);
       const cool = 0.012 * (0.5 + spd / 70) + 0.03 * smoothstep(0.02, 0.4, w) * (t.kind === 'slick' ? 1 : 0.5);
-      let Tn = Tp + (t.hk * 0.9 * work * 1.39 * 1.35 - cool * (Tp - tenv)) * dt * k;
+      let Tn = Tp + (heat - cool * (Tp - tenv) - TYH.sq * dT * dT) * dt * k * TYH.rate;
       Tn = clamp(Tn, tenv - 4, 175);
       const dry = tyreDryness(t, w);
       Tn = Math.min(175, Tn + dry * (18 + 30 * Math.min(1, spd / 70)) * 0.05 * dt * k * (t.kind === 'wet' ? 1.3 : 1) * (Tn < t.topt + t.win * 2.2 ? 1 : 0));

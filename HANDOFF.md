@@ -287,3 +287,24 @@
   - Las tribunas son genéricas (gradas con techo plano); no copian la forma de cada tribuna real.
   - Mónaco es estrecho de verdad: los edificios están donde los pone el modelo medido y no se separaron de la pista.
 - Publicada el 31-oct-2026 como versión 85 del artefacto (id 1793474181-78ae). Solo cambió la página.
+
+## v86 (3-nov-2026) — los neumáticos ya no se recalientan en Tocancipá y Mónaco
+- Pedido de Juanse: en Tocancipá y Mónaco las llantas se calientan demasiado rápido.
+- Medida antes (`node tools/headless.js tyretemp`, nuevo: IA nivel 9 con el modelo de temperatura del jugador, media/pico por vuelta y % de tiempo recalentado). GT3, 6 vueltas, media de la última:
+  - Spa M 101 °C, Monza M 98 °C (ventana 100 ± 27): bien.
+  - Tocancipá Largo: M 139 °C (100 % del tiempo recalentado), S 150 °C, incluso el duro 124 °C. Mónaco: S 149 °C, M 118 °C. Albert Park S 148 °C.
+  - W17 y Chiron igual o peor (Chiron S 174 °C también en Spa).
+- Causas (`tyreTick` en `damage.js`):
+  1. El calor era `uso² · (0,3 + v/70)`: la parte constante 0,3 valía lo mismo que una curva a 90 km/h, así que una curva lenta metía casi tanto calor como una rápida. En la realidad el calor es la potencia de deslizamiento (fuerza × velocidad de deslizamiento), que crece con la velocidad: Mónaco es una pista de poca energía, que cuesta calentar.
+  2. Sin freno al desboque: más calor → menos agarre → más deslizamiento → más calor. Por eso el blando se iba a 150-175 °C en cualquier pista lenta y, a la sexta vuelta, también en Spa.
+  3. Calentaba rápido: de 62 °C a la ventana en ~35 s en Tocancipá.
+- Arreglo (constantes en `TYH`): calor `uso² · (0,15 + v/70)` × 2; enfriamiento que además crece con el cuadrado del exceso sobre el ambiente (la goma muy caliente pierde calor más rápido) y masa térmica mayor (`rate` 0,6: mismo equilibrio, cambio más lento). El desgaste sigue usando el trabajo de antes (la vida calibrada en v84 no cambia por esto, solo por el menor recalentamiento). Los neumáticos de lluvia en seco siguen recalentándose (Spa: inter 138 °C, antes 142).
+- Medida después (GT3, misma prueba):
+  - Spa M 95 °C, Monza M 91 °C, Albert Park M 94 °C (dentro de la ventana; el duro en Monza y Mónaco queda algo frío, 87-91 °C, ~1,5 % menos agarre, como en la realidad).
+  - Tocancipá Largo: M 107 °C, S 110 °C, H 102 °C. Mónaco: M 95 °C, S 100 °C.
+  - El blando aún se pasa un poco en los trazados más exigentes de Tocancipá (Largo inverso y Corto: 116-117 °C, ~30 % del tiempo en la zona de recalentamiento), y con W17/Chiron hasta 120-123 °C. Antes, 147-175 °C.
+  - Tiempo hasta la ventana: Tocancipá 34 → 38 s, Mónaco 41 → 50 s (blando); Spa sin cambio (59 → 60 s).
+- Vida en el menú (`tyrelife`, GT3 S/M/H): Tocancipá Largo 2/10/16 → 7/11/15, Albert Park 5/15/21 → 9/15/20, Mónaco 4/15/22 (v84) → 9/15/21, Spa y Monza sin cambio.
+- Sin efecto en la IA (usa el modelo simple): `ailap` en Spa, Mónaco y Tocancipá da los mismos tiempos al milisegundo. `rewind` y `coach` en verde.
+- Navegador (Tocancipá Largo, GT3 blando, autopiloto 9, sin daños; temperatura máxima cada 20 s): antes 76 91 105 108 119 125 126 126 126 127 127 127 °C (el autopiloto se salió en la vuelta 2); después 74 90 100 99 107 110 108 112 112 111 108 112 °C y 3 vueltas completas. Capturas en `neumaticos-v86/`. Sin errores de página.
+- Herramienta nueva: `node tools/headless.js tyretemp [pistas] [coche] [nivel=9] [vueltas=4]` (`COMP=S,M` elige compuestos).
