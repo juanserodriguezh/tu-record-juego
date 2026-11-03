@@ -273,9 +273,10 @@ function buildEscape(T, def) {
   T.esc = null; T.inEscape = null;
   if (!def.escape) return;
   const { from, to, rejoin, hw, blocks, pit } = def.escape, N = T.N, k = T.L / def.nom;
-  const iA = Math.round(from * k / T.ds) % N, iB = Math.round(to * k / T.ds) % N;
+  let iA = Math.round(from * k / T.ds) % N; const iB = Math.round(to * k / T.ds) % N;
   // pit: the lane is the pit exit road, starting at the end of the pit-lane band (its centre line)
-  let d0 = 0; if (pit) for (let q = 0; q < 8; q++) { const c = T.pitC[(iA - q + N) % N]; if (c === c) { d0 = c; break; } }
+  // (v92) it starts AT the last band sample: starting one sample later left a 2-3 m gap of bare ground between the two (Monaco)
+  let d0 = 0; if (pit) for (let q = 0; q < 8; q++) { const c = T.pitC[(iA - q + N) % N]; if (c === c) { d0 = c; iA = (iA - q + N) % N; break; } }
   const P0 = [T.x[iA] + T.nx[iA] * d0, T.z[iA] + T.nz[iA] * d0], P3 = [T.x[iB] + T.nx[iB] * rejoin, T.z[iB] + T.nz[iB] * rejoin];
   const D = Math.hypot(P3[0] - P0[0], P3[1] - P0[1]);
   const [h1, h2] = def.escape.handles || [0.62, 0.38];   // Bezier handles (fractions of the chord): short ones turn tighter (Monaco pit exit, inside Sainte-Dévote)

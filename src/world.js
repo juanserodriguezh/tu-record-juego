@@ -1213,7 +1213,7 @@ class World {
       pts.forEach(([x, z, top], k) => { const y = this.heightAt(x, z) - 0.2, h = clamp(top - y, 5, 16); q4.setFromAxisAngle(yA, hash2(x, z) * 6.28);
         sv.set(1, h, 1); pv.set(x, y, z); m4.compose(pv, q4, sv); it.setMatrixAt(k, m4); sv.set(1.2, 1.1, 1.2); pv.set(x, y + h - 0.3, z); m4.compose(pv, q4, sv); ic.setMatrixAt(k, m4); addFP(x, z, 3); });
       this.group.add(it, ic); }
-    this.buildMonacoStreet(B, occ, okey, onExit, addFP);
+    this.buildMonacoStreet(B, occ, okey, onExit, addFP, pitZone);
     this.buildTunnel(B);
   }
   // Monaco street furniture (v83): what the 8 m terrain cannot show. (1) retaining walls in stone along the barrier wherever the
@@ -1221,7 +1221,7 @@ class World {
   // foot of the barrier up to the next level, like a sand bank across the view. (2) red-brick pavements behind the barrier where
   // the ground is level with the road. (3) the Grand Hotel hairpin island: a raised round planter with shrubs and palms.
   // (4) the hillside gardens (green ground) get dense broadleaf trees instead of open lawn.
-  buildMonacoStreet(B, occ, okey, onExit, addFP) {
+  buildMonacoStreet(B, occ, okey, onExit, addFP, pitZone) {
     const T = this.T, N = T.N, ps = T.pitSide, [ta, tb] = this.tunnel || [-1, -1];
     const wallB = new GeoBuilder(true), paveB = new GeoBuilder(true), white = col3('#ffffff'), curbC = col3('#bdb6aa');
     const inTun = (i) => { const s = i * T.ds; return s > ta - 8 && s < tb + 8; };
@@ -1304,6 +1304,12 @@ class World {
     { const wm = new THREE.Mesh(wallB.build(), new THREE.MeshLambertMaterial({ vertexColors: true, map: TEX.stoneWall || (TEX.stoneWall = this.stoneWallTex()), side: THREE.DoubleSide })); wm.receiveShadow = true; this.group.add(wm); }
     // ---- broadleaf trees on the green ground of the town (gardens, the hillside), and the island shrubs: two instanced meshes
     const trees = [], G = this.mGround.G, kind = this.mGround.kind, TS = 8, [tunA, tunB] = this.tunnel || [-1e9, -1e9];
+    // the pit lane and its garages, tested against the band samples themselves: pitZone projects to the nearest stretch of the lap,
+    // and beside the Monaco pits that is the harbour road (Tabac), so a tree on the garage roofs passed (v92)
+    const pitI = []; for (let i = 0; i < N; i++) if (T.pitC[i] === T.pitC[i]) pitI.push(i);
+    const pitReach = (i) => Math.abs(T.pitC[i]) + T.pitHW + (this.D.pitDepth || 18) + 8;
+    const inPitArea = (x, z) => { for (const i of pitI) { const dx = x - T.x[i], dz = z - T.z[i]; if (dx * dx + dz * dz > 70 * 70) continue;
+      const al = dx * T.tx[i] + dz * T.tz[i], la = dx * T.nx[i] + dz * T.nz[i]; if (Math.abs(al) <= T.ds && la * ps > 0 && Math.abs(la) < pitReach(i)) return true; } return false; };
     for (let x = G.x0 + TS; x < G.x0 + G.nx * G.step - TS; x += TS) for (let z = G.z0 + TS; z < G.z0 + G.nz * G.step - TS; z += TS) {
       const jx = x + (hash2(x * 0.7, z) - 0.5) * 5, jz = z + (hash2(z, x * 0.3) - 0.5) * 5;
       const kd = kind(jx, jz); if (kd === 0 || occ.has(okey(jx, jz))) continue;
@@ -1315,6 +1321,9 @@ class World {
       // paved ground: only the banks between two levels of the town near the circuit (terraced gardens, as round the hairpin)
       if (kd === 1 && !bank) { const sl = Math.hypot(this.heightAt(jx + 4, jz) - this.heightAt(jx - 4, jz), this.heightAt(jx, jz + 4) - this.heightAt(jx, jz - 4)) / 8; if (sl < 0.16 || gap > 70) continue; }
       const sc = 0.8 + 0.6 * hash2(jz, jx);
+      // v92: never in the pit lane, its garages or over the pit exit road (the gap above only looks at the circuit barriers:
+      // canopies stood on the strip between the lane and Sainte-Dévote and hung over the exit road)
+      if ((pitZone && pitZone(jx, jz)) || inPitArea(jx, jz) || onExit(jx, jz, 3.2 * sc + 1.5)) continue;
       // v87: the canopy (radius 3.2·sc, from 2.4·sc over the foot) must not reach over the barrier into the road space: inside the
       // tunnel (walls on the barrier lines, roof at 6.6 m) a tree on the ground below the road showed through the wall; in the open
       // a canopy lower than 3 m hung over the asphalt at car height
