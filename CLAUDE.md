@@ -28,6 +28,7 @@ node tools/headless.js tyrelife monaco amg_gt3 [nivel]   # vueltas hasta el 80 %
 node tools/headless.js tyretemp toca_largo,monaco amg_gt3   # temperatura de neumáticos por vuelta (media/pico, % recalentado) con IA a ritmo
 node tools/headless.js coach monza amg_gt3   # línea adaptativa: zonas y juicio de 3 pilotos IA (exit 1 si falla)
 node tools/headless.js rewind monza amg_gt3,w17   # rebobinado: restauración exacta, daño, coste y línea adaptativa (exit 1 si falla)
+node tools/net_test.mjs p2p|room|lab   # multijugador: 3 páginas reales entran por código (PeerJS local / sala de Claude emulada) y laboratorio de interpolación (exit 1 si falla; necesita THREE_DIR y, para p2p, NET_DEPS con npm i peer@1 peerjs@1.5.5)
 node tools/shot.mjs <prefijo> <pista> <coche> "<js>|||<js>" [ancho]   # capturas en shots/
 node tools/menu_shot.mjs <prefijo> "<js>|||<js>" [ancho] [alto] [móvil]   # capturas del menú (sin empezar sesión)
 LOD=1 node tools/perf.mjs spa amg_gt3 race medio 8 960   # coste por frame: draw calls, triángulos (todas las pasadas), ms de JS
@@ -56,6 +57,8 @@ Ejemplos de capturas:
 | `src/carmodel.js`, `src/body.js`, `src/hands.js`, `src/special.js` | Coches procedurales, cabina, volante y manos |
 | `src/glb.js` | Monta los modelos escaneados (GLB) sobre el coche: ruedas, cabina real, volante y piezas fijas |
 | `src/audio.js` | Motores sintetizados |
+| `src/net.js` | Multijugador, Room Manager: códigos de sala, transportes (PeerJS / sala de Claude), admisión, perfil del piloto, carrera en red, interpolación y nombres sobre los coches |
+| `src/lobby.js` | UI de la sala dentro del menú (paso Sesión), botón principal y avisos emergentes (`netNotify`) |
 | `src/main.js` | Arranque, menú (`MENU_UI`, `Spring`), garaje, modos de sesión, HUD, cámaras, red, `window.__spa` (ganchos de prueba) |
 | `assets/*.glb` | Modelos ya optimizados. `build.js` los empaqueta en `dist/models/packN.wasm` (≤ 8 MB cada uno) |
 
@@ -80,6 +83,7 @@ Ejemplos de capturas:
 - **Menú (v81):** tres pasos en una hoja de cristal: Pista (tarjetas con el trazado, trazados de Tocancipá, clima) · Coche (lista + ficha a la derecha) · Sesión (modo, detalles, «Más opciones»). Escritorio: panel lateral; móvil (≤ 820 px): hoja inferior con dos posiciones que se arrastra por la cabecera. Movimiento con muelles propios (`Spring`: amortiguamiento + respuesta, parten del valor y la velocidad actuales), proyección del gesto y rebote en los bordes, según la guía de diseño de Apple que pasó Juanse. Los ids de los controles antiguos se conservan. La cámara del menú encuadra el coche en el hueco libre (`menuFrame`). Capturas del menú: `node tools/menu_shot.mjs <prefijo> "__spa.menuStep('coche')" [ancho] [alto] [móvil=1]`.
 
 ## Historial reciente y decisiones
+- **v91:** salas privadas por código (sin matchmaking): `src/net.js` + `src/lobby.js`, sala dentro de la hoja del menú, listo/esperando, colisiones on/off, errores (inválido, sin sala, llena, empezada, anfitrión se fue), nombres sobre los coches, interpolación con reloj del emisor. Flujo y límites en `docs/multijugador.md`.
 - **v84:** la vida de los neumáticos en el menú se mide en la pista y con el coche elegidos (IA nivel 9, 4 vueltas por compuesto, en trozos de 6 ms mientras el menú está abierto: `tyreLifeStart` en `main.js`); antes decía siempre «en Spa» con un número fijo. «Auto» elige el compuesto más blando que aguanta la carrera con esa medida.
 - **v86:** neumáticos: el calor es potencia de deslizamiento (crece con la velocidad), enfriamiento con el cuadrado del exceso (sin desboque) y más masa térmica (`TYH` en `damage.js`). Tocancipá/Mónaco ya no pasan de ~110 °C (antes 130-150); Spa/Monza siguen en ventana. `headless.js tyretemp` lo mide.
 - **v85:** Mónaco: palmeras fuera de boxes (`pitZone`); las piezas de tribuna del modelo se unen en tribunas continuas que siguen el muro (`standRuns` en `buildMonaco`), nunca en boxes, garajes, otra calle o el mar; túnel con paredes claras, luz cálida propia (`tunLight`) y exposición +22 % dentro; Tabac sin el muro de 10 m (muros de contención limitados a 3 m salvo calle justo detrás o suelo medido que sube a < 7 m; terreno tallado hasta 16 m donde el suelo medido sigue a nivel).

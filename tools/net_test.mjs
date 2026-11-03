@@ -1,0 +1,209 @@
+// Multiplayer test: real pages of the game joining private rooms by code (v91).
+//   node tools/net_test.mjs p2p    PeerJS transport: local PeerServer, 3 browser contexts (host, guest, third)
+//   node tools/net_test.mjs room   Claude-room transport, emulated with a BroadcastChannel shim (same presence API)
+//   node tools/net_test.mjs lab    interpolation lab: synthetic 20 Hz states with lag, jitter and loss
+// Exit 1 if any check fails. Screenshots in shots/net_*.png.
+// Needs: THREE_DIR=<three@0.160.0 package> (jsDelivr is blocked in the cloud box) and, for p2p,
+//        NET_DEPS=<folder with node_modules/peer and node_modules/peerjs>  (npm i peer@1 peerjs@1.5.5 there).
+import { chromium } from 'playwright';
+import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path'; import url from 'node:url'; import { createRequire } from 'node:module';
+const root = path.join(path.dirname(url.fileURLToPath(import.meta.url)), '..'), DIST = path.join(root, 'dist');
+const mode = process.argv[2] || 'p2p';
+const MIME = { '.html': 'text/html; charset=utf-8', '.wasm': 'application/wasm', '.js': 'text/javascript' };
+const srv = http.createServer((q, r) => { const f = path.join(DIST, decodeURIComponent(q.url.split('?')[0]).replace(/^\/$/, '/spa.html'));
+  if (!f.startsWith(DIST) || !fs.existsSync(f)) { r.writeHead(404); return r.end(); } r.writeHead(200, { 'content-type': MIME[path.extname(f)] || 'application/octet-stream' }); fs.createReadStream(f).pipe(r); }).listen(0);
+const port = srv.address().port;
+let peerSrv = null, peerJsPath = null;
+if (mode === 'p2p') {
+  const req = createRequire(path.join(process.env.NET_DEPS || root, 'package.json'));
+  const { ExpressPeerServer } = req('peer'), express = req('express'); peerJsPath = req.resolve('peerjs/dist/peerjs.min.js');
+  const app = express(); peerSrv = app.listen(9123, '127.0.0.1'); app.use('/', ExpressPeerServer(peerSrv, { path: '/' }));
+}
+fs.mkdirSync(path.join(root, 'shots'), { recursive: true });
+let fails = 0; const t0 = Date.now();
+const ok = (cond, msg, extra) => { console.log((cond ? '  ok   ' : '  FAIL ') + msg + (extra !== undefined ? '  ' + JSON.stringify(extra) : '')); if (!cond) fails++; };
+const log = (m) => console.log(`[${((Date.now() - t0) / 1000).toFixed(0)}s] ${m}`);
+
+const SHIM = () => {   // Claude room emulation: presence records over a BroadcastChannel (same tab-local API as window.claude.use('room'))
+  const ch = new BroadcastChannel('fake-claude-room'), id = 'tab-' + Math.random().toString(36).slice(2, 8), list = new Map(), fns = [];
+  const peers = () => [...list.values()].map(e => ({ peer: e.peer, sameTab: e.peer === id, kind: 'viewer', presence: e.p, updatedAt: e.at }));
+  const emit = () => { const ps = peers(); fns.forEach(f => { try { f({ peers: ps }); } catch (e) { console.error(e); } }); };
+  ch.onmessage = (ev) => { const m = ev.data; if (m.t === 'u') { list.set(m.peer, { peer: m.peer, p: m.p, at: Date.now() }); emit(); } else if (m.t === 'x') { list.delete(m.peer); emit(); } else if (m.t === 'hello' && list.has(id)) ch.postMessage({ t: 'u', peer: id, p: list.get(id).p }); };
+  const ROOM = { peers, onPeers(f) { fns.push(f); }, presence(patch) { const p = Object.assign({}, (list.get(id) || { p: {} }).p); for (const k in patch) { if (patch[k] === null) delete p[k]; else p[k] = patch[k]; } list.set(id, { peer: id, p, at: Date.now() }); ch.postMessage({ t: 'u', peer: id, p }); emit(); return Promise.resolve(); } };
+  list.set(id, { peer: id, p: {}, at: Date.now() });
+  window.claude = { use: async (k) => { if (k !== 'room') throw new Error('no'); return ROOM; } };
+  ch.postMessage({ t: 'hello' });
+  window.__shimLeave = () => { ch.postMessage({ t: 'x', peer: id }); };
+};
+
+const browser = await chromium.launch({ args: ['--use-fake-ui-for-media-stream'] });
+async function openGame(ctx, name, init) {
+  const pg = await ctx.newPage(); pg.setDefaultTimeout(240000);
+  pg.errs = []; pg.logs = []; pg.on('pageerror', e => pg.errs.push(String(e))); pg.on('console', m => pg.logs.push(m.type() + ' ' + m.text().slice(0, 300)));
+  pg.on('console', m => { if (m.type() === 'error' && !/WebGL|GPU|favicon|404|Could not connect to peer/.test(m.text())) pg.errs.push('console: ' + m.text()); });
+  if (process.env.THREE_DIR) await pg.route('https://cdn.jsdelivr.net/npm/three@0.160.0/**', r => r.fulfill({ path: path.join(process.env.THREE_DIR, r.request().url().split('three@0.160.0/')[1]), contentType: 'text/javascript' }));
+  if (peerJsPath) await pg.route(/peerjs(@1\.5\.5\/dist|\/1\.5\.5)\/peerjs\.min\.js/, r => r.fulfill({ path: peerJsPath, contentType: 'text/javascript' }));
+  await pg.addInitScript(() => { try { localStorage.setItem('spa_rec_settings', JSON.stringify({ quality: 'bajo', fpsCap: 30 })); } catch (e) { } });
+  if (init) await pg.addInitScript(init.fn, init.arg);
+  await pg.goto(`http://localhost:${port}/spa.html`);
+  await pg.waitForFunction(() => window.__spa && !document.getElementById('menu').hidden && document.getElementById('loading').hidden);
+  pg.nm = name; log(name + ' loaded');
+  return pg;
+}
+const net = (pg) => pg.evaluate(() => __spa.net());
+const until = (pg, fn, arg, ms) => pg.waitForFunction(fn, arg, { timeout: ms || 30000, polling: 200 }).then(() => true, () => false);
+const shot = async (pg, f) => { await pg.evaluate(() => __spa.redraw()); await pg.waitForTimeout(1200); await pg.screenshot({ path: path.join(root, 'shots', f + '.png') }); log('shot ' + f); };
+async function setName(pg, n) { await pg.fill('#netName', n); }
+
+if (mode === 'lab') {
+  // ---- interpolation lab: a car on an 80 m circle at 50 m/s; 20 Hz states, 40 ms latency + 0-60 ms jitter, 5 % loss.
+  // new  = sender-clock timeline + adaptive delay + Hermite (netSampleAt);  old = receive-time stamps + linear, fixed 110 ms
+  const ctx = await browser.newContext({ viewport: { width: 640, height: 360 } });
+  const pg = await openGame(ctx, 'lab');
+  const res = await pg.evaluate(() => {
+    const { netSampleAt, netClock, netRenderTime } = __spa.netLab;
+    const R = 80, V = 50, w = V / R;
+    const truth = (t) => { const a = w * t / 1000; return [R * Math.sin(a), R * Math.cos(a), a + Math.PI / 2]; };
+    let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const out = { x: 0, z: 0 }, rows = [];
+    for (const [jit, loss] of [[0, 0], [30, 0.02], [60, 0.05], [120, 0.1]]) {
+      const pk = [];
+      for (let ts = 0; ts < 20000; ts += 50) { if (rnd() < loss) continue; const [x, z, h] = truth(ts); pk.push({ ts, rt: ts + 40 + rnd() * jit, st: [x, z, h, V, 0, 0, 0, 0] }); }
+      pk.sort((a, b) => a.rt - b.rt);
+      const run = (neu) => {
+        const e = { buf: [] }, oldB = []; let k = 0, prev = null, sp = [], ct = [], lag = [];
+        for (let tf = 1000; tf < 19500; tf += 1000 / 60) {
+          while (k < pk.length && pk[k].rt <= tf) { const p = pk[k++]; if (neu) { const last = e.buf[e.buf.length - 1]; if (!last || p.ts > last.ts) { netClock(e, p.ts, last, p.rt); e.buf.push({ ts: p.ts, st: p.st }); } } else oldB.push({ t: p.rt, st: p.st }); }
+          let x, z, shown;
+          if (neu) { shown = netRenderTime(e, tf, 1000 / 60); netSampleAt(e.buf, shown, out); x = out.x; z = out.z; }
+          else {   // the v90 code: linear between receive times at now − 110 ms, extrapolation ≤ 0.3 s
+            const tR = tf - 110; let a = oldB[0], b = null;
+            for (let j = oldB.length - 1; j >= 0; j--) if (oldB[j].t <= tR) { a = oldB[j]; b = oldB[j + 1] || null; break; }
+            const A = a.st; if (b) { const f = Math.min(1, Math.max(0, (tR - a.t) / Math.max(1, b.t - a.t))); x = A[0] + (b.st[0] - A[0]) * f; z = A[1] + (b.st[1] - A[1]) * f; }
+            else { const ex = Math.min(0.3, Math.max(0, (tR - a.t) / 1000)); x = A[0] + V * Math.cos(A[2]) * ex; z = A[1] - V * Math.sin(A[2]) * ex; }
+            shown = null;
+          }
+          ct.push(Math.abs(Math.hypot(x, z) - R));
+          if (prev) sp.push(Math.hypot(x - prev[0], z - prev[1]) * 60);
+          if (shown != null) lag.push(tf - shown - 40);   // display delay beyond the 40 ms network floor
+          prev = [x, z];
+        }
+        const m = sp.reduce((s, v) => s + v, 0) / sp.length, sd = Math.sqrt(sp.reduce((s, v) => s + (v - m) ** 2, 0) / sp.length);
+        return { crossRmsCm: +(Math.sqrt(ct.reduce((s, v) => s + v * v, 0) / ct.length) * 100).toFixed(1), crossMaxCm: +(Math.max(...ct) * 100).toFixed(0), speedSd: +sd.toFixed(2), extraDelayMs: lag.length ? Math.round(lag.reduce((s, v) => s + v, 0) / lag.length) : 110 };
+      };
+      rows.push({ jitterMs: jit, loss, neu: run(true), old: run(false) });
+    }
+    return rows;
+  });
+  for (const r of res) { console.log(`jitter ${r.jitterMs} ms, loss ${r.loss * 100}%:  new ${JSON.stringify(r.neu)}   old ${JSON.stringify(r.old)}`); }
+  ok(res.every(r => r.neu.speedSd <= r.old.speedSd && r.neu.crossRmsCm <= r.old.crossRmsCm), 'new interpolation is smoother and closer to the path in every case');
+  await browser.close(); srv.close(); process.exit(fails ? 1 : 0);
+}
+
+// ---- multiplayer flows ---------------------------------------------------------------------------------
+const P2P_INIT = { fn: (o) => { window.__P2P_SERVER = { host: '127.0.0.1', port: 9123, path: '/', secure: false, config: { iceServers: [] }, debug: o.debug || 0 }; if (o.max) window.__NET_MAX = o.max; }, arg: {} };
+const mk = async (name, max) => {
+  // the Claude-room shim talks over a BroadcastChannel, which only spans one browser context: one shared context there
+  const ctx = mode === 'room' ? (mk.ctx || (mk.ctx = browser.newContext({ viewport: { width: 1280, height: 720 } }))) : browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const inits = mode === 'p2p' ? { fn: P2P_INIT.fn, arg: { max, debug: process.env.NET_DEBUG ? 2 : 0 } } : { fn: (o) => { (new Function('(' + o.shim + ')()'))(); if (o.max) window.__NET_MAX = o.max; }, arg: { shim: SHIM.toString(), max } };
+  return openGame(await ctx, name, inits);
+};
+// room size: in P2P the host enforces it; in the Claude room each joiner checks it (same constant for all real players)
+const [A, B, C] = await Promise.all([mk('host', 2), mk('guest', mode === 'room' ? 2 : 0), mk('third', mode === 'room' ? 2 : 0)]);
+for (const pg of [A, B, C]) await pg.evaluate(() => __spa.openLobby());
+// software rendering is slow: stop drawing the 3D menu while testing the lobby (frees the CPU for WebRTC)
+const freeze = (on) => Promise.all([A, B, C].filter(p => !p.isClosed()).map(p => p.evaluate((o) => __spa.freeze(o), on)));
+await freeze(true);
+await until(B, () => __spa.net().avail === true, null, 30000);
+
+log('1) invalid code');
+await B.fill('#netCode', 'oo-11'); await B.click('#netJoin');
+let n = await net(B); ok(n.err === 'invalid' && /no válido/.test(n.toast), 'invalid code rejected with a pop-up', { err: n.err, toast: n.toast });
+
+log('2) code with no room');
+await B.fill('#netCode', ''); await B.type('#netCode', 'zz9q');   // typed: joins by itself on the 4th character
+ok(await until(B, () => __spa.net().err === 'nohost', null, 35000), 'unknown code: "no hay ninguna sala"', (await net(B)).note);
+await shot(B, 'net_' + mode + '_1_error_codigo');
+
+log('3) create + join');
+await setName(A, 'Ana'); await setName(B, 'Beto');
+await A.click('#netCreate');
+ok(await until(A, () => !!__spa.net().code, null, 30000), 'host gets a room code');
+const code = (await net(A)).code; ok(/^[A-HJ-NP-Z2-9]{4}$/.test(code), 'code is 4 unambiguous characters', code);
+await B.fill('#netCode', ''); await B.type('#netCode', code.toLowerCase());
+const joined = await until(B, (c) => __spa.net().code === c && __spa.net().room.length === 2, code, 30000);
+ok(joined, 'guest joined by typing the code (no extra tap)');
+if (process.env.NET_DEBUG && !joined) { console.log('B', JSON.stringify(await net(B)), (await B.inputValue('#netCode'))); console.log('A', JSON.stringify(await net(A))); console.log(B.logs.filter(l => !/GPU stall|fallback/.test(l)).slice(-40).join('\n')); console.log('--A'); console.log(A.logs.filter(l => !/GPU stall|fallback/.test(l)).slice(-25).join('\n')); process.exit(2); }
+ok(await until(A, () => __spa.net().room.length === 2 && __spa.net().room.some(p => p.name === 'Beto'), null, 15000), 'host sees the guest by name');
+n = await net(A); ok(n.disabled && /Esperando a 1/.test(n.startHint), 'host start disabled until the guest is ready', n.startHint);
+ok(/Beto entró/.test(n.toast), 'host gets a "entró en la sala" notice', n.toast);
+
+log('4) profile sync: car + colour + name');
+await B.evaluate(() => __spa.selectCar('w17'));
+await B.click('#netColors button:nth-child(5)');
+ok(await until(A, () => { const b = __spa.net().room.find(p => p.name === 'Beto'); return b && b.car === 'w17' && b.c1 === '#00a3e0'; }, null, 15000), 'host sees the guest change car and colour in the room');
+await setName(B, 'Beto R.');
+ok(await until(A, () => __spa.net().room.some(p => p.name === 'Beto R.'), null, 15000), 'rename propagates');
+
+log('5) full room');
+await C.fill('#netCode', code); await C.click('#netJoin');
+ok(await until(C, () => __spa.net().err === 'full', null, 30000), 'third pilot refused: room full (test limit 2)', (await net(C)).note);
+
+log('6) ready + host settings');
+await A.evaluate(() => __spa.netHostSettings({ netLaps: 2, netCol: 0 }));
+ok(await until(B, () => /No/.test(document.getElementById('netHostCfg').textContent) && /2/.test(document.getElementById('netHostCfg').textContent), null, 15000), 'guest sees laps 2 and collisions off');
+await B.evaluate(() => __spa.menuStep('sesion'));
+await B.click('#startBtn');
+ok(await until(A, () => __spa.net().canStart && !__spa.net().disabled, null, 15000), 'guest ready -> host can start');
+n = await net(B); ok(n.startText === 'Listo ✓', 'guest button shows Listo ✓', n.startText);
+await shot(A, 'net_' + mode + '_2_sala_anfitrion'); await shot(B, 'net_' + mode + '_3_sala_invitado');
+
+log('7) race');
+await freeze(false);
+await A.click('#startBtn');
+ok(await until(B, () => __spa.race && __spa.race.mode === 'multi', null, 120000), 'guest pulled into the race');
+ok(await until(A, () => __spa.race && __spa.race.mode === 'multi', null, 60000), 'host in the race');
+ok((await A.evaluate(() => __spa.race.netCol)) === false, 'collisions off reached the session');
+await C.fill('#netCode', code); await C.click('#netJoin');
+ok(await until(C, () => __spa.net().err === 'started', null, 30000), 'join during the race: "ya empezó"', (await net(C)).note);
+for (const pg of [A, B]) await pg.evaluate(() => __spa.setAuto(8));
+ok(await until(B, () => __spa.race.state === 'run' && __spa.car.u > 20, null, 120000), 'race started, guest moving');
+await B.waitForTimeout(8000);
+const ra = await A.evaluate(() => ({ r: __spa.net().remotes, st: [...document.querySelectorAll('#stRows li .n')].map(e => e.textContent) }));
+const rb = await B.evaluate(() => ({ r: __spa.net().remotes, st: [...document.querySelectorAll('#stRows li .n')].map(e => e.textContent) }));
+console.log('  host view', JSON.stringify(ra)); console.log('  guest view', JSON.stringify(rb));
+ra.r = ra.r || []; rb.r = rb.r || [];
+ok(ra.r.length === 1 && ra.r[0].vis && rb.r.length === 1 && rb.r[0].vis, 'each sees the other car on track');
+ok(ra.st.includes('Beto R.') && rb.st.includes('Ana'), 'standings show the other pilot by name');
+// headless Chromium renders in software at a few FPS, so states go out at a few Hz with big jitter: only check the
+// estimates exist and the delay adapted to them (the lab mode measures smoothness)
+ok([...ra.r, ...rb.r].every(r => isFinite(r.off) && isFinite(r.jit) && r.gap > 0), 'interpolation clock running (offset, jitter, send gap estimated)', [...ra.r, ...rb.r].map(r => ({ gap: Math.round(r.gap), jit: Math.round(r.jit) })));
+// look at whoever is ahead from behind: the one behind sees the name tag
+const behind = (await A.evaluate(() => __spa.race.player.progress)) < (await B.evaluate(() => __spa.race.player.progress)) ? A : B;
+await behind.evaluate(() => __spa.setAuto(null));
+await shot(behind, 'net_' + mode + '_4_carrera_etiqueta');
+const tagOn = await behind.evaluate(() => __spa.net().remotes[0].tag);
+ok(tagOn, 'name tag shown over the other car (from the car behind)');
+
+log('8) host leaves');
+if (mode === 'p2p') await A.close(); else { await A.evaluate(() => window.__shimLeave()); await A.close(); }
+ok(await until(B, () => __spa.net().closed && __spa.net().notices.some(t => /anfitrión salió/.test(t)), null, 60000), 'guest told the host left (race goes on)', (await net(B)).notices.slice(-2));
+await shot(B, 'net_' + mode + '_5_anfitrion_salio');
+await B.evaluate(() => { document.getElementById('pauseBtn').click(); document.getElementById('pMenu').click(); });
+ok(await until(B, () => !__spa.net().code && document.getElementById('lobbyRoom').hidden, null, 30000), 'back in the menu the room is closed');
+
+log('9) host closes the room while guests wait');
+await freeze(true);
+await C.evaluate(() => __spa.openLobby()); await C.fill('#netName', 'Caro'); await C.click('#netCreate');
+ok(await until(C, () => !!__spa.net().code, null, 30000), 'third creates a new room');
+const code2 = (await net(C)).code;
+await B.evaluate(() => __spa.openLobby()); await B.fill('#netCode', ''); await B.type('#netCode', code2);
+ok(await until(B, (c) => __spa.net().code === c, code2, 30000), 'guest joins it');
+await C.click('#netLeave');
+ok(await until(B, () => !__spa.net().code && __spa.net().err === 'hostgone', null, 30000), 'host closed the room: guest back to the join form with a notice', (await net(B)).toast);
+await shot(B, 'net_' + mode + '_6_sala_cerrada');
+
+for (const pg of [A, B, C]) if (!pg.isClosed()) ok(!pg.errs.length, pg.nm + ': no page errors', pg.errs.slice(0, 3));
+console.log(fails ? fails + ' FAILED' : 'all passed', `(${((Date.now() - t0) / 1000).toFixed(0)} s)`);
+await browser.close(); srv.close(); if (peerSrv) peerSrv.close();
+process.exit(fails ? 1 : 0);

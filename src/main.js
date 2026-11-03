@@ -23,7 +23,7 @@ const SWATCHES = ['#f4f4f4', '#9aa0a6', '#2a2d31', '#0e0f11', '#c8120c', '#e3342
 const MODES = { practica: 'Práctica', rapida: 'Carrera rápida', completa: 'Carrera completa', multi: 'Multijugador' };
 const DIFFN = (d) => d <= 2 ? 'Novato' : d <= 4 ? 'Aficionado' : d <= 6 ? 'Intermedio' : d <= 8 ? 'Experto' : d === 9 ? 'Profesional' : 'Leyenda';
 const DEFAULTS = { quality: 'medio', draw: 'normal', fov: 62, fps: false, fpsCap: '60', abs: true, tc: true, esc: true, autoShift: true, steerAssist: true, steerSens: 1.0, minimap: true, lineMode: 'off', ghost: true, units: 'kmh', volume: 0.7, volEngine: 1, volFx: 0.8, muted: false, damage: 'real', tyres: 'normal' };
-const GAME_DEFAULTS = { mode: 'practica', start: 'grid', rivals: false, nRivals: 12, diff: 5, rivalCars: 'mismo', laps: 3, gridPos: 'medio', qualiMin: 10, name: '', tyre: 'auto' };
+const GAME_DEFAULTS = { mode: 'practica', start: 'grid', rivals: false, nRivals: 12, diff: 5, rivalCars: 'mismo', laps: 3, gridPos: 'medio', qualiMin: 10, name: '', tyre: 'auto', netLaps: 3, netCol: 1 };
 const S = {
   // phones start on the light graphics preset (it can be raised in Ajustes)
   settings: Object.assign({}, DEFAULTS, (() => { try { return matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 820 ? { quality: 'bajo' } : {}; } catch (e) { return {}; } })(), store.get('settings', {})),
@@ -83,11 +83,8 @@ async function boot() {
     $('loading').hidden = true;
     requestAnimationFrame(frame);
     // a shared room link (…#ABCD) opens the lobby and joins that room
-    const hc = (location.hash || '').slice(1).toUpperCase();
-    if (/^[A-HJ-NP-Z2-9]{4}$/.test(hc)) {
-      S.game.mode = 'multi'; [...$('modeTabs').children].forEach(c => c.setAttribute('aria-selected', String(c.dataset.k === 'multi'))); renderStartHint();
-      $('netCode').value = hc; NET.pendingCode = hc; openLobby();
-    }
+    const hc = normCode(location.hash || '');
+    if (codeValid(hc)) { $('netCode').value = hc; NET.pendingCode = hc; openLobby(); }
   } catch (err) {
     console.error(err);
     $('loadMsg').textContent = 'No se pudo iniciar el juego: ' + (err && err.message ? err.message : err) + '. Prueba en un navegador con WebGL activado.';
@@ -137,7 +134,7 @@ function applyTrackTexts() {
     const lg = $('layoutGroup'); if (lg) { lg.hidden = lays.length < 2; const card = tt && [...tt.querySelectorAll('.trk')].find(b => fam(b.dataset.k) === fam(D.id)); if (card && !lg.hidden) card.after(lg); }
     if (lays.length >= 2 && lt.dataset.fam !== fam(D.id)) { lt.dataset.fam = fam(D.id); lt.innerHTML = '';
       for (const d of lays) { const b = document.createElement('button'); b.type = 'button'; b.dataset.k = d.id; b.textContent = d.layout;
-        b.addEventListener('click', () => { if (NET.code && !NET.host) return; switchTrack(d.id).then(ok => { if (ok && NET.code) netSet({ trk: TRACK.id }); }); }); lt.appendChild(b); } }
+        b.addEventListener('click', () => { if (NET.code && !NET.host) { netNotify('En la sala, el circuito lo elige el anfitrión.'); return; } switchTrack(d.id).then(ok => { if (ok && NET.code) netSet({ trk: TRACK.id }); }); }); lt.appendChild(b); } }
     [...lt.children].forEach(b => b.setAttribute('aria-pressed', String(b.dataset.k === D.id))); }
 }
 let trackBusy = false;
@@ -202,6 +199,7 @@ function selectCar(id, silent) {
   updateModelTransform(0);
   if (!silent) renderGarage();
   renderSpec();
+  netProfileSync();
 }
 const accelCache = {};
 function zeroTo100(sp) {
@@ -266,7 +264,7 @@ function initUI() {
   for (const [k, lbl] of Object.entries(MODES)) {
     const b = document.createElement('button'); b.type = 'button'; b.role = 'tab'; b.textContent = lbl; b.dataset.k = k;
     b.setAttribute('aria-selected', String(k === S.game.mode));
-    b.addEventListener('click', () => { S.game.mode = k; saveGame(); [...mt.children].forEach(c => c.setAttribute('aria-selected', String(c.dataset.k === k))); renderStartHint(); });
+    b.addEventListener('click', () => { if (k === 'multi') return openLobby(); S.game.mode = k; saveGame(); [...mt.children].forEach(c => c.setAttribute('aria-selected', String(c.dataset.k === k))); renderStartHint(); renderLobby(); });
     mt.appendChild(b);
   }
   $('prevCar').addEventListener('click', () => stepCar(-1));
@@ -277,7 +275,7 @@ function initUI() {
   $('sessGo').addEventListener('click', () => { $('session').hidden = true; startFromMenu(); });
   buildTrackCards();
   for (const b of $('trackTabs').querySelectorAll('.trk')) b.addEventListener('click', () => {
-    if (NET.code && !NET.host) { $('lobbyNote').textContent = 'El anfitrión elige el circuito.'; return; }
+    if (NET.code && !NET.host) { netNotify('En la sala, el circuito lo elige el anfitrión.'); return; }
     if (b.dataset.k.startsWith('toca_') && TRACK.id.startsWith('toca_')) return;
     switchTrack(b.dataset.k).then(ok => { if (ok && NET.code) netSet({ trk: TRACK.id }); });
   });
@@ -466,7 +464,7 @@ function setLivery(patch) {
   const sp = carById(S.carId);
   S.liveries[sp.id] = Object.assign(liveryOf(sp), patch);
   store.set('liveries', S.liveries);
-  placeModel(); updateModelTransform(0); renderSpec();
+  placeModel(); updateModelTransform(0); renderSpec(); netProfileSync();
 }
 function renderStartHint() {
   const g = S.game, w = WEATHER[S.weather].name.toLowerCase() + (isWet() ? ' (mojado)' : '');
@@ -475,7 +473,8 @@ function renderStartHint() {
   if (g.mode === 'practica') hint = (g.start === 'pits' ? 'Desde boxes' : 'Salida parada') + ' · ' + (g.rivals ? riv : 'sin rivales') + ' · ' + w;
   else if (g.mode === 'rapida') { lbl = 'Empezar carrera'; hint = `${g.laps} ${g.laps === 1 ? 'vuelta' : 'vueltas'} · ${riv} · ${g.start === 'pits' ? 'desde boxes' : 'parrilla ' + { pole: 'pole', medio: 'media', ultimo: 'última', aleatoria: 'aleatoria' }[g.gridPos]}`; }
   else if (g.mode === 'completa') { lbl = 'Ir a clasificación'; hint = `Clasif. ${g.qualiMin} min + ${g.laps} ${g.laps === 1 ? 'vuelta' : 'vueltas'} · ${riv}`; }
-  else { lbl = 'Abrir sala'; hint = 'Juega con amigos usando un código de sala'; }
+  else [lbl, hint] = lobbyFoot();
+  if (g.mode !== 'multi') { $('startBtn').disabled = false; $('startBtn').classList.remove('ready'); }
   $('startLbl').textContent = lbl; $('startHint').textContent = hint;
   $('sessBtn').hidden = g.mode === 'multi'; $('quickTitle').hidden = g.mode === 'multi';
   renderQuick(); renderSummary();
@@ -784,7 +783,7 @@ function renderSessionFields() {
 }
 function startFromMenu() {
   const m = S.game.mode;
-  if (m === 'multi') return openLobby();
+  if (m === 'multi') return lobbyPrimary();
   if (m === 'practica') return startSession('practice');
   SES_FIELD = makeField(S.game.nRivals);
   return startSession(m === 'rapida' ? 'race' : 'quali');
@@ -854,7 +853,7 @@ window.addEventListener('keydown', (e) => {
   } else if (S.mode === 'pause' && (e.code === 'Escape' || e.code === 'KeyP')) resume();
   if (e.code === 'KeyM') toggleMute();
   else if (S.mode === 'menu') {
-    const overlay = !$('settings').hidden || !$('controls').hidden || !$('session').hidden || !$('lobby').hidden;
+    const overlay = !$('settings').hidden || !$('controls').hidden || !$('session').hidden;
     if (!overlay) { if (e.code === 'ArrowRight') stepCar(1); if (e.code === 'ArrowLeft') stepCar(-1); }
     if (e.code === 'Enter' && !overlay && !(document.activeElement && document.activeElement.tagName === 'BUTTON')) startFromMenu();
     if (e.code === 'Escape') { $('settings').hidden = true; $('controls').hidden = true; $('session').hidden = true; }
@@ -1042,7 +1041,7 @@ function startSession(kind, opts) {
   S.mode = 'race'; CAMSTATE.init = false;
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
   try { $('gl').focus({ preventScroll: true }); } catch (e) { }
-  $('menu').hidden = true; $('hud').hidden = false; $('pause').hidden = true; $('results').hidden = true; $('lobby').hidden = true; $('session').hidden = true;
+  $('menu').hidden = true; $('hud').hidden = false; $('pause').hidden = true; $('results').hidden = true; $('session').hidden = true;
   $('touch').hidden = !S.touch;
   $('lights').hidden = R.state !== 'lights'; [...$('lights').children].forEach(i => i.classList.remove('on'));
   $('hDelta').hidden = true; $('banner').hidden = true; $('toast').hidden = true; $('hRepair').hidden = true;
@@ -1061,7 +1060,6 @@ function startSession(kind, opts) {
   else if (kind === 'practice' && R.state === 'run') banner('<div class="big">Práctica</div><div class="sub">Sal de boxes · el crono arranca al cruzar la línea</div>', 3);
   else if (pe.pitHold) toast('Salida desde boxes: espera al semáforo verde', 5);
   if (mode !== 'multi' && wxStart() > 0.12 && R.state === 'run') setTimeout(() => { if (SES === R) toast(S.weather === 'secando' ? 'Pista secándose · vigila el cruce a slicks (T: neumáticos en boxes)' : 'Pista mojada · cuidado con pianos, línea de goma y charcos', 4.5); }, 3600);
-  if (mode === 'multi') $('lobby').hidden = true;
 }
 function rolling(e, s) {
   const i = Math.floor(s / T.ds) % T.N;
@@ -1141,6 +1139,7 @@ function enterMenu() {
   renderGarage(); renderSpec();
   for (const m of world.lightMats) m.color.setHex(0x2a0606);
   if (world.pitLightMat) world.pitLightMat.color.setHex(0x18c040);
+  renderLobby();
 }
 function pause() { if (S.mode !== 'race') return; S.mode = 'pause'; $('pause').hidden = false; renderPitTyres(); $('pRepair').hidden = !(SES && SES.kind !== 'race' && SES.mode !== 'multi' && DMG.scale > 0 && car.dmg && dmgRepairPlan(car.dmg).length); renderLapTable(); if (audio) audio.mute(); }
 function resume() { if (S.mode !== 'pause') return; $('pause').hidden = true; $('settings').hidden = true; S.mode = 'race'; syncEnv(); }
@@ -1305,7 +1304,7 @@ function collisions() {
     for (let b = a + 1; b < n; b++) {
       const B = E[b]; if (B.ghost > 0 || (B.isPlayer && B.pitHold)) continue;
       const dx = A.x - B.x, dz = A.z - B.z; if (dx * dx + dz * dz > 64) continue;
-      if (B.isRemote) { if (A.isPlayer && B.kin) collideCars(A.veh, B.kin); continue; }
+      if (B.isRemote) { if (A.isPlayer && B.kin && SES.netCol !== false) collideCars(A.veh, B.kin); continue; }   // collisions off: ghosts
       collideCars(A.veh, B.veh);
     }
   }
@@ -1879,306 +1878,8 @@ function updateHUD(dt) {
 }
 
 // ---------------------------------------------------------------------------
-//  Multiplayer (room presence): lobby by code, synced start, live car states
+//  Multiplayer: private rooms by code -> src/net.js (room manager, pilot profile, sync) and src/lobby.js (room UI)
 // ---------------------------------------------------------------------------
-const NET = { room: null, mode: null, avail: null, peers: [], code: null, host: false, offset: null, startPerf: 0, lastSend: 0, cfgSeen: 0, connecting: null, err: null, joining: false };
-const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-// ---- transport A: the Claude room (signed-in viewers of the artifact)
-// ---- transport B: direct browser-to-browser (WebRTC through PeerJS), no account: works wherever the
-//      page is hosted outside Claude. The host relays everyone's state (star), emulating the room API.
-const P2P_PREFIX = 'spa-record-v1-';
-let peerLib = null;
-function loadPeerJS() {
-  if (window.Peer) return Promise.resolve(window.Peer);
-  if (peerLib) return peerLib;
-  const urls = ['https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js', 'https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js'];
-  peerLib = new Promise((res, rej) => {
-    const next = (k) => {
-      if (k >= urls.length) { peerLib = null; rej(new Error('lib')); return; }
-      const sc = document.createElement('script'); sc.src = urls[k]; sc.async = true;
-      sc.onload = () => window.Peer ? res(window.Peer) : next(k + 1); sc.onerror = () => next(k + 1);
-      document.head.appendChild(sc);
-    };
-    next(0);
-  });
-  return peerLib;
-}
-class P2PRoom {
-  constructor(Peer) { this.Peer = Peer; this.pj = null; this.id = null; this.list = new Map(); this.me = {}; this.fns = []; this.errs = []; this.conns = new Map(); this.hostConn = null; this.isHost = false; this.dead = false; }
-  peers() { return [...this.list.values()].map(e => ({ peer: e.peer, sameTab: e.peer === this.id, kind: 'viewer', presence: e.presence, updatedAt: e.at })); }
-  onPeers(fn, err) { this.fns.push(fn); if (err) this.errs.push(err); }
-  emit() { const ps = this.peers(); for (const f of this.fns) { try { f({ peers: ps }); } catch (e) { } } }
-  fail(code) { if (this.dead) return; for (const f of this.errs) { try { f(code); } catch (e) { } } }
-  softLost() {
-    const pj = this.pj; if (this.dead || !pj) return;
-    try { if (pj.disconnected && !pj.destroyed) pj.reconnect(); } catch (e) { }
-    clearTimeout(this.lostT);
-    this.lostT = setTimeout(() => { if (!this.dead && pj.disconnected && ![...this.conns.values()].some(c => c.open)) this.fail('server'); }, 10000);
-  }
-  opts() { const o = Object.assign({ debug: 0 }, window.__P2P_SERVER || {}); return o; }
-  presence(patch) {
-    for (const k in patch) { if (patch[k] === null) delete this.me[k]; else this.me[k] = patch[k]; }
-    if (!this.id) return Promise.resolve();
-    const p = Object.assign({}, this.me);
-    this.list.set(this.id, { peer: this.id, presence: p, at: Date.now() });
-    if (this.isHost) this.broadcast({ t: 'u', peer: this.id, p });
-    else if (this.hostConn && this.hostConn.open) { try { this.hostConn.send({ t: 'p', p }); } catch (e) { } }
-    this.emit();
-    return Promise.resolve();
-  }
-  broadcast(msg, except) { for (const [id, c] of this.conns) if (id !== except && c.open) { try { c.send(msg); } catch (e) { } } }
-  snapshot() { return { t: 'all', list: [...this.list.values()].map(e => ({ peer: e.peer, p: e.presence })) }; }
-  // host: claim the code on the signalling server, then accept players
-  host(code) {
-    this.isHost = true;
-    return new Promise((res, rej) => {
-      const pj = this.pj = new this.Peer(P2P_PREFIX + code, this.opts());
-      const to = setTimeout(() => rej('timeout'), 12000);
-      pj.on('open', (id) => { clearTimeout(to); this.id = id; this.presence({}); res(this); });
-      // after the room is up, a lost signalling socket does not break the open player links: reconnect quietly,
-      // and only report it if the host is left with nobody connected and cannot get back
-      pj.on('error', (e) => { clearTimeout(to); const t = e && e.type; if (!this.id) rej(t === 'unavailable-id' ? 'taken' : t === 'browser-incompatible' ? 'browser' : 'server'); else if (t === 'network' || t === 'server-error' || t === 'socket-error' || t === 'socket-closed') this.softLost(); });
-      pj.on('connection', (c) => {
-        c.on('open', () => { this.conns.set(c.peer, c); try { c.send(this.snapshot()); } catch (e) { } });
-        c.on('data', (m) => {
-          if (!m || m.t !== 'p' || typeof m.p !== 'object' || m.p === null) return;
-          this.list.set(c.peer, { peer: c.peer, presence: m.p, at: Date.now() });
-          this.broadcast({ t: 'u', peer: c.peer, p: m.p }, c.peer); this.emit();
-        });
-        const gone = () => { if (!this.conns.has(c.peer)) return; this.conns.delete(c.peer); this.list.delete(c.peer); this.broadcast({ t: 'x', peer: c.peer }); this.emit(); };
-        c.on('close', gone); c.on('error', gone);
-      });
-      pj.on('disconnected', () => { if (!this.dead) { try { pj.reconnect(); } catch (e) { } } });
-    });
-  }
-  // guest: connect to the host of the code
-  join(code) {
-    return new Promise((res, rej) => {
-      const pj = this.pj = new this.Peer(undefined, this.opts());
-      const to = setTimeout(() => rej('timeout'), 15000);
-      pj.on('open', (id) => {
-        this.id = id;
-        const c = this.hostConn = pj.connect(P2P_PREFIX + code, { reliable: true, serialization: 'json' });
-        c.on('open', () => { clearTimeout(to); this.presence({}); res(this); });
-        c.on('data', (m) => {
-          if (!m || typeof m !== 'object') return;
-          const now = Date.now();
-          if (m.t === 'all' && Array.isArray(m.list)) { const mine = this.list.get(this.id); this.list.clear(); for (const e of m.list) if (e && e.peer && e.peer !== this.id) this.list.set(e.peer, { peer: e.peer, presence: e.p || {}, at: now }); if (mine) this.list.set(this.id, mine); }
-          else if (m.t === 'u' && m.peer && m.peer !== this.id) this.list.set(m.peer, { peer: m.peer, presence: m.p || {}, at: now });
-          else if (m.t === 'x' && m.peer) this.list.delete(m.peer);
-          this.emit();
-        });
-        c.on('close', () => { const mine = this.list.get(this.id); this.list.clear(); if (mine) this.list.set(this.id, mine); this.emit(); this.fail('hostgone'); });
-      });
-      pj.on('error', (e) => { clearTimeout(to); const t = e && e.type; if (t === 'peer-unavailable') rej('nohost'); else if (!this.hostConn || !this.hostConn.open) rej(t === 'browser-incompatible' ? 'browser' : 'server'); else if (t === 'network' || t === 'server-error' || t === 'socket-error') { try { if (pj.disconnected && !pj.destroyed) pj.reconnect(); } catch (er) { } } });
-      pj.on('disconnected', () => { if (!this.dead && this.hostConn && this.hostConn.open) { try { pj.reconnect(); } catch (e) { } } });
-    });
-  }
-  destroy() { this.dead = true; try { this.pj && this.pj.destroy(); } catch (e) { } this.list.clear(); this.conns.clear(); }
-}
-for (const ev of ['beforeunload', 'pagehide']) window.addEventListener(ev, () => { if (NET.mode === 'p2p' && NET.room) NET.room.destroy(); });
-
-function netInit() {
-  if (NET.connecting) return NET.connecting;
-  NET.connecting = (async () => {
-    let room = null;
-    try { if (window.claude && typeof window.claude.use === 'function') room = await window.claude.use('room'); } catch (e) { room = null; }
-    if (room) {
-      NET.mode = 'room'; NET.room = room; NET.avail = true;
-      room.onPeers((ch) => { NET.peers = ch.peers; onNetPeers(); }, () => { NET.avail = false; renderLobby(); });
-      NET.peers = room.peers();
-    } else if (window.claude && typeof window.claude.use === 'function') {
-      // inside Claude without room access (signed out / public link): this frame blocks direct connections too
-      NET.mode = 'p2p'; NET.avail = false; NET.err = 'claude';
-    } else {
-      NET.mode = 'p2p';
-      try { await loadPeerJS(); NET.avail = true; } catch (e) { NET.avail = false; NET.err = 'lib'; }
-    }
-    renderLobby();
-    if (NET.pendingCode && NET.avail) { const c = NET.pendingCode; NET.pendingCode = null; netJoin(c, false); }
-  })();
-  return NET.connecting;
-}
-const pres = (p) => (p && p.presence) || {};
-const myPeer = () => NET.peers.find(p => p.sameTab);
-const roomPeers = () => NET.peers.filter(p => p.kind !== 'agent' && pres(p).g === 'spa1' && pres(p).code && pres(p).code === NET.code);
-const roomHost = () => roomPeers().filter(p => pres(p).host).sort((a, b) => (pres(a).since || 0) - (pres(b).since || 0))[0];
-function netSet(patch) { if (NET.room) NET.room.presence(Object.assign({ now: Date.now() }, patch)).catch(() => { }); }
-const newCode = () => { let code = ''; do { code = ''; for (let i = 0; i < 4; i++) code += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]; } while (NET.mode === 'room' && NET.peers.some(p => pres(p).code === code)); return code; };
-function copyText(txt, btn, done) {
-  const ok = () => { const t = btn.textContent; btn.textContent = done; setTimeout(() => { btn.textContent = t; }, 1500); };
-  try { navigator.clipboard.writeText(txt).then(ok, () => { $('netLinkText').hidden = false; $('netLinkText').textContent = txt; }); } catch (e) { $('netLinkText').hidden = false; $('netLinkText').textContent = txt; }
-}
-const joinLink = () => location.href.split('#')[0] + '#' + NET.code;
-function initLobbyUI() {
-  $('netName').value = S.game.name || '';
-  $('netName').addEventListener('input', (e) => { S.game.name = e.target.value.slice(0, 16); saveGame(); if (NET.code) netSet({ name: S.game.name || 'Piloto' }); });
-  $('netCode').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
-  $('netCreate').addEventListener('click', () => netJoin(newCode(), true));
-  $('netJoin').addEventListener('click', () => { const c = $('netCode').value.trim().toUpperCase(); if (c.length === 4) netJoin(c, false); else $('lobbyNote').textContent = 'El código tiene 4 caracteres.'; });
-  $('netCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('netJoin').click(); });
-  $('netCopy').addEventListener('click', () => copyText(NET.code, $('netCopy'), 'Copiado'));
-  $('netCopyLink').addEventListener('click', () => copyText(joinLink(), $('netCopyLink'), 'Enlace copiado'));
-  $('netLaps').value = S.game.laps; $('netLapsVal').textContent = S.game.laps;
-  $('netLaps').addEventListener('input', (e) => { $('netLapsVal').textContent = e.target.value; });
-  $('netLeave').addEventListener('click', () => { if (NET.code || NET.joining) netLeaveRoom(); else $('lobby').hidden = true; });
-  $('netStart').addEventListener('click', netHostStart);
-}
-function openLobby() { $('lobby').hidden = false; renderLobby(); netInit(); }
-function netPresence(code, host) {
-  const sp = carById(S.carId), liv = liveryOf(sp);
-  return { g: 'spa1', trk: TRACK.id, code, host: host ? 1 : 0, since: Date.now(), name: S.game.name || 'Piloto', car: sp.id, c1: liv.col, c2: liv.col2, pt: liv.pattern, fn: liv.finish, rm: liv.rim, ph: 'lobby', st: null, fin: null, cfg: null };
-}
-function netLeaveRoom() {
-  if (NET.mode === 'p2p') { if (NET.room) NET.room.destroy(); NET.room = null; NET.peers = []; }
-  else netSet({ code: null, host: 0, ph: null, cfg: null, st: null });
-  NET.code = null; NET.host = false; NET.joining = false; NET.err = null; renderLobby();
-}
-function netJoin(code, host, tries) {
-  NET.cfgSeen = 0; NET.offset = host ? 0 : null; NET.err = null;
-  if (NET.mode !== 'p2p') { NET.code = code; NET.host = host; netSet(netPresence(code, host)); renderLobby(); return; }
-  if (NET.room) { NET.room.destroy(); NET.room = null; NET.peers = []; }
-  NET.joining = true; NET.code = null; NET.host = host; NET.joinCode = code; renderLobby();
-  const Peer = window.Peer, room = new P2PRoom(Peer);
-  (host ? room.host(code) : room.join(code)).then(() => {
-    if (!NET.joining || NET.joinCode !== code) { room.destroy(); return; }
-    NET.joining = false; NET.room = room; NET.code = code;
-    room.onPeers((ch) => { NET.peers = ch.peers; onNetPeers(); }, (why) => { NET.err = why; renderLobby(); });
-    netSet(netPresence(code, host));
-    NET.peers = room.peers(); renderLobby();
-  }).catch((why) => {
-    room.destroy();
-    if (!NET.joining || NET.joinCode !== code) return;
-    if (host && why === 'taken' && (tries || 0) < 4) { netJoin(newCode(), true, (tries || 0) + 1); return; }
-    NET.joining = false; NET.code = null; NET.err = why; renderLobby();
-  });
-}
-function onNetPeers() {
-  const h = roomHost();
-  if (h && !h.sameTab && pres(h).now) { const o = h.updatedAt - pres(h).now; if (NET.offset == null || o < NET.offset) NET.offset = o; }
-  if (h && h.sameTab) NET.offset = 0;
-  if (NET.code && h && !NET.host) {
-    const ht = pres(h).trk;
-    if (ht && TRACK_DEFS[ht] && ht !== TRACK.id && S.mode === 'menu' && !trackBusy) switchTrack(ht).then(ok => { if (ok && NET.code) netSet({ trk: TRACK.id }); });
-    const cfg = pres(h).cfg;
-    if (cfg && cfg.seq && cfg.seq !== NET.cfgSeen && pres(h).ph === 'race' && cfg.startAt + (NET.offset || 0) > Date.now() - 2000) { NET.cfgSeen = cfg.seq; netStartRace(cfg); }
-  }
-  if (!$('lobby').hidden) renderLobby();
-  if (SES && SES.mode === 'multi') netSyncRemotes();
-}
-const NET_ERR = {
-  lib: 'No se pudo cargar el módulo online. Revisa tu conexión a internet y vuelve a abrir esta ventana.',
-  claude: 'Dentro de Claude, el online solo funciona con la sesión de Claude iniciada. Para jugar con cualquiera sin cuenta, abre la versión del juego publicada fuera de Claude: allí basta con compartir el código o el enlace de la sala.',
-  server: 'No se pudo conectar con el servidor de salas. Revisa tu conexión y prueba otra vez; algunas redes de colegios o empresas bloquean este tipo de conexión.',
-  timeout: 'La conexión tardó demasiado. Prueba otra vez; si sigue fallando, puede que tu red bloquee las conexiones directas.',
-  nohost: 'No hay ninguna sala abierta con ese código. Revisa el código o pide que la vuelvan a crear.',
-  taken: 'No se pudo reservar un código libre. Prueba otra vez.',
-  browser: 'Este navegador no permite conexiones directas entre jugadores. Prueba con Chrome, Edge, Firefox o Safari actualizados.',
-  hostgone: 'El anfitrión cerró la sala o perdió la conexión.'
-};
-function renderLobby() {
-  const note = $('lobbyNote'), p2p = NET.mode === 'p2p';
-  $('netCopyLink').hidden = !p2p; if (!NET.code) $('netLinkText').hidden = true;
-  if (NET.avail === false && NET.mode === 'room') {
-    note.textContent = 'La sala de Claude no está disponible ahora mismo.';
-    $('lobbyJoin').hidden = true; $('lobbyRoom').hidden = true; $('netStart').hidden = true; $('netLeave').textContent = 'Cerrar'; return;
-  }
-  if (NET.avail === false) {
-    note.textContent = NET_ERR[NET.err] || NET_ERR.lib;
-    $('lobbyJoin').hidden = true; $('lobbyRoom').hidden = true; $('netStart').hidden = true; $('netLeave').textContent = 'Cerrar'; return;
-  }
-  if (NET.avail == null) { note.textContent = 'Preparando el modo online…'; $('lobbyJoin').hidden = true; $('lobbyRoom').hidden = true; $('netStart').hidden = true; return; }
-  if (NET.joining) { note.textContent = (NET.host ? 'Creando la sala ' : 'Conectando con la sala ') + NET.joinCode + '…'; $('lobbyJoin').hidden = true; $('lobbyRoom').hidden = true; $('netStart').hidden = true; $('netLeave').textContent = 'Cancelar'; return; }
-  if (!NET.code) {
-    const base = p2p ? 'Crea una sala y comparte el código o el enlace. Tus amigos solo tienen que abrir este mismo juego: no necesitan cuenta.' : 'Crea una sala y comparte el código con tus amigos, o escribe el código que te hayan pasado. Todos deben tener abierto este mismo juego.';
-    note.textContent = NET.err ? NET_ERR[NET.err] || base : base;
-    $('lobbyJoin').hidden = false; $('lobbyRoom').hidden = true; $('netStart').hidden = true; $('netLeave').textContent = 'Cerrar'; return;
-  }
-  $('lobbyJoin').hidden = true; $('lobbyRoom').hidden = false; $('netLeave').textContent = 'Salir de la sala';
-  $('netRoomCode').textContent = NET.code;
-  const ps = roomPeers(), host = roomHost();
-  note.textContent = NET.err === 'hostgone' ? NET_ERR.hostgone : NET.err === 'server' ? NET_ERR.server : NET.host ? 'Eres el anfitrión: cuando estén todos, pulsa «Empezar carrera». Se usa tu clima actual.' : host ? 'Conectado. Espera a que el anfitrión empiece la carrera.' : 'Esperando al anfitrión de la sala ' + NET.code + '…';
-  $('netPlayers').innerHTML = ps.map(p => { const pr = pres(p), sp = carById(pr.car); return `<li><span>${esc(String(pr.name || 'Piloto').slice(0, 16))}${pr.host ? '<span class="tag start">Anfitrión</span>' : ''}${p.sameTab ? '<span class="tag">Tú</span>' : ''}</span><small>${esc(sp ? sp.name : '')}${pr.ph === 'race' ? ' · en carrera' : ''}</small></li>`; }).join('') || '<li><small>Nadie más todavía</small></li>';
-  $('netHostCfg').hidden = !NET.host; $('netStart').hidden = !NET.host;
-  $('netStatus').textContent = TRACK.name + ' · ' + ps.length + (ps.length === 1 ? ' piloto en la sala' : ' pilotos en la sala') + (p2p ? ' · conexión directa' : '');
-}
-function netHostStart() {
-  if (!NET.host) return;
-  const grid = roomPeers().map(p => p.peer).sort(() => Math.random() - 0.5);
-  const cfg = { seq: Date.now() % 1000000, laps: +$('netLaps').value, weather: S.weather, trk: TRACK.id, startAt: Date.now() + 8000, grid };
-  netSet({ ph: 'race', cfg });
-  NET.cfgSeen = cfg.seq; netStartRace(cfg);
-}
-async function netStartRace(cfg) {
-  const me = myPeer(); if (!me || !Array.isArray(cfg.grid)) return;
-  const localStart = cfg.startAt + (NET.offset || 0);
-  NET.startPerf = performance.now() + (localStart - Date.now());
-  if (cfg.trk && TRACK_DEFS[cfg.trk] && cfg.trk !== TRACK.id) { if (SES) { disposeEntries(); SES = null; } store.set('track', cfg.trk); trackBusy = true; try { await loadTrack(cfg.trk); } finally { trackBusy = false; } if (NET.code) netSet({ trk: TRACK.id }); }
-  if (WEATHER[cfg.weather] && cfg.weather !== S.weather) setWeather(cfg.weather);
-  const laps = clamp(Math.round(+cfg.laps || 3), 1, 20);
-  const slot = Math.max(0, cfg.grid.indexOf(me.peer));
-  startSession('race', { mode: 'multi', seq: cfg.seq });
-  SES.raceLaps = laps; SES.grid = cfg.grid;
-  const sl = world.gridSlots[Math.min(slot, world.gridSlots.length - 1)];
-  car.reset(sl.s, sl.d); snapshot(SES.player); SES.player.prevS = SES.player.s; SES.player.progress = SES.player.s; SES.prevS = car.q.s; SES.player.grid = slot + 1;
-  netSet({ ph: 'race', rs: cfg.seq, fin: null, st: null });
-  netSyncRemotes();
-}
-function netTick() {
-  const now = performance.now();
-  if (now - NET.lastSend < 50) return;
-  NET.lastSend = now;
-  const r2 = (v) => Math.round(v * 100) / 100;
-  netSet({ st: [r2(car.x), r2(car.z), Math.round(car.h * 1000) / 1000, r2(car.u), r2(car.v), SES.player.lap, r2(car.q.s), r2(car.y)], rs: SES.netSeq });
-}
-function netFinish(t) { netSet({ fin: Math.round(t * 1000) / 1000, rs: SES.netSeq }); }
-function netLeaveRace() { netSet({ ph: 'lobby', st: null }); NET.startPerf = 0; }
-function netSyncRemotes() {
-  const R = SES; if (!R || R.mode !== 'multi') return;
-  const seen = new Set();
-  for (const p of roomPeers()) {
-    if (p.sameTab) continue;
-    const pr = pres(p); if (pr.rs !== R.netSeq) continue;
-    seen.add(p.peer);
-    let e = R.entries.find(x => x.peer === p.peer);
-    if (!e) {
-      const sp = carById(pr.car) || CARS[0];
-      const liv = { col: /^#[0-9a-f]{6}$/i.test(pr.c1) ? pr.c1 : sp.col, col2: /^#[0-9a-f]{6}$/i.test(pr.c2) ? pr.c2 : sp.col2, col3: sp.col3, pattern: PATTERNS[pr.pt] ? pr.pt : 'solido', finish: FINISH[pr.fn] ? pr.fn : 'brillo', rim: RIMNAMES[pr.rm] ? pr.rm : 'plata' };
-      const m = buildCar(sp, liv, { lite: true }); scene.add(m.root); m.root.visible = false;
-      if (m.blob) m.blob.visible = S.settings.quality === 'bajo';
-      const nm = String(pr.name || 'Piloto').slice(0, 16);
-      e = newEntry({ id: p.peer, peer: p.peer, isRemote: true, name: nm, code: nm.slice(0, 3).toUpperCase(), sp, model: m, len: sp.len, wid: sp.wid, buf: [], q: newQ(), hint: -1, wheelRot: 0, grid: ((R.grid || []).indexOf(p.peer) + 1) || null });
-      R.entries.push(e);
-    }
-    const st = pr.st;
-    if (Array.isArray(st) && st.length >= 8 && st.every(v => typeof v === 'number' && isFinite(v))) {
-      const lastB = e.buf[e.buf.length - 1];
-      if (!lastB || lastB.st !== st) { e.buf.push({ t: performance.now(), st }); if (e.buf.length > 20) e.buf.shift(); }
-      e.lap = st[5]; e.progress = st[5] * T.L + st[6];
-    }
-    if (typeof pr.fin === 'number' && isFinite(pr.fin) && pr.fin > 0) { e.fin = true; e.finT = pr.fin; e.finLaps = R.raceLaps; }
-    e.left = false;
-  }
-  for (const e of R.entries) if (e.isRemote && !seen.has(e.peer)) { e.left = true; if (e.model) e.model.root.visible = false; }
-  if (R.resultsShown) showRaceResults();
-}
-function netPoseRemote(e, dt) {
-  if (e.left || !e.buf.length) { e.model.root.visible = false; e.kin = null; return; }
-  const tR = performance.now() - 110;
-  let a = e.buf[0], b = null;
-  for (let k = e.buf.length - 1; k >= 0; k--) if (e.buf[k].t <= tR) { a = e.buf[k]; b = e.buf[k + 1] || null; break; }
-  const A = a.st;
-  let x, z, h, u, v, y;
-  if (b) { const f = clamp((tR - a.t) / Math.max(1, b.t - a.t), 0, 1), B = b.st; x = lerp(A[0], B[0], f); z = lerp(A[1], B[1], f); h = A[2] + wrapAng(B[2] - A[2]) * f; u = lerp(A[3], B[3], f); v = lerp(A[4], B[4], f); y = lerp(A[7], B[7], f); }
-  else { const ex = clamp((tR - a.t) / 1000, 0, 0.3); x = A[0] + (A[3] * Math.sin(A[2]) + A[4] * Math.cos(A[2])) * ex; z = A[1] + (A[3] * Math.cos(A[2]) - A[4] * Math.sin(A[2])) * ex; h = A[2]; u = A[3]; v = A[4]; y = A[7]; }
-  const vx = u * Math.sin(h) + v * Math.cos(h), vz = u * Math.cos(h) - v * Math.sin(h);
-  e.x = x; e.z = z; e.u = u; e.vx = vx; e.vz = vz;
-  T.project(x, z, e.hint, e.q); e.hint = e.q.i; e.s = e.q.s; e.d = e.q.d; e.i = e.q.i;
-  e.kin = { kin: true, x, z, h, vx, vz, len: e.len, wid: e.wid };
-  const r = e.model.root; r.visible = true;
-  r.position.set(x, y, z); r.rotation.order = 'YXZ'; r.rotation.set(0, h, 0);
-  e.wheelRot += u / 0.34 * dt; for (const w of e.model.wheels) spinWheel(w, e.wheelRot);
-}
 
 // ---------------------------------------------------------------------------
 //  Loop
@@ -2599,6 +2300,7 @@ function frame(now) {
   updateCamera(dt);
   if (DFX.shake > 0.01 && S.mode === 'race') { camera.position.x += jit() * 0.09 * DFX.shake; camera.position.y += jit() * 0.07 * DFX.shake; camera.rotation.z += jit() * 0.012 * DFX.shake; }
   updateOthers(dt);
+  netTags();
   lodFrame();
   damageFrame(dt);
   tyreFrame(dt);
@@ -2678,7 +2380,7 @@ function nanScan() {
   for (let i = 0; i < buf.length; i++) { const e = (buf[i] >> 10) & 31; if (e === 31) { if (buf[i] & 1023) nan++; else inf++; if (!first) first = [(i >> 2) % sz.x, sz.y - 1 - Math.floor((i >> 2) / sz.x)]; } else if (e >= 29) big++; }
   return { nan, inf, big, first, w: sz.x, h: sz.y };
 }
-window.__spa = { S, tyreLife: () => ({ cache: Object.fromEntries(TYRE_LIFE.cache), job: TYRE_LIFE.job && { key: TYRE_LIFE.job.key, c: TYRE_LIFE.job.c, n: TYRE_LIFE.job.st && TYRE_LIFE.job.st.n, t: TYRE_LIFE.job.st && +TYRE_LIFE.job.st.t.toFixed(1) } }), menuStep(k, anim) { setMenuStep(k, { instant: !anim }); return MENU_UI.step; }, sheet(full) { MENU_UI.sheet.set(MENU_UI.det[full ? 0 : 1]); sheetSettled(); return MENU_UI.det; }, menuUI: MENU_UI, nanScan, freeze(on) { FREEZE = on ? { draw: false } : null; return 'ok'; }, redraw() { if (FREEZE) FREEZE.draw = true; return 'ok'; }, lod(on) { if (on != null) LOD_ON = on !== false; return { on: LOD_ON, jobs: LOD_JOBS.length, ms: Math.round(LOD_MS) }; }, async lodFlush() { for (let k = 0; k < 600 && (LOD_JOBS.length || (LOD_W && LOD_W.pend.size)); k++) await new Promise(r => setTimeout(r, 100)); return { worker: !!LOD_W, left: LOD_JOBS.length, ms: Math.round(LOD_MS) }; }, get INPUT() { return INPUT; }, switchTrack, post: () => POST.ready, get TRACK() { return TRACK; }, audioLab: { CarAudio, EngineVoice, engineProfile, engineWave }, get car() { return car; }, get model() { return model; }, get race() { return SES; }, get world() { return world; }, get skids() { return skids; }, get camera() { return camera; }, get T() { return T; }, get DFX() { return DFX; }, get coach() { return COACH_ST; }, setLineMode, crashTest, startSession, rewind, get RW() { return RW; }, selectCar, cycleCam, netDbg: () => ({ code: NET.code, host: NET.host, off: NET.offset, seen: NET.cfgSeen, peers: NET.peers.map(p => [p.peer, p.sameTab, pres(p).code, pres(p).host, pres(p).ph, pres(p).cfg && pres(p).cfg.seq, pres(p).cfg && pres(p).cfg.startAt - Date.now()]) }), setAuto(k) { AUTO = k != null ? { k } : null; }, renderer: () => renderer, menu: MENU, setWeather, WXS, TYRES, tyreRequestCycle, startFromMenu, endQuali,
+window.__spa = { S, tyreLife: () => ({ cache: Object.fromEntries(TYRE_LIFE.cache), job: TYRE_LIFE.job && { key: TYRE_LIFE.job.key, c: TYRE_LIFE.job.c, n: TYRE_LIFE.job.st && TYRE_LIFE.job.st.n, t: TYRE_LIFE.job.st && +TYRE_LIFE.job.st.t.toFixed(1) } }), menuStep(k, anim) { setMenuStep(k, { instant: !anim }); return MENU_UI.step; }, sheet(full) { MENU_UI.sheet.set(MENU_UI.det[full ? 0 : 1]); sheetSettled(); return MENU_UI.det; }, menuUI: MENU_UI, nanScan, freeze(on) { FREEZE = on ? { draw: false } : null; return 'ok'; }, redraw() { if (FREEZE) FREEZE.draw = true; return 'ok'; }, lod(on) { if (on != null) LOD_ON = on !== false; return { on: LOD_ON, jobs: LOD_JOBS.length, ms: Math.round(LOD_MS) }; }, async lodFlush() { for (let k = 0; k < 600 && (LOD_JOBS.length || (LOD_W && LOD_W.pend.size)); k++) await new Promise(r => setTimeout(r, 100)); return { worker: !!LOD_W, left: LOD_JOBS.length, ms: Math.round(LOD_MS) }; }, get INPUT() { return INPUT; }, switchTrack, post: () => POST.ready, get TRACK() { return TRACK; }, audioLab: { CarAudio, EngineVoice, engineProfile, engineWave }, get car() { return car; }, get model() { return model; }, get race() { return SES; }, get world() { return world; }, get skids() { return skids; }, get camera() { return camera; }, get T() { return T; }, get DFX() { return DFX; }, get coach() { return COACH_ST; }, setLineMode, crashTest, startSession, rewind, get RW() { return RW; }, selectCar, cycleCam, net: () => ({ code: NET.code, host: NET.host, mode: NET.mode, avail: NET.avail, err: NET.err, joining: NET.joining, closed: NET.closed, room: netRoomState().ps.map(p => ({ peer: p.peer, me: p.sameTab, name: pres(p).name, car: pres(p).car, c1: pres(p).c1, host: pres(p).host, rdy: pres(p).rdy, trk: pres(p).trk, ph: pres(p).ph })), canStart: !!netRoomState().canStart, remotes: SES && SES.mode === 'multi' ? SES.entries.filter(e => e.isRemote).map(e => ({ name: e.name, x: e.x, z: e.z, mode: e.mode, off: e.off, jit: e.jit, gap: e.gap, left: e.left, vis: !!(e.model && e.model.root.visible), tag: !!(e.tag && !e.tag.hidden) })) : null, startText: $('startLbl').textContent, startHint: $('startHint').textContent, disabled: $('startBtn').disabled, toast: $('netToast').hidden ? '' : $('netToast').textContent, notices: (netNotify.log || []).slice(), note: $('lobbyNote').hidden ? '' : $('lobbyNote').textContent }), get netLab() { return { netSampleAt, normCode, codeValid, netClock, netDelay, netRenderTime }; }, netJoin, lobbyPrimary, openLobby, netReady, netHostSettings, netNotify, netDbg: () => ({ code: NET.code, host: NET.host, off: NET.offset, seen: NET.cfgSeen, peers: NET.peers.map(p => [p.peer, p.sameTab, pres(p).code, pres(p).host, pres(p).ph, pres(p).cfg && pres(p).cfg.seq, pres(p).cfg && pres(p).cfg.startAt - Date.now()]) }), setAuto(k) { AUTO = k != null ? { k } : null; }, renderer: () => renderer, menu: MENU, setWeather, WXS, TYRES, tyreRequestCycle, startFromMenu, endQuali,
   view(sN, d, h, back, lookD, fov) { $('menu').hidden = true; const s = ((sN + T.nom) % T.nom) * T.L / T.nom; const p = trackPoint(T, s - (back || 0), d), t = trackPoint(T, s, lookD != null ? lookD : d); DEBUGCAM = [p.x, p.e + h, p.z, t.x, t.e + 1, t.z, fov || 60]; return 'ok'; }, noview() { DEBUGCAM = null; }, cam(a, b, c, d, e, f, g) { $('menu').hidden = true; DEBUGCAM = [a, b, c, d, e, f, g || 60]; return 'ok'; },
   camAt(p, t, fov) { $('menu').hidden = true; model.root.updateMatrixWorld(true); const a = model.body.localToWorld(new THREE.Vector3(p[0], p[1], p[2])), b = model.body.localToWorld(new THREE.Vector3(t[0], t[1], t[2])); DEBUGCAM = [a.x, a.y, a.z, b.x, b.y, b.z, fov || 40]; return 'ok'; },
   orbit(ang, dist, h, fov) { $('menu').hidden = true; const a = car.h + ang, y = car.y; DEBUGCAM = [car.x + Math.sin(a) * dist, y + h, car.z + Math.cos(a) * dist, car.x, y + 0.55, car.z, fov || 35]; return 'ok'; },

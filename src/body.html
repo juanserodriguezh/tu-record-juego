@@ -23,6 +23,7 @@
       </div>
       <nav class="topnav">
         <button class="ghost-btn icon-btn snd-toggle" id="btnSound" type="button" aria-label="Silenciar sonido" aria-pressed="false"><svg class="ic-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><svg class="ic-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16.5 9.5l5 5m0-5l-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+        <button class="ghost-btn join-btn" id="btnJoin" type="button">Unirse a sala</button>
         <button class="ghost-btn" id="btnControls" type="button">Controles</button>
         <button class="ghost-btn" id="btnSettings" type="button">Ajustes</button>
       </nav>
@@ -37,6 +38,7 @@
           <button type="button" role="tab" data-step="coche" aria-selected="false"><i>2</i>Coche</button>
           <button type="button" role="tab" data-step="sesion" aria-selected="false"><i>3</i>Sesión</button>
         </div>
+        <button class="netbar" id="netBar" type="button" hidden><i aria-hidden="true"></i><span>Sala <b id="netBarCode"></b></span><small id="netBarN"></small><em>Ver sala ›</em></button>
       </div>
       <div class="pages-clip">
         <div class="pages" id="menuPages">
@@ -62,11 +64,42 @@
             <ul class="car-list" id="carList" hidden></ul>
           </div>
           <div class="page" data-step="sesion" role="tabpanel" aria-label="Sesión">
-            <h2 class="pg-title">¿Qué quieres hacer?</h2>
+            <div class="pg-row"><h2 class="pg-title">¿Qué quieres hacer?</h2><button class="link-btn" id="netModes" type="button" hidden>Otros modos</button></div>
             <div class="modes" id="modeTabs" role="tablist" aria-label="Modo de juego"></div>
             <h3 class="pg-h" id="quickTitle">Detalles</h3>
             <div class="quick" id="quickOpts" aria-label="Opciones rápidas de la sesión"></div>
             <button class="row-btn" id="sessBtn" type="button"><span>Más opciones</span><small>Salida, coches rivales, parrilla</small></button>
+            <!-- private rooms (lobby.js): join by code / create, then the room itself -->
+            <div class="net" id="netPanel" hidden>
+              <p class="net-note" id="lobbyNote" role="status" aria-live="polite" hidden></p>
+              <div id="lobbyJoin" class="lobby-join">
+                <h3 class="pg-h">Unirse con un código</h3>
+                <div class="join-row"><input type="text" id="netCode" maxlength="40" placeholder="Ej. K7QX" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go" aria-label="Código de sala"><button id="netJoin" type="button">Unirse</button></div>
+                <button class="row-btn" id="netCreate" type="button"><span>Crear sala privada</span><small>Tú eliges pista, vueltas y colisiones</small></button>
+              </div>
+              <div id="lobbyRoom" hidden>
+                <div class="room-code">
+                  <div><span class="eyebrow">Código de la sala</span><b id="netRoomCode">----</b></div>
+                  <div class="room-btns"><button id="netCopy" type="button">Copiar código</button><button id="netCopyLink" type="button" hidden>Copiar enlace</button></div>
+                </div>
+                <p class="net-note" id="netLinkText" hidden></p>
+                <h3 class="pg-h">Pilotos <span id="netCount" class="count"></span></h3>
+                <ul class="players" id="netPlayers"></ul>
+                <h3 class="pg-h">Carrera</h3>
+                <div class="quick" id="netHostCfg"></div>
+                <button class="row-btn" id="netCar" type="button"><span>Cambiar coche o color</span><small id="netCarName"></small></button>
+                <p class="net-note" id="netStatus"></p>
+                <button class="link-btn net-leave" id="netLeave" type="button">Salir de la sala</button>
+              </div>
+              <h3 class="pg-h">Tu piloto</h3>
+              <div class="net-me">
+                <span class="avatar big" id="netAvatar"></span>
+                <div class="net-id">
+                  <input type="text" id="netName" maxlength="16" autocomplete="off" spellcheck="false" placeholder="Tu nombre de piloto" aria-label="Tu nombre de piloto">
+                  <div class="swatches" id="netColors" aria-label="Color de tu coche"></div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -210,6 +243,7 @@
 
     <div class="repair" id="hRepair" hidden><span id="hRepairT">Reparando…</span><div class="bar"><i id="hRepairBar"></i></div></div>
     <div class="toast" id="toast" hidden></div>
+    <div class="ntags" id="netTags" aria-hidden="true" hidden></div>
     <div class="banner" id="banner" hidden></div>
     <button class="pause-btn" id="pauseBtn" type="button" aria-label="Pausa">II</button>
     <button class="rw-btn" id="hRewind" type="button" aria-label="Rebobinar 5 segundos" title="Rebobinar 5 s (Retroceso)" hidden><span aria-hidden="true">⟲</span> 5 s</button>
@@ -276,26 +310,8 @@
     </div>
   </div>
 
-  <!-- ===================== MULTIPLAYER LOBBY ===================== -->
-  <div id="lobby" class="overlay" hidden>
-    <div class="modal">
-      <div class="modal-head"><span class="eyebrow">Multijugador</span><h2>Carrera con amigos</h2></div>
-      <p class="muted small" id="lobbyNote">Conectando…</p>
-      <div class="field"><label for="netName">Tu nombre de piloto</label><input type="text" id="netName" maxlength="16" autocomplete="off" spellcheck="false"></div>
-      <div id="lobbyJoin" class="lobby-join">
-        <button class="primary" id="netCreate" type="button">Crear sala</button>
-        <div class="join-row"><input type="text" id="netCode" maxlength="4" placeholder="Código" autocomplete="off" spellcheck="false" aria-label="Código de sala"><button id="netJoin" type="button">Unirse</button></div>
-      </div>
-      <div id="lobbyRoom" hidden>
-        <div class="room-code"><span class="eyebrow">Código de la sala</span><b id="netRoomCode">----</b><button id="netCopy" type="button">Copiar código</button><button id="netCopyLink" type="button" hidden>Copiar enlace</button></div>
-        <p class="muted small" id="netLinkText" hidden></p>
-        <ul class="players" id="netPlayers"></ul>
-        <div id="netHostCfg" class="field"><label for="netLaps">Vueltas <b id="netLapsVal">3</b></label><input type="range" id="netLaps" min="1" max="10" step="1"></div>
-        <p class="muted small" id="netStatus"></p>
-      </div>
-      <div class="modal-foot two"><button id="netLeave" type="button">Cerrar</button><button class="primary" id="netStart" type="button" hidden>Empezar carrera</button></div>
-    </div>
-  </div>
+  <!-- multiplayer: pop-up notices (menu and track) -->
+  <div id="netToast" class="ntoast" role="status" aria-live="polite" hidden></div>
 
   <!-- ===================== SETTINGS ===================== -->
   <div id="settings" class="overlay" hidden>
