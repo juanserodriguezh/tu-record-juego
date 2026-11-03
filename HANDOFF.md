@@ -322,3 +322,4 @@
 - Segunda causa (AMG GT3 Red Bull): la lámina de pegatinas del parabrisas (`MI_Vehicle_Windows_Stickers`) perdió su textura en el asset; sin ella es una hoja casi negra (alfa 0,56 > corte 0,4) que tapaba media vista de la carretera.
 - Arreglo en `glb.js` al cargar: el `Glass` de Rexy pasa a transparente y, en cabina, usa una copia del atlas con los texeles translúcidos al 15 % (`GLB_GLASSMAP`/`glassInMap`; `setInterior` cambia el mapa solo en los materiales clonados del jugador). La lámina sin textura del Red Bull se oculta solo en la vista de cabina (`glbCabHide`).
 - Revisados en cabina en Mónaco los 5 GT (AMG GT3, GT3 Evo, GT3 Red Bull, 992 GT3 R, Rexy): solo esos dos tenían el fallo. Capturas antes y después de los dos y vista exterior de frente (Rexy ahora deja ver el interior por el parabrisas; el Red Bull no cambia por fuera). Sin errores de página.
+- Publicada el 3-nov-2026 como versión 88 del artefacto (id 1793715479-c68a). Solo cambió la página.
