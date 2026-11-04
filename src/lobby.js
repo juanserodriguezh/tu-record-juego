@@ -9,6 +9,7 @@
 //   footer button : Crear sala · Conectando… · ¡Estoy listo! / Listo ✓ (guest) · Iniciar carrera (host, only
 //                   when every guest is ready on the host's circuit)
 // Pop-up notices (netNotify) for errors, the host leaving and pilots coming and going, in the menu and on track.
+const NET_WEB = 'https://juanserodriguezh.github.io/tu-record-juego/';   // public build (GitHub Pages, PeerJS): anyone can host there
 const NET_COLORS = ['#e10600', '#ff8000', '#f6c21c', '#27c26a', '#00a3e0', '#2b4bd8', '#8f3fe0', '#ff4fa0', '#f2f2f2', '#16181d'];
 const lobbyOn = () => S.mode === 'menu' && S.game.mode === 'multi';
 function initLobbyUI() {
@@ -65,7 +66,9 @@ function avatarHtml(name, col) { const c = hexOr(col, '#888888'); return `<span 
 function lobbyFoot() {
   const btn = $('startBtn');
   let lbl, hint, dis = false, rdy = false;
-  if (NET.avail === false) { lbl = 'Reintentar'; hint = 'El modo online no está disponible'; }
+  if (NET.avail === false && NET.err === 'claude') { lbl = 'Abrir la versión web'; hint = 'Aquí no se pueden crear salas sin acceso al artefacto'; }
+  else if (NET.avail === false) { lbl = 'Reintentar'; hint = 'El modo online no está disponible'; }
+  else if (NET.pending) { lbl = 'Conectando…'; hint = 'Preparando el modo online'; dis = true; }
   else if (NET.joining) { lbl = 'Conectando…'; hint = (NET.host ? 'Creando la sala ' : 'Entrando en la sala ') + NET.joinCode; dis = true; }
   else if (!NET.code) { lbl = 'Crear sala privada'; hint = 'o escribe arriba el código de un amigo'; }
   else if (NET.host) {
@@ -80,9 +83,10 @@ function lobbyFoot() {
   return [lbl, hint];
 }
 function lobbyPrimary() {
+  if (NET.avail === false && NET.err === 'claude') { try { window.open($('netWeb').href, '_blank', 'noopener'); } catch (e) { } return; }   // retrying cannot help: the room does not admit this viewer
   if (NET.avail === false) { NET.connecting = null; NET.avail = null; NET.err = null; peerLib = null; netInit(); renderLobby(); return; }
-  if (NET.avail == null) { netInit(); return; }
-  if (NET.joining) return;
+  if (NET.joining || NET.pending) return;
+  if (NET.avail == null) { const c = normCode($('netCode').value); return codeValid(c) ? netJoin(c, false) : netJoin(newCode(), true); }   // queued until the module loads
   if (!NET.code) { const c = normCode($('netCode').value); return codeValid(c) ? netJoin(c, false) : netJoin(newCode(), true); }
   if (NET.host) return netHostStart();
   netReady(!myPres().rdy); renderLobby();
@@ -105,8 +109,13 @@ function renderLobby() {
   $('netAvatar').outerHTML = avatarHtml(pilotName(), liv.col).replace('class="avatar"', 'class="avatar big" id="netAvatar"');
   for (const b of $('netColors').children) b.setAttribute('aria-pressed', String(b.dataset.c.toLowerCase() === String(liv.col).toLowerCase()));
   const setNote = (txt, err) => { note.textContent = txt; note.classList.toggle('err', !!err); note.hidden = !txt; };
+  // inside Claude, viewers the room does not admit (public link, signed out) can still play: the web version (PeerJS) lets anyone host
+  const web = $('netWeb'), inClaude = !!(window.claude && typeof window.claude.use === 'function');
+  // not admitted: the footer button opens it; admitted: a quiet row for friends without access (rooms here and there do not mix)
+  web.href = NET_WEB;
+  web.hidden = !(inClaude && NET.avail === true && NET.mode === 'room' && !NET.code && !NET.joining);
   if (NET.avail === false) { setNote(NET_ERR[NET.err] || (NET.mode === 'room' ? 'La sala de Claude no está disponible ahora mismo.' : NET_ERR.lib), true); $('lobbyJoin').hidden = true; $('lobbyRoom').hidden = true; return; }
-  if (NET.avail == null) { setNote('Preparando el modo online…'); $('lobbyJoin').hidden = true; $('lobbyRoom').hidden = true; return; }
+  if (NET.avail == null) { setNote(NET.pending ? (NET.pending.host ? 'Preparando el modo online… la sala se crea en cuanto esté listo.' : 'Preparando el modo online… entrarás en ' + NET.pending.code + ' en cuanto esté listo.') : 'Preparando el modo online…'); $('lobbyJoin').hidden = true; $('lobbyRoom').hidden = true; return; }
   if (NET.joining) { setNote((NET.host ? 'Creando la sala ' : 'Conectando con la sala ') + NET.joinCode + '…'); $('lobbyJoin').hidden = false; $('lobbyRoom').hidden = true; $('netJoin').disabled = true; $('netCreate').disabled = true; return; }
   $('netJoin').disabled = false; $('netCreate').disabled = false;
   if (!NET.code) {

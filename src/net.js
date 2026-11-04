@@ -197,7 +197,9 @@ function netInit() {
       try { await loadPeerJS(); NET.avail = true; } catch (e) { NET.avail = false; NET.err = 'lib'; }
     }
     renderLobby();
-    if (NET.pendingCode && NET.avail) { const c = NET.pendingCode; NET.pendingCode = null; netJoin(c, false); }
+    // a create or join tapped while the online module was still loading runs now (a fresh device loads PeerJS on first use)
+    const q = NET.pending; NET.pending = null;
+    if (q && NET.avail && !NET.code && !NET.joining) netJoin(q.host ? newCode() : q.code, q.host);
   })();
   return NET.connecting;
 }
@@ -218,7 +220,7 @@ function netRefusal(ps, host) {
 }
 function netLeaveRoom(why) {
   // state first: the presence update below can call onNetPeers synchronously, which must already see "no room"
-  NET.code = null; NET.host = false; NET.joining = false; NET.err = why || null; NET.closed = false; NET.roster = null; NET.hadHost = false;
+  NET.code = null; NET.host = false; NET.joining = false; NET.err = why || null; NET.closed = false; NET.roster = null; NET.hadHost = false; NET.pending = null;
   if (NET.mode === 'p2p') { if (NET.room) NET.room.destroy(); NET.room = null; NET.peers = []; }
   else netSet({ code: null, host: 0, ph: null, cfg: null, st: null, rdy: 0, lp: null, col: null });
   renderLobby();
@@ -227,7 +229,10 @@ function netFail(why) { NET.err = why; renderLobby(); netNotify(NET_ERR[why] || 
 function netJoin(code, host, tries) {
   code = normCode(code);
   if (!host && !codeValid(code)) return netFail('invalid');
-  if (!NET.avail) { NET.pendingCode = host ? null : code; netInit(); return; }
+  if (!NET.avail) {
+    if (NET.avail === false && NET.connecting) return netFail(NET.err || 'lib');
+    NET.pending = { code, host: !!host }; netInit(); renderLobby(); return;
+  }
   NET.cfgSeen = 0; NET.offset = host ? 0 : null; NET.err = null; NET.closed = false; NET.roster = null;
   if (NET.mode !== 'p2p') {
     // Claude room: everybody already sees everybody's presence, so the joiner checks the room itself
@@ -290,7 +295,7 @@ function onNetPeers() {
 }
 const NET_ERR = {
   lib: 'No se pudo cargar el módulo online. Revisa tu conexión a internet y vuelve a intentarlo.',
-  claude: 'Dentro de Claude, el online solo funciona con la sesión de Claude iniciada. Para jugar con cualquiera sin cuenta, abre la versión del juego publicada fuera de Claude: allí basta con compartir el código o el enlace de la sala.',
+  claude: 'Aquí dentro de Claude las salas solo funcionan para quien tiene acceso a este artefacto con su cuenta; con un enlace público o sin sesión no se puede crear ni unirse. En la versión web cualquiera crea su sala y comparte el código.',
   server: 'No se pudo conectar con el servidor de salas. Revisa tu conexión y prueba otra vez; algunas redes de colegios o empresas bloquean este tipo de conexión.',
   timeout: 'La conexión tardó demasiado. Prueba otra vez; si sigue fallando, puede que tu red bloquee las conexiones directas.',
   invalid: 'Código no válido: son 4 letras o números (no se usan O, 0, I ni 1).',

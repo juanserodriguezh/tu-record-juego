@@ -84,7 +84,7 @@ async function boot() {
     requestAnimationFrame(frame);
     // a shared room link (…#ABCD) opens the lobby and joins that room
     const hc = normCode(location.hash || '');
-    if (codeValid(hc)) { $('netCode').value = hc; NET.pendingCode = hc; openLobby(); }
+    if (codeValid(hc)) { $('netCode').value = hc; NET.pending = { code: hc, host: false }; openLobby(); }
   } catch (err) {
     console.error(err);
     $('loadMsg').textContent = 'No se pudo iniciar el juego: ' + (err && err.message ? err.message : err) + '. Prueba en un navegador con WebGL activado.';
