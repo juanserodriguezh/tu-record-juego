@@ -27,6 +27,7 @@ const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // no O/0 or I/1: a cod
 const CODE_LEN = 4;
 const NET_MAX = +window.__NET_MAX || 8;                   // pilots per room (the host relays every state: 8 × 20 Hz is light); tests lower it
 const P2P_PREFIX = 'spa-record-v1-';                     // kept on purpose: rooms keep working across versions
+const NET_SILENCE_LOAD = 75000;                         // the same during the first 75 s of a race: the circuit loads (a slow phone, Monaco)
 const NET_SILENCE = 20000;                               // ms without any message before a PeerJS link counts as dead (a slow phone can stall seconds loading a circuit)
 
 // ---- room codes ----------------------------------------------------------------
@@ -61,7 +62,8 @@ const hexOr = (c, d) => /^#[0-9a-f]{6}$/i.test(c) ? c : d;
 // no backend of ours. Same star protocol; the broker only forwards. Minimal MQTT 3.1.1 client: QoS 0 only.
 const RELAY_URLS = () => window.__RELAY_URLS || ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'];
 const RELAY_TOPIC = 'armk-racing/v1/';
-const RELAY_AFTER = 4000;   // ms a guest waits for the direct link before it also tries the relay
+const RELAY_AFTER = 4000;
+const NET_BATCH_MS = 40;   // the host sends the newest state of everyone every 40 ms (a state waits 20 ms on average)   // ms a guest waits for the direct link before it also tries the relay
 class MqttWs {
   constructor(url, will) { this.url = url; this.will = will || null; this.ws = null; this.buf = new Uint8Array(0); this.subs = new Map(); this.pid = 1; this.ok = false; this.onclose = null; this.ping = 0; }
   static str(s) { const b = new TextEncoder().encode(s); const o = new Uint8Array(b.length + 2); o[0] = b.length >> 8; o[1] = b.length & 255; o.set(b, 2); return o; }
@@ -135,7 +137,7 @@ function loadPeerJS() {
   return peerLib;
 }
 class P2PRoom {
-  constructor(Peer) { this.Peer = Peer; this.pj = null; this.id = null; this.list = new Map(); this.me = {}; this.fns = []; this.errs = []; this.conns = new Map(); this.hostConn = null; this.isHost = false; this.dead = false; this.admit = null; this.seen = new Map(); this.gones = new Map(); this.hb = 0; this.mqs = []; this.via = null; this.rtts = []; this.rtt = null; }
+  constructor(Peer) { this.Peer = Peer; this.pj = null; this.id = null; this.list = new Map(); this.me = {}; this.fns = []; this.errs = []; this.conns = new Map(); this.hostConn = null; this.isHost = false; this.dead = false; this.admit = null; this.seen = new Map(); this.gones = new Map(); this.hb = 0; this.mqs = []; this.via = null; this.rtts = []; this.rtt = null; this.states = new Map(); this.dirty = new Set(); this.fast = new Map(); this.fastUp = null; this.onState = null; this.bt = 0; }
   peers() { return [...this.list.values()].map(e => ({ peer: e.peer, sameTab: e.peer === this.id, kind: 'viewer', presence: e.presence, updatedAt: e.at })); }
   onPeers(fn, err) { this.fns.push(fn); if (err) this.errs.push(err); }
   emit() { const ps = this.peers(); for (const f of this.fns) { try { f({ peers: ps }); } catch (e) { console.warn(e); } } }
@@ -186,11 +188,12 @@ class P2PRoom {
       if (this.conns.get(c.peer) !== c) return;
       this.seen.set(c.peer, Date.now());
       if (m && m.t === 'pi') { try { c.send({ t: 'po', a: m.a }); } catch (e) { } return; }
+      if (m && m.t === 's') { this.gotState(c.peer, m.a); return; }
       if (!m || m.t !== 'p' || typeof m.p !== 'object' || m.p === null) return;
       this.list.set(c.peer, { peer: c.peer, presence: m.p, at: Date.now() });
       this.broadcast({ t: 'u', peer: c.peer, p: m.p }, c.peer); this.emit();
     });
-    const gone = () => { if (this.conns.get(c.peer) !== c) return; this.conns.delete(c.peer); this.seen.delete(c.peer); this.gones.delete(c.peer); this.list.delete(c.peer); this.broadcast({ t: 'x', peer: c.peer }); this.emit(); };
+    const gone = () => { if (this.conns.get(c.peer) !== c) return; this.conns.delete(c.peer); this.seen.delete(c.peer); this.gones.delete(c.peer); this.list.delete(c.peer); this.states.delete(c.peer); const f = this.fast.get(c.peer); if (f) { this.fast.delete(c.peer); try { f.close(); } catch (e) { } } this.broadcast({ t: 'x', peer: c.peer }); this.emit(); };
     c.on('close', gone); c.on('error', gone);
   }
   // host: claim the code on the signalling server, then admit players (this.admit() returns a refusal reason or null)
@@ -199,11 +202,11 @@ class P2PRoom {
     return new Promise((res, rej) => {
       const pj = this.pj = new this.Peer(P2P_PREFIX + code, this.opts());
       const to = setTimeout(() => rej('timeout'), 12000);
-      pj.on('open', (id) => { clearTimeout(to); this.id = id; this.presence({}); this.beat(); this.hostRelay(); res(this); });
+      pj.on('open', (id) => { clearTimeout(to); this.id = id; this.presence({}); this.beat(); this.hostRelay(); clearInterval(this.bt); this.bt = setInterval(() => this.flush(), NET_BATCH_MS); res(this); });
       // after the room is up, a lost signalling socket does not break the open player links: reconnect quietly,
       // and only report it if the host is left with nobody connected and cannot get back
       pj.on('error', (e) => { clearTimeout(to); const t = e && e.type; if (!this.id) rej(t === 'unavailable-id' ? 'taken' : t === 'browser-incompatible' ? 'browser' : 'server'); else if (t === 'network' || t === 'server-error' || t === 'socket-error' || t === 'socket-closed') this.softLost(); });
-      pj.on('connection', (c) => this.attach(c));
+      pj.on('connection', (c) => (c.metadata && c.metadata.fast ? this.attachFast(c) : this.attach(c)));
       pj.on('disconnected', () => { if (!this.dead) { try { pj.reconnect(); } catch (e) { } } });
     });
   }
@@ -253,6 +256,7 @@ class P2PRoom {
         if (via === this.via || !ok) this.hostSeen = Date.now();
         if (m.t === 'hb') return;
         if (m.t === 'po') { if (ok && typeof m.a === 'number') this.rttSample(Date.now() - m.a); return; }
+        if (m.t === 'S') { if (ok && Array.isArray(m.l)) this.gotBatch(m.l); return; }
         if (m.t === 'bye') { if (ok) this.hostLost('bye'); return; }
         if (m.t === 'deny') { if (ok) return; clearTimeout(to); ok = true; this.stopRelay(); rej(NET_ERR[m.why] ? m.why : 'full'); return; }
         const now = Date.now();
@@ -261,7 +265,7 @@ class P2PRoom {
           if (!ok) {   // the host's welcome: we are admitted on this link; drop the other one
             ok = true; clearTimeout(to); this.via = via; this.id = myId;
             if (via === 'relay') { try { this.pj && this.pj.destroy(); } catch (e) { } this.pj = null; this.hostConn = null; }
-            else this.stopRelay();
+            else { this.stopRelay(); this.openFast(code); }
           }
           const mine = this.list.get(this.id); this.list.clear();
           for (const e of m.list) if (e && e.peer && e.peer !== this.id) this.list.set(e.peer, { peer: e.peer, presence: e.p || {}, at: now });
@@ -271,7 +275,7 @@ class P2PRoom {
         }
         else if (!ok) return;
         else if (m.t === 'u' && m.peer && m.peer !== this.id) this.list.set(m.peer, { peer: m.peer, presence: m.p || {}, at: now });
-        else if (m.t === 'x' && m.peer) this.list.delete(m.peer);
+        else if (m.t === 'x' && m.peer) { this.list.delete(m.peer); this.states.delete(m.peer); }
         this.emit();
       };
       const startRelay = () => {
@@ -323,6 +327,68 @@ class P2PRoom {
       pj.on('disconnected', () => { if (!this.dead && this.via === 'rtc' && this.hostConn && this.hostConn.open) { try { pj.reconnect(); } catch (e) { } } });
     });
   }
+  // ---- race states (v107) ----------------------------------------------------------------------------
+  // The 20 Hz car states no longer ride in the presence record (which carried the whole profile, ~340 bytes, and
+  // was relayed by the host one message per guest per state: 320 messages/s from the host with 5 pilots). Now a
+  // state is a small array [senderNow, raceSeq, x, z, h, u, v, lap, s, y]; guests send it to the host, and the host
+  // sends everybody ONE batch every 50 ms with the newest state of each pilot (80 messages/s with 5 pilots, ~70 %
+  // fewer bytes). On WebRTC the states go over a second, unordered channel, so one lost packet no longer holds
+  // back the ones behind it (head-of-line blocking on the reliable channel = cars stuttering for everyone).
+  state(a) {
+    if (!this.id || this.dead) return;
+    this.states.set(this.id, a);
+    if (this.isHost) { this.dirty.add(this.id); return; }
+    const m = { t: 's', a };
+    if (this.via === 'rtc' && this.fastUp && this.fastUp.open) { try { this.fastUp.send(m); return; } catch (e) { } }
+    this.up(m);
+  }
+  gotState(peer, a) {
+    if (!Array.isArray(a) || a.length < 10 || !a.every(v => typeof v === 'number' && isFinite(v))) return;
+    const old = this.states.get(peer); if (old && old[0] >= a[0]) return;   // late duplicate (unordered channel)
+    this.states.set(peer, a);
+    if (this.isHost) this.dirty.add(peer);
+    if (this.onState) { try { this.onState(peer, a); } catch (e) { console.warn(e); } }
+  }
+  // host: one message with the states that changed since the last one (key = last 8 characters of the peer id)
+  flush() {
+    if (this.dead || !this.dirty.size) return;
+    const l = [];
+    for (const id of this.dirty) { const a = this.states.get(id); if (a) l.push([id.slice(-8)].concat(a)); }
+    this.dirty.clear();
+    const m = { t: 'S', l }, rel = new Set();
+    for (const [id, c] of this.conns) {
+      if (!c.open) continue;
+      if (c.relay) { rel.add(c.mq); continue; }
+      const f = this.fast.get(id), ch = f && f.open ? f : c;
+      try { ch.send(m); } catch (e) { }
+    }
+    for (const mq of rel) mq.pub(this.base + 'a', m);
+  }
+  gotBatch(l) {
+    for (const r of l) {
+      if (!Array.isArray(r) || typeof r[0] !== 'string') continue;
+      if (this.id && this.id.endsWith(r[0])) continue;
+      let peer = null; for (const id of this.list.keys()) if (id.endsWith(r[0])) { peer = id; break; }
+      if (peer) this.gotState(peer, r.slice(1));
+    }
+  }
+  // guest: second DataConnection, unordered, for states only
+  openFast(code) {
+    if (!this.pj || this.dead) return;
+    try {
+      const f = this.pj.connect(P2P_PREFIX + code, { reliable: false, serialization: 'json', metadata: { fast: 1 } });
+      f.on('open', () => { if (!this.dead) this.fastUp = f; });
+      f.on('data', (m) => { if (m && m.t === 'S' && Array.isArray(m.l)) { this.hostSeen = Date.now(); this.gotBatch(m.l); } });
+      f.on('close', () => { if (this.fastUp === f) this.fastUp = null; });
+      f.on('error', () => { if (this.fastUp === f) this.fastUp = null; });
+    } catch (e) { }
+  }
+  attachFast(c) {
+    c.on('open', () => { if (!this.conns.has(c.peer)) { try { c.close(); } catch (e) { } return; } const o = this.fast.get(c.peer); this.fast.set(c.peer, c); if (o && o !== c) { try { o.close(); } catch (e) { } } });
+    c.on('data', (m) => { if (!this.conns.has(c.peer)) return; this.seen.set(c.peer, Date.now()); if (m && m.t === 's') this.gotState(c.peer, m.a); });
+    const drop = () => { if (this.fast.get(c.peer) === c) this.fast.delete(c.peer); };
+    c.on('close', drop); c.on('error', drop);
+  }
   stopRelay() { clearTimeout(this.hiT); for (const mq of this.mqs) mq.close(); this.mqs = []; this.upMq = null; }
   hostLost(why) { if (this.lost) return; this.lost = why || true; const mine = this.list.get(this.id); this.list.clear(); if (mine) this.list.set(this.id, mine); this.emit(); this.fail('hostgone'); }
   // round trip to the host (guests): the smallest of the last 8 pings, i.e. the network without queueing
@@ -339,17 +405,20 @@ class P2PRoom {
       if (this.dead) return clearInterval(this.hb);
       const now = Date.now();
       // this tab itself was frozen (loading a circuit, background tab): the silence is ours, not theirs
+      this.maxGap = Math.max(this.maxGap || 0, now - lastTick);   // diagnostics: longest stall of this tab
       if (now - lastTick > 4000) { for (const k of this.seen.keys()) this.seen.set(k, now); this.hostSeen = now; }
       lastTick = now;
-      if (this.isHost) { this.broadcast({ t: 'hb' }); for (const [id, t] of this.seen) if (now - t > NET_SILENCE && this.gones.has(id)) this.gones.get(id)(); }
+      // while everybody loads the circuit (race start) a slow device can block for far longer than usual
+      const quiet = now < (this.graceUntil || 0) ? NET_SILENCE_LOAD : NET_SILENCE;
+      if (this.isHost) { this.broadcast({ t: 'hb' }); for (const [id, t] of this.seen) if (now - t > quiet && this.gones.has(id)) this.gones.get(id)(); }
       else {
         this.up({ t: 'hb' }); if (++n % 2 === 0 || this.rtts.length < 4) pingNow();
-        if (now - this.hostSeen > NET_SILENCE) this.hostLost('silence');
+        if (now - this.hostSeen > quiet) this.hostLost('silence');
       }
     }, 2000);
   }
   destroy() {
-    clearInterval(this.hb); clearTimeout(this.hiT);
+    clearInterval(this.hb); clearInterval(this.bt); clearTimeout(this.hiT);
     if (!this.dead) { if (this.isHost) this.broadcast({ t: 'bye' }); else if (this.via === 'relay') this.up({ t: 'bye' }); }
     this.dead = true;
     try { this.pj && this.pj.destroy(); } catch (e) { }
@@ -431,6 +500,7 @@ function netJoin(code, host, tries) {
   (host ? room.host(code) : room.join(code)).then(() => {
     if (!NET.joining || NET.joinCode !== code) { room.destroy(); return; }
     NET.joining = false; NET.room = room; NET.code = code; NET.hadHost = !host;
+    room.onState = netOnState;
     room.onPeers((ch) => { NET.peers = ch.peers; onNetPeers(); }, (why) => { if (why === 'hostgone') netHostGone(); else { NET.err = why; renderLobby(); netNotify(NET_ERR[why] || NET_ERR.server, 'err'); } });
     netSet(netPresence(code, host));
     NET.peers = room.peers(); NET.roster = null; onNetPeers();
@@ -520,6 +590,7 @@ async function netStartRace(cfg) {
   const me = myPeer(); if (!me || !Array.isArray(cfg.grid)) return;
   const slot = cfg.grid.indexOf(me.peer);
   if (slot < 0) { netNotify(NET_ERR.started, 'err'); return; }   // joined after the start: not on the grid
+  if (NET.room) NET.room.graceUntil = Date.now() + NET_SILENCE_LOAD;   // everyone is loading the circuit now
   const localStart = cfg.startAt + (NET.offset || 0);
   NET.startPerf = performance.now() + (localStart - Date.now());
   if (cfg.trk && TRACK_DEFS[cfg.trk] && cfg.trk !== TRACK.id) { if (SES) { disposeEntries(); SES = null; } store.set('track', cfg.trk); trackBusy = true; try { await loadTrack(cfg.trk); } finally { trackBusy = false; } if (NET.code) netSet({ trk: TRACK.id }); }
@@ -541,11 +612,40 @@ function netTick() {
   NET.lastSend = now;
   const r2 = (v) => Math.round(v * 100) / 100;
   const msg = { st: [r2(car.x), r2(car.z), Math.round(car.h * 1000) / 1000, r2(car.u), r2(car.v), SES.player.lap, r2(car.q.s), r2(car.y)], rs: SES.netSeq };
-  const rt = NET.host ? 0 : NET.mode === 'p2p' && NET.room && NET.room.rtt != null ? Math.round(NET.room.rtt) : null;
+  const rt = NET.host ? 0 : NET.mode === 'p2p' && NET.room && NET.room.rtt != null ? Math.round(NET.room.rtt / 10) * 10 : null;
   if (rt !== NET.rtSent) { msg.rt = rt; NET.rtSent = rt; }   // my round trip to the host: the others add it to their prediction
   if (NET.host && BW && BW.list.length) { const bw = BW.netPack(); if (bw) { msg.bw = bw; msg.bs = ++NET.bwSeq; } }   // the host owns the barrels
+  if (NET.mode === 'p2p' && NET.room && NET.room.state) {
+    // P2P (v107): the state goes on its own small channel; the presence only when something else changed
+    NET.room.state([Date.now(), msg.rs].concat(msg.st));
+    delete msg.st; delete msg.rs;
+    if (Object.keys(msg).length) netSet(msg);
+    return;
+  }
   netSet(msg);
 }
+// a P2P state arrived (P2PRoom.onState): straight into that car's buffer, no presence round
+function netOnState(peer, a) {
+  const R = SES; if (!R || R.mode !== 'multi' || a[1] !== R.netSeq) return;
+  let e = R.entries.find(x => x.peer === peer);
+  if (!e) { const p = roomPeers().find(x => x.peer === peer); if (!p || !(R.grid || []).includes(peer)) return; e = netRemoteEntry(R, p); }
+  netIngest(e, a[0], a.slice(2, 10));
+}
+function netIngest(e, ts, st) {
+  if (!Array.isArray(st) || st.length < 8 || !st.every(v => typeof v === 'number' && isFinite(v)) || !isFinite(ts)) return;
+  const lastB = e.buf[e.buf.length - 1];
+  if (!lastB || ts > lastB.ts) {
+    netClock(e, ts, lastB);
+    e.buf.push({ ts, st }); if (e.buf.length > 30) e.buf.shift();
+  }
+  e.lap = st[5]; e.progress = st[5] * T.L + st[6];
+}
+// load lab (tools/net_load.mjs): the real state sender at 20 Hz with synthetic states
+function netStress(on, stFn) {
+  clearInterval(NET.stressT); if (!on) return;
+  NET.stressT = setInterval(() => { if (NET.room && NET.room.state) NET.room.state([Date.now(), 7].concat(stFn())); }, 50);
+}
+function netLatestTs(peer) { const a = NET.room && NET.room.states && NET.room.states.get(peer); return a ? a[0] : null; }   // a function: window.__spa reads it at load
 function netFinish(t) { netSet({ fin: Math.round(t * 1000) / 1000, rs: SES.netSeq }); }
 function netLeaveRace() { netSet({ ph: 'lobby', st: null, rdy: NET.host ? 1 : 0 }); NET.startPerf = 0; if (NET.closed) netLeaveRoom('hostgone'); }
 // a remote pilot's car in this session (from their lobby presence: car, livery, name)
@@ -576,14 +676,10 @@ function netSyncRemotes() {
     e.host = !!pr.host; e.rt = typeof pr.rt === 'number' && isFinite(pr.rt) ? pr.rt : null;
     e.left = false;
     if (pr.rs !== R.netSeq) continue;   // on the grid but not in this race yet (loading)
-    const st = pr.st, ts = +pr.now;
-    if (Array.isArray(st) && st.length >= 8 && st.every(v => typeof v === 'number' && isFinite(v)) && isFinite(ts)) {
-      const lastB = e.buf[e.buf.length - 1];
-      if (!lastB || ts > lastB.ts) {
-        netClock(e, ts, lastB);
-        e.buf.push({ ts, st }); if (e.buf.length > 30) e.buf.shift();
-      }
-      e.lap = st[5]; e.progress = st[5] * T.L + st[6];
+    const ts = +pr.now;
+    if (Array.isArray(pr.st)) netIngest(e, ts, pr.st);   // Claude room: states ride in the presence
+    else if (NET.mode === 'p2p' && NET.room && NET.room.states && !e.buf.length) {   // P2P: the newest one already received
+      const a = NET.room.states.get(p.peer); if (a && a[1] === R.netSeq) netIngest(e, a[0], a.slice(2, 10));
     }
     if (typeof pr.fin === 'number' && isFinite(pr.fin) && pr.fin > 0) { e.fin = true; e.finT = pr.fin; e.finLaps = R.raceLaps; }
     // the host's barrels correct ours (age: how long ago the host sent them, from the clock offset)
@@ -649,7 +745,9 @@ const NET_Q = newQ();
 function netLatency(e) {
   const mine = NET.host ? 0 : NET.mode === 'p2p' && NET.room && NET.room.rtt != null ? NET.room.rtt : 80;
   const theirs = e.host ? 0 : e.rt != null ? e.rt : 80;
-  return (mine + theirs) / 2;
+  // P2P guests get the states in the host's batches: on average they waited half a batch at the host
+  const batch = NET.mode === 'p2p' && !NET.host ? NET_BATCH_MS / 2 : 0;
+  return (mine + theirs) / 2 + batch;
 }
 // pure: state A carried forward `age` seconds. Along the track when the car is running with the road; a straight
 // line when it is slow, spinning or crossing (pit entry, a spin, the grass)
@@ -698,6 +796,45 @@ function netPoseRemote(e, dt) {
   r.visible = true;
   r.position.set(x, y, z); r.rotation.order = 'YXZ'; r.rotation.set(0, h, 0);
   e.wheelRot += u / 0.34 * dt; spinVis(e.model, e.wheelRot);
+}
+
+// ---- connection badge in an online race (v107) --------------------------------------------
+// Always on during a multiplayer session so a stutter can be told apart: the link (direct WebRTC or the relay
+// server), the round trip to the host and this screen's frame rate plus the worst frame of the last 2 s.
+// The host sees how its guests are connected and the worst guest ping.
+const NET_INFO = { acc: 0, n: 0, worst: 0, worstT: 0, shown: '' };
+function netInfoText(fps, hitch) {
+  const ms = (v) => Math.round(v) + ' ms';
+  let parts = [], ping = null;
+  if (NET.mode !== 'p2p') parts.push('Sala de Claude');
+  else if (NET.host) {
+    const r = NET.room, cs = r && r.conns ? [...r.conns.values()] : [], nr = cs.filter(c => c.relay).length, nd = cs.length - nr;
+    parts.push('Anfitrión');
+    if (cs.length) parts.push((nd ? nd + ' directa' + (nd > 1 ? 's' : '') : '') + (nd && nr ? ', ' : '') + (nr ? nr + ' por servidor' : ''));
+    const rts = (SES && SES.entries || []).filter(e => e.isRemote && !e.left && e.rt != null).map(e => e.rt);
+    if (rts.length) { ping = Math.max(...rts); parts.push('ping máx ' + ms(ping)); }
+  } else {
+    const r = NET.room;
+    parts.push(r && r.via === 'relay' ? 'Por servidor' : 'Directa');
+    if (r && r.rtt != null) { ping = r.rtt; parts.push('ping ' + ms(ping)); }
+  }
+  parts.push(fps + ' FPS');
+  if (hitch >= 60) parts.push('tirón ' + ms(hitch));
+  const lvl = (ping != null && ping > 250) || fps < 25 || hitch >= 150 ? 'bad' : (ping != null && ping > 120) || fps < 45 || hitch >= 60 ? 'warn' : '';
+  return { text: parts.join(' · '), lvl };
+}
+function netInfo(dt) {
+  const box = $('netInfo'); if (!box) return;
+  const on = !!(SES && SES.mode === 'multi' && NET.code && S.mode !== 'menu');
+  if (!on) { if (!box.hidden) box.hidden = true; return; }
+  const I = NET_INFO, now = performance.now();
+  I.acc += dt; I.n++;
+  if (dt * 1000 > I.worst || now - I.worstT > 2000) { I.worst = dt * 1000; I.worstT = now; }
+  if (I.acc < 0.5) return;
+  const t = netInfoText(Math.round(I.n / I.acc), I.worst); I.acc = 0; I.n = 0;
+  const key = t.lvl + t.text;
+  if (key !== I.shown) { I.shown = key; box.className = 'netinfo' + (t.lvl ? ' ' + t.lvl : ''); box.lastChild.textContent = t.text; }
+  box.hidden = false;
 }
 
 // ---- name tags over the other pilots' cars -----------------------------------------------

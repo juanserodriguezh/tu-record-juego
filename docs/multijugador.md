@@ -74,6 +74,13 @@ Mínimo de toques para unirse: **Unirse a sala → escribir el código → ¡Est
 - **Fuera de Claude (hosting propio):** PeerJS (WebRTC). El anfitrión reserva `spa-record-v1-CODIGO` en el servidor público de PeerJS y reenvía el estado de todos (estrella). Decide la admisión y responde `deny` con el motivo.
 - **Relé (v106):** si el invitado no consigue canal WebRTC en 4 s (redes móviles, CGNAT, empresas), entra por un broker MQTT público (`armk-racing/v1/CODIGO/h` al anfitrión, `/a` a todos, `/g/<id>` a uno). Mismo protocolo; gana el primer enlace que trae la bienvenida.
 
+### Estados de carrera (v107)
+Arreglo corto `[hora, carrera, x, z, rumbo, u, v, vuelta, s, y]` fuera de la presencia. Invitado → anfitrión (`t:'s'`); el anfitrión manda cada 40 ms un paquete `t:'S'` con el último estado de cada piloto. En WebRTC por un segundo canal sin orden. En la sala de Claude siguen en la presencia.
+
+**Indicador en carrera (v107).** Arriba al centro, bajo el nombre de la curva: tipo de enlace (directa / por servidor), ping al anfitrión, FPS y el peor fotograma de los últimos 2 s si pasa de 60 ms. El anfitrión ve cuántos invitados van por cada vía y el peor ping. Sirve para distinguir un problema de red (ping alto, «por servidor») de uno del dispositivo (FPS bajos, tirones).
+
+**Carga del circuito.** Al empezar una carrera todos cargan a la vez y un dispositivo lento puede bloquearse muchos segundos: durante 75 s el silencio tolerado sube de 20 s a 75 s en ambos sentidos.
+
 ### Límites conocidos
 - Topología en estrella: si el anfitrión se va en mitad de la carrera (PeerJS), los invitados dejan de ver a los demás; su carrera sigue y cuenta. No hay migración de anfitrión.
 - Sin servidor autoritativo: cada piloto simula su coche y envía su posición (anti-trampas fuera de alcance).

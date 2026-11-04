@@ -219,15 +219,15 @@ ok(await until(B, () => __spa.race && __spa.race.mode === 'multi', null, 120000)
 ok(await until(A, () => __spa.race && __spa.race.mode === 'multi', null, 60000), 'host in the race');
 // on the grid, before the lights go out, each already sees the other car (v106: states flow during the lights)
 ok(await until(A, () => __spa.car.u < 1 && (__spa.net().remotes || []).some(r => r.vis), null, 30000), 'host sees the guest car on the grid before anyone moves', await A.evaluate(() => [__spa.race.state, __spa.car.u, __spa.net().remotes]));
-ok(await until(B, () => (__spa.net().remotes || []).some(r => r.vis), null, 30000), 'guest sees the host car on the grid', await B.evaluate(() => [__spa.race.state, __spa.net().remotes]));
+ok(await until(B, () => (__spa.net().remotes || []).some(r => r.vis), null, 30000), 'guest sees the host car on the grid', await B.evaluate(() => [__spa.race.state, __spa.net().remotes, __spa.netRoom && __spa.netRoom.lost]));
 ok((await A.evaluate(() => __spa.race.netCol)) === false, 'collisions off reached the session');
 await C.fill('#netCode', code); await C.click('#netJoin');
-ok(await until(C, () => __spa.net().err === 'started', null, 30000), 'join during the race: "ya empezó"', (await net(C)).note);
+ok(await until(C, () => __spa.net().err === 'started', null, 60000), 'join during the race: "ya empezó"', (await net(C)).note);
 for (const pg of [A, B]) await pg.evaluate(() => __spa.setAuto(8));
 ok(await until(B, () => __spa.race.state === 'run' && __spa.car.u > 20, null, 120000), 'race started, guest moving');
 await B.waitForTimeout(8000);
-const ra = await A.evaluate(() => ({ r: __spa.net().remotes, st: [...document.querySelectorAll('#stRows li .n')].map(e => e.textContent) }));
-const rb = await B.evaluate(() => ({ r: __spa.net().remotes, st: [...document.querySelectorAll('#stRows li .n')].map(e => e.textContent) }));
+const ra = await A.evaluate(() => ({ stall: __spa.netRoom && __spa.netRoom.maxGap, r: __spa.net().remotes, st: [...document.querySelectorAll('#stRows li .n')].map(e => e.textContent) }));
+const rb = await B.evaluate(() => ({ stall: __spa.netRoom && __spa.netRoom.maxGap, lost: __spa.netRoom && __spa.netRoom.lost, via: __spa.net().via, r: __spa.net().remotes, st: [...document.querySelectorAll('#stRows li .n')].map(e => e.textContent) }));
 console.log('  host view', JSON.stringify(ra)); console.log('  guest view', JSON.stringify(rb));
 ra.r = ra.r || []; rb.r = rb.r || [];
 ok(ra.r.length === 1 && ra.r[0].vis && rb.r.length === 1 && rb.r[0].vis, 'each sees the other car on track');
@@ -238,7 +238,7 @@ if (mode === 'relay') {   // the broker drops the guest mid-race: it reconnects 
   await until(B, () => !!(__spa.netRoom.upMq && __spa.netRoom.upMq.ok), null, 60000);   // software rendering: slow
   await B.waitForTimeout(3000);
   const back = await until(A, () => { const r = (__spa.net().remotes || [])[0]; return r && r.vis && !r.left; }, null, 30000);
-  const vb = await B.evaluate(() => ({ via: __spa.net().via, up: !!(__spa.netRoom.upMq && __spa.netRoom.upMq.ok), lost: !!__spa.netRoom.lost, log: __spa.netRoom.rlog, now: Date.now() % 100000, host: (__spa.net().remotes || [])[0] }));
+  const vb = await B.evaluate(() => ({ via: __spa.net().via, up: !!(__spa.netRoom.upMq && __spa.netRoom.upMq.ok), lost: __spa.netRoom.lost || false, log: __spa.netRoom.rlog, now: Date.now() % 100000, host: (__spa.net().remotes || [])[0] }));
   ok(back && vb.up && vb.host && !vb.host.left, 'relay dropped mid-race: guest reconnects and both still see each other', vb);
 }
 // headless Chromium renders in software at a few FPS, so states go out at a few Hz with big jitter: only check the
