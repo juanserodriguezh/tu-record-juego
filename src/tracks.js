@@ -193,7 +193,7 @@ TRACK_DEFS.monaco = {
   straight: [3060, 170], pitTr: [],
   pit: [3040, 3090, 160, 160],
   // pit exit: the lane runs on along the right of the straight and comes out on the inside of Sainte-Dévote, up Beau Rivage
-  escape: { from: 160, to: 280, rejoin: -4.5, hw: 4.0, pit: true, handles: [0.45, 0.3] },
+  escape: { from: 160, to: 280, rejoin: -0.7, hw: 4.0, pit: true, handles: [0.45, 0.22] },
   pitDepth: 12, tower: false,
   saus: [], startS: 60, boards: [190, 745, 1105, 1250, 1410, 2060, 2340, 2525, 2700, 2895],
   bridges: [], vergeSkip: [0, 1e6], stands: [],

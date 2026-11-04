@@ -436,8 +436,13 @@ class World {
             const B0 = L(bot0, bot1, fa), B1 = L(bot0, bot1, fb), U0 = L(top0, top1, fa), U1 = L(top0, top1, fb);
             wb.quad(B0, B1, U1, U0, c); wb.quad(U0, U1, L(t0, t1, fb), L(t0, t1, fa), col3('#bfc2c5'));
           }
-        } else if (cut) continue;
-        else {
+        } else if (cut) {   // v93: a cut corner segment keeps its pieces outside the lane (whole segment dropped = gap in the rail at the Monaco pit exit)
+          const top0 = this.P(i, d0, 0.78), top1 = this.P(i2, d1, 0.78), u0 = i * T.ds / 4, u1 = i2 * T.ds / 4;
+          const L = (a, c, f) => [a[0] + (c[0] - a[0]) * f, a[1] + (c[1] - a[1]) * f, a[2] + (c[2] - a[2]) * f];
+          for (let q = 0; q < LS; q++) { const fa = q / LS, fb = (q + 1) / LS; if (inLane((fa + fb) / 2)) continue;
+            const ua = u0 + (u1 - u0) * fa, ub = u0 + (u1 - u0) * fb;
+            b.quad(L(bot0, bot1, fa), L(bot0, bot1, fb), L(top0, top1, fb), L(top0, top1, fa), white, [[ua, 0], [ub, 0], [ub, 1], [ua, 1]]); }
+        } else {
           const top0 = this.P(i, d0, 0.78), top1 = this.P(i2, d1, 0.78);
           const u0 = i * T.ds / 4, u1 = i2 * T.ds / 4;
           st[i] = b.p.length / 3;
@@ -562,11 +567,15 @@ class World {
     const cT = E.pit ? new THREE.Color(0.95, 0.95, 0.98) : new THREE.Color(1.35, 1.35, 1.4), cS = col3('#3d4a33');   // pit exit: the asphalt of the circuit, not a pale run-off
     const side = (j, o, dy) => { const p = pts[j], q = pts[Math.min(j + 1, pts.length - 1)], r = pts[Math.max(j - 1, 0)]; let tx = q[0] - r[0], tz = q[1] - r[1]; const l = Math.hypot(tx, tz); tx /= l; tz /= l; return [p[0] + tz * o, p[2] + (dy || 0), p[1] - tx * o]; };
     // where the lane runs onto the circuit asphalt (the merge) the circuit itself is the surface: no lane, edge line or skirt
-    const onTrack = (p) => { const q = T.project(p[0], p[2], -1); return q.d < q.wl + 0.1 && q.d > -q.wr - 0.1; };
+    // (v94) up to the circuit barriers: the Monaco exit lane is wider than the asphalt where it merges (it drew a lighter patch on the track)
+    // (only where the lane centre is already on the asphalt: before that the measured barriers can stand well beyond the lane)
+    const onTrack = (p, j) => { const q = T.project(p[0], p[2], -1); let ml = q.wl + 0.1, mr = q.wr + 0.1;
+      if (j != null) { const c = T.project(pts[j][0], pts[j][1], -1); if (c.d < c.wl && c.d > -c.wr) { ml = Math.max(ml, q.bl + 0.2); mr = Math.max(mr, q.br + 0.2); } }
+      return q.d < ml && q.d > -mr; };
     for (let j = 0; j < pts.length - 1; j++) {
       const a0 = side(j, hw, 0.035), a1 = side(j, -hw, 0.035), b0 = side(j + 1, hw, 0.035), b1 = side(j + 1, -hw, 0.035);
       const uv = (p) => [p[0] / 9, p[2] / 9];
-      if (!(onTrack(a0) && onTrack(a1) && onTrack(b0) && onTrack(b1))) b.quad(a0, b0, b1, a1, cT, [uv(a0), uv(b0), uv(b1), uv(a1)]);
+      if (!(onTrack(a0, j) && onTrack(a1, j) && onTrack(b0, j + 1) && onTrack(b1, j + 1))) b.quad(a0, b0, b1, a1, cT, [uv(a0), uv(b0), uv(b1), uv(a1)]);
       for (const o of [hw, -hw]) { const c0 = side(j, o, 0.035), c1 = side(j + 1, o, 0.035), d0 = side(j, o * 1.04, -1.2), d1 = side(j + 1, o * 1.04, -1.2); if (onTrack(c0) && onTrack(c1)) continue; sk.quad(c0, c1, d1, d0, cS); sk.quad(c0, d0, d1, c1, cS); }
       for (const o of [hw - 0.3, -hw + 0.3]) { const e0 = side(j, o + 0.12, 0.045), e1 = side(j, o - 0.12, 0.045), f0 = side(j + 1, o + 0.12, 0.045), f1 = side(j + 1, o - 0.12, 0.045); if (onTrack(e0) || onTrack(f0)) continue; ln.quad(e0, f0, f1, e1, white); ln.quad(e0, e1, f1, f0, white); }
       if (j % 3 === 0) this.footprints.push([pts[j][0], pts[j][1], hw + 4]);
