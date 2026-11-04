@@ -1162,14 +1162,15 @@ function resetCar() {
 const RW = new Rewind();
 // ---------------------------------------------------------------------------
 //  Track objects: barrels as 3D rigid bodies (src/barrels.js). 'real': water-barrel attenuators at the nose of the pit wall;
-//  'test' (practice only): towers, a pyramid and a row on the main straight. Every local car pushes them (multiplayer:
-//  each client simulates its own barrels, remote cars do not touch them). They go back with a rewind.
+//  'test' (practice only): towers, a pyramid and a row on the main straight. Every local car pushes them; they go back with
+//  a rewind. Multiplayer: the host's setting decides (cfg.bar); everyone simulates, other players' cars push as
+//  kinematic bodies (when collisions are on), and the host's state (presence bw/bs) corrects the guests' barrels.
 // ---------------------------------------------------------------------------
 const BARREL_MODES = { off: 'Sin barriles', real: 'Realistas', test: 'Zona de pruebas' };
 let BW = null, BWV = null;
 function barrelsReset() {
   if (!BW || BW.T !== T) BW = new BarrelWorld(T);
-  const m = BARREL_MODES[S.settings.barrels] ? S.settings.barrels : 'real', test = m === 'test' && SES && SES.kind === 'practice' && SES.mode !== 'multi';
+  const m = SES && SES.mode === 'multi' ? (NET.bar === 'off' ? 'off' : 'real') : BARREL_MODES[S.settings.barrels] ? S.settings.barrels : 'real', test = m === 'test' && SES && SES.kind === 'practice' && SES.mode !== 'multi';
   placeBarrels(BW, T, m === 'off' ? 'off' : test ? 'test' : 'real');
   if (!BWV) BWV = new BarrelView(scene);
   BWV.build(BW);
@@ -1178,8 +1179,20 @@ const _bwCars = [];
 function barrelStep(dt) {
   if (!BW || !BW.list.length) return;
   const cars = _bwCars; cars.length = 0;
-  for (const e of SES.entries) { if (e.isRemote || !e.veh || e.ghost > 0 || (e.isPlayer && e.pitHold)) continue; if (e.isPlayer) cars.unshift(e.veh); else cars.push(e.veh); }
+  for (const e of SES.entries) {
+    if (e.isRemote) { const k = barrelKin(e); if (k) cars.push(k); continue; }
+    if (!e.veh || e.ghost > 0 || (e.isPlayer && e.pitHold)) continue; if (e.isPlayer) cars.unshift(e.veh); else cars.push(e.veh);
+  }
   BW.step(dt, cars);
+}
+// another player's car as a kinematic body for the barrels (pose from the interpolated network state)
+function barrelKin(e) {
+  if (!SES.netCol || e.left || !e.kin || !e.model || !e.model.root.visible) return null;
+  const sp = e.sp, k = e._bwK || (e._bwK = { kin: true, spec: sp, P: { m: sp.kg || 1300, Iz: 2000, race: !!(BODY_DEF[sp.body] && BODY_DEF[sp.body].race) }, x: 0, y: 0, z: 0, h: 0, u: 0, v: 0, r: 0 });
+  const K = e.kin, h = K.h;
+  k.x = K.x; k.z = K.z; k.y = e.model.root.position.y; k.h = h;
+  k.u = K.vx * Math.sin(h) + K.vz * Math.cos(h); k.v = K.vx * Math.cos(h) - K.vz * Math.sin(h);
+  k.r = 0; return k;
 }
 // visuals, sound and dust of barrel hits (render frame)
 function barrelFrame() {

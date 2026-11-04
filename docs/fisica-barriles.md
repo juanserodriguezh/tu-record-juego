@@ -69,7 +69,7 @@ Arrastre: Cd 0,9 de lado y 1,0 de frente (bidón con aros: rugoso, sin crisis de
 - **12-18 iteraciones del solver**: 10 de velocidad + 4 de posición a 240 Hz bastan (las torres de 4 se quedan quietas a < 1 cm y duermen en 0,8 s); más solo cuesta CPU.
 - **Pooling de objetos**: los contactos sí se reciclan (sin basura por paso); los barriles son pocos y fijos por circuito, no hace falta un pool.
 - **Rotura de barriles**: no está; solo abolladura visual. Partirlos en trozos no aporta a la conducción.
-- **Multijugador**: cada jugador simula sus barriles; los coches remotos no los empujan (no hay servidor autoritativo).
+- **Multijugador (v100)**: el anfitrión es la autoridad. Todos simulan los barriles; los coches de los demás jugadores los empujan como cuerpos cinemáticos (masa infinita, no reciben nada; solo con colisiones activadas). El anfitrión manda el estado a 20 Hz mientras algo se mueve y 1 s más (`netPack`, presencia `bw`/`bs`); cada invitado lo mezcla con el suyo (`netApply`): lo que su propio coche tocó en el último segundo (y lo que eso empujó) se queda con el resultado local, para sentir el golpe sin espera; el resto se desliza hacia el estado del anfitrión, como mucho 0,25 m por paquete, y salta solo si está a más de 6 m. El ajuste del anfitrión decide si hay barriles (`cfg.bar`).
 
 ## Pruebas
 `node tools/headless.js barrels` (exit 1 si falla):
@@ -82,6 +82,9 @@ Arrastre: Cd 0,9 de lado y 1,0 de frente (bidón con aros: rugoso, sin crisis de
 - Determinismo: dos veces el mismo choque idéntico, y foto a mitad del choque + repetición idéntica.
 - Coste: < 0,5 ms por paso con 26 barriles despiertos a la vez.
 - En los 10 trazados: el amortiguador no pisa la pista y no se mueve al asentarse.
+- Multijugador: un invitado golpea el amortiguador a 100 km/h; el anfitrión lo ve 100 ms tarde, un observador 200 ms; paquetes a 20 Hz con 100 ms de retardo. Al final, invitado y observador a < 5 cm del anfitrión, sin saltos visibles.
+
+`node tools/net_test.mjs room`: en una carrera real de dos páginas, los dos tienen el amortiguador y un barril que el anfitrión tumba queda igual en el invitado (< 5 cm).
 
 `node tools/headless.js walls [old]`: GT3 contra hormigón, armco y neumáticos a 80 km/h y 30°, 150 km/h y 10°, 50 y 150 km/h de frente.
 
@@ -89,3 +92,4 @@ Arrastre: Cd 0,9 de lado y 1,0 de frente (bidón con aros: rugoso, sin crisis de
 - El coche no sube encima de un barril tumbado (es plano): lo empuja como una pala.
 - Un barril que cae sobre el coche resbala por el capó; el coche no nota el peso.
 - El rebobinado devuelve los barriles, pero no a los rivales (como antes).
+- Multijugador: si un invitado golpea un barril, durante ~0,2 s los demás lo ven moverse según el coche retrasado que ven ellos; al asentarse todos quedan con el estado del anfitrión (< 5 cm).

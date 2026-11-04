@@ -22,7 +22,7 @@
 //
 // Admission: in P2P the host decides (P2PRoom.admit → { t:'deny', why }); in the Claude room the joining
 // client checks the shared presence before it publishes its code. Errors: invalid, nohost, full, started, hostgone.
-const NET = { room: null, mode: null, avail: null, peers: [], code: null, host: false, offset: null, startPerf: 0, lastSend: 0, cfgSeen: 0, connecting: null, err: null, joining: false, hadHost: false, closed: false, roster: null };
+const NET = { bar: 'real', bwSeen: null, bwSeq: 0, room: null, mode: null, avail: null, peers: [], code: null, host: false, offset: null, startPerf: 0, lastSend: 0, cfgSeen: 0, connecting: null, err: null, joining: false, hadHost: false, closed: false, roster: null };
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // no O/0 or I/1: a code read aloud or from a screenshot cannot be mistyped
 const CODE_LEN = 4;
 const NET_MAX = +window.__NET_MAX || 8;                   // pilots per room (the host relays every state: 8 × 20 Hz is light); tests lower it
@@ -326,7 +326,7 @@ function netHostSettings(patch) { Object.assign(S.game, patch); saveGame(); if (
 function netHostStart() {
   const st = netRoomState(); if (!st.canStart) return;
   const grid = st.ps.map(p => p.peer).sort(() => Math.random() - 0.5);
-  const cfg = { seq: Date.now() % 1000000, laps: S.game.netLaps, col: S.game.netCol ? 1 : 0, weather: S.weather, trk: TRACK.id, startAt: Date.now() + 8000, grid };
+  const cfg = { seq: Date.now() % 1000000, laps: S.game.netLaps, col: S.game.netCol ? 1 : 0, weather: S.weather, trk: TRACK.id, startAt: Date.now() + 8000, grid, bar: S.settings.barrels === 'off' ? 'off' : 'real' };
   netSet({ ph: 'race', cfg });
   NET.cfgSeen = cfg.seq; netStartRace(cfg);
 }
@@ -339,11 +339,12 @@ async function netStartRace(cfg) {
   if (cfg.trk && TRACK_DEFS[cfg.trk] && cfg.trk !== TRACK.id) { if (SES) { disposeEntries(); SES = null; } store.set('track', cfg.trk); trackBusy = true; try { await loadTrack(cfg.trk); } finally { trackBusy = false; } if (NET.code) netSet({ trk: TRACK.id }); }
   if (WEATHER[cfg.weather] && cfg.weather !== S.weather) setWeather(cfg.weather);
   const laps = clamp(Math.round(+cfg.laps || 3), 1, 20);
+  NET.bar = cfg.bar === 'off' ? 'off' : 'real'; NET.bwSeen = null; NET.bwSeq = 0;   // barrels: the host's setting
   startSession('race', { mode: 'multi', seq: cfg.seq });
   SES.raceLaps = laps; SES.grid = cfg.grid; SES.netCol = cfg.col !== 0;
   const sl = world.gridSlots[Math.min(slot, world.gridSlots.length - 1)];
   car.reset(sl.s, sl.d); snapshot(SES.player); SES.player.prevS = SES.player.s; SES.player.progress = SES.player.s; SES.prevS = car.q.s; SES.player.grid = slot + 1;
-  netSet({ ph: 'race', rs: cfg.seq, fin: null, st: null, rdy: 0 });
+  netSet({ ph: 'race', rs: cfg.seq, fin: null, st: null, rdy: 0, bw: null, bs: null });
   if (!SES.netCol) toast('Colisiones desactivadas: los coches se atraviesan', 4);
   netSyncRemotes();
 }
@@ -352,7 +353,9 @@ function netTick() {
   if (now - NET.lastSend < 50) return;   // 20 Hz
   NET.lastSend = now;
   const r2 = (v) => Math.round(v * 100) / 100;
-  netSet({ st: [r2(car.x), r2(car.z), Math.round(car.h * 1000) / 1000, r2(car.u), r2(car.v), SES.player.lap, r2(car.q.s), r2(car.y)], rs: SES.netSeq });
+  const msg = { st: [r2(car.x), r2(car.z), Math.round(car.h * 1000) / 1000, r2(car.u), r2(car.v), SES.player.lap, r2(car.q.s), r2(car.y)], rs: SES.netSeq };
+  if (NET.host && BW && BW.list.length) { const bw = BW.netPack(); if (bw) { msg.bw = bw; msg.bs = ++NET.bwSeq; } }   // the host owns the barrels
+  netSet(msg);
 }
 function netFinish(t) { netSet({ fin: Math.round(t * 1000) / 1000, rs: SES.netSeq }); }
 function netLeaveRace() { netSet({ ph: 'lobby', st: null, rdy: NET.host ? 1 : 0 }); NET.startPerf = 0; if (NET.closed) netLeaveRoom('hostgone'); }
@@ -383,6 +386,10 @@ function netSyncRemotes() {
       e.lap = st[5]; e.progress = st[5] * T.L + st[6];
     }
     if (typeof pr.fin === 'number' && isFinite(pr.fin) && pr.fin > 0) { e.fin = true; e.finT = pr.fin; e.finLaps = R.raceLaps; }
+    // the host's barrels correct ours (age: how long ago the host sent them, from the clock offset)
+    if (pr.host && !NET.host && pr.bw && pr.bs && pr.bs !== NET.bwSeen && BW && isFinite(ts)) {
+      NET.bwSeen = pr.bs; BW.netApply(pr.bw, (Date.now() - ts - (NET.offset || 0)) / 1000 + 0.03);
+    }
     e.left = false;
   }
   for (const e of R.entries) if (e.isRemote && !seen.has(e.peer)) { e.left = true; if (e.model) e.model.root.visible = false; }
