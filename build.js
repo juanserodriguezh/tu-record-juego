@@ -39,7 +39,9 @@ for (const f of fs.readdirSync(path.join(DIST, 'models'))) { const m = /^pack(\d
 // 3) page
 const js = ["import * as THREE from 'three';", 'const GLB_PACKS = ' + JSON.stringify(packs) + ';',
   ...DATA.map(rd), ...CORE.map(f => stripMod(rd(f))), lineOffs, ...GAME.map(rd)].join('\n');
-const html = [rd('head.html'), '<style>', rd('style.css'), '</style>', rd('body.html'),
+// visible version (menu + loading screen): the highest '## vN' heading in HANDOFF.md, so a player can tell which build is served
+const GAME_VER = 'v' + Math.max(0, ...[...fs.readFileSync(path.join(__dirname, 'HANDOFF.md'), 'utf8').matchAll(/^## v(\d+)/gm)].map(m => +m[1]));
+const html = [rd('head.html'), '<style>', rd('style.css'), '</style>', rd('body.html').replace(/__GAME_VER__/g, GAME_VER),
   '<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }</script>',
   '<script type="module">', js, '</script>', rd('tail.html')].join('\n');
 fs.writeFileSync(path.join(DIST, 'spa.html'), html);
@@ -50,4 +52,4 @@ if (process.argv.includes('--single')) {
   fs.writeFileSync(path.join(DIST, 'online', 'index.html'), html.replace('const GLB_PACKS = ' + JSON.stringify(packs) + ';', 'const GLB_PACKS = ' + JSON.stringify(inl) + ';'));
   console.log('built dist/online/index.html (single file)');
 }
-console.log('built dist/spa.html', (html.length / 1024).toFixed(1) + ' KB |', packs.map(p => p.url.split('/')[1] + ' ' + Object.keys(p.items).join(',')).join(' | '));
+console.log('built dist/spa.html', GAME_VER, (html.length / 1024).toFixed(1) + ' KB |', packs.map(p => p.url.split('/')[1] + ' ' + Object.keys(p.items).join(',')).join(' | '));

@@ -445,3 +445,7 @@
 - Medida (inclinación del eje por pieza, ejes principales): BMW neumáticos 1,1-1,9° → 0,00°, discos y tapas 2,4-3,1° → 0,00°, llantas delanteras 2,3/4,2° → 0,00°; llantas traseras: el ajuste de aro las deja en 0,05-0,07° (los ejes principales no son fiables en ellas). Valkyrie LM: neumáticos 1,0-2,1°, llantas 0,1-2,5° y discos 0,2-2,2° → 0,00° en las cuatro ruedas.
 - Publicada el 4-nov-2026 como versión 101 del artefacto (id 1793788496-c71d). Solo cambió la página.
 - Capturas: vista cenital (carrocería oculta) de la rueda delantera izquierda y la trasera izquierda girada 0/90/180/270°, antes arriba, en `ruedas-v101/` de la carpeta del proyecto; y una lateral del BMW para comprobar que las ruedas siguen en su sitio. Sin errores de página.
+
+## v102 (4-nov-2026) — número de versión visible
+- Juanse dijo que no veía ningún arreglo en la web de GitHub Pages. Comprobado: el workflow de Pages de main e192f85 (v101) terminó bien a las 10:36 UTC y el despliegue es ese commit; el artefacto (versión 1793788496-c71d) y `dist/spa.html` de main llevan el código de v97-v101 (`BarrelWorld`, `netPack`, `laneMat`, `trueWheel3`). No hay service worker; los .wasm se piden con la caché normal del navegador (Pages: max-age 600). Ajustes por defecto: barriles «Realistas», sin nada que los apague.
+- No se podía saber qué versión tenía cargada el jugador. Ahora el menú (junto al logo) y la pantalla de carga muestran la versión: `build.js` toma el mayor `## vN` de este archivo. Por eso cada versión nueva debe tener su entrada aquí **antes** de compilar.
