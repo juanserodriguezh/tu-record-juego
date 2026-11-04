@@ -82,12 +82,12 @@ function bqRot(b, x, y, z, o) {          // rotate the local vector (x, y, z) by
 
 class BarrelWorld {
   constructor(T) {
-    this.T = T; this.list = []; this.cache = {}; this.ev = []; this.ver = 0; this.t = 0;
+    this.T = T; this.list = []; this.cache = {}; this.ev = []; this.ver = 0; this.t = 0; this._netQuiet = 99;
     this.contacts = []; this._pool = []; this._cars = []; this._q = newQ();
     this.stats = { awake: 0, contacts: 0, ms: 0 };
   }
   // ---------------------------------------------------------------- layouts
-  clear() { this.list.length = 0; this.cache = {}; this.ev.length = 0; this.ver++; }
+  clear() { this.list.length = 0; this.cache = {}; this.ev.length = 0; this.ver++; this._netQuiet = 99; }
   add(type, x, y, z, ax, ay, az, spin) {   // a barrel whose geometric centre is at (x, y, z), axis (ax, ay, az)
     const B = BARREL_TYPES[type], M = barrelMass(B);
     const al = Math.hypot(ax, ay, az) || 1; ax /= al; ay /= al; az /= al;
@@ -153,6 +153,42 @@ class BarrelWorld {
   snap() { return { b: this.state(), c: Object.assign({}, this.cache), t: this.t }; }
   restore(s) { this.setState(s.b); this.cache = Object.assign({}, s.c); this.t = s.t; }
   wake(b) { if (b.sleep) { b.sleep = false; b.slowT = 0; } }
+  // ---------------------------------------------------------------- multiplayer (host authoritative, guests predict)
+  // The host packs the barrels while any is awake (and once more when they all sleep); null when nothing changed.
+  // Per barrel: [id, x, y, z, qx, qy, qz, qw, vx, vy, vz, wx, wy, wz, sleep, dent], mm / mrad precision.
+  netPack() {
+    const L = this.list; if (!L.length) return null;
+    const aw = L.some(b => !b.sleep);
+    // after everything sleeps, keep sending 1 s more (20 packets): guests blend in steps and need several to land exactly
+    if (aw) this._netQuiet = 0; else if (++this._netQuiet > 20) return null;
+    const r3 = (v) => Math.round(v * 1000) / 1000, r4 = (v) => Math.round(v * 10000) / 10000;
+    return L.map(b => [b.id, r3(b.x), r3(b.y), r3(b.z), r4(b.qx), r4(b.qy), r4(b.qz), r4(b.qw), r3(b.vx), r3(b.vy), r3(b.vz), r3(b.wx), r3(b.wy), r3(b.wz), b.sleep ? 1 : 0, r3(b.dent || 0)]);
+  }
+  // A guest blends its own (predicted) barrels toward the host's state, age seconds old. A barrel its own car touched in
+  // the last second keeps the local result (the player feels the hit at once; the host catches up from the car it sees).
+  netApply(arr, age) {
+    if (!Array.isArray(arr)) return 0;
+    let n = 0; age = Math.max(0, Math.min(0.3, +age || 0));
+    for (const e of arr) {
+      if (!Array.isArray(e) || e.length < 16 || !e.every(v => typeof v === 'number' && isFinite(v))) continue;
+      const b = this.list.find(x => x.id === e[0]); if (!b) continue;
+      if (b.ownT != null && this.t - b.ownT < 1) continue;
+      const sl = e[14] === 1, k = sl ? 0 : age;
+      const tx = e[1] + e[8] * k, ty = e[2] + e[9] * k, tz = e[3] + e[10] * k, err = Math.hypot(tx - b.x, ty - b.y, tz - b.z);
+      let qx = e[4], qy = e[5], qz = e[6], qw = e[7];
+      if (sl && err < 0.05 || err > 6) { b.x = tx; b.y = ty; b.z = tz; }   // far off (lost packets, joined late): take it
+      else { const f = 0.35, g = Math.min(f, 0.25 / Math.max(1e-6, err)); b.x += (tx - b.x) * g; b.y += (ty - b.y) * g; b.z += (tz - b.z) * g;   // glide, at most 0.25 m per packet
+        if (qx * b.qx + qy * b.qy + qz * b.qz + qw * b.qw < 0) { qx = -qx; qy = -qy; qz = -qz; qw = -qw; }
+        qx = b.qx + (qx - b.qx) * f; qy = b.qy + (qy - b.qy) * f; qz = b.qz + (qz - b.qz) * f; qw = b.qw + (qw - b.qw) * f; }
+      const ql = Math.hypot(qx, qy, qz, qw) || 1; b.qx = qx / ql; b.qy = qy / ql; b.qz = qz / ql; b.qw = qw / ql;
+      b.vx = e[8]; b.vy = e[9]; b.vz = e[10]; b.wx = e[11]; b.wy = e[12]; b.wz = e[13];
+      b.dent = Math.max(b.dent || 0, e[15]);
+      if (sl && err < 0.05) this.freeze(b); else this.wake(b);
+      n++;
+    }
+    if (n) this.ver++;
+    return n;
+  }
   // ---------------------------------------------------------------- simulation
   // cars: Vehicle objects (planar rigid bodies) that can touch the barrels this step
   step(dt, cars) {
@@ -242,6 +278,9 @@ class BarrelWorld {
     this.cache = next;
     // cars take the horizontal impulse: back to their own velocities
     for (const body of cb) this.carDone(body);
+    // ownership spreads through barrel-barrel contacts: what the local car knocked into is also predicted locally (netApply)
+    for (const c of C) if (c.B && c.B.type) { const a = c.A.ownT, b = c.B.ownT;
+      if (a != null && this.t - a < 0.05 && (b == null || b < a)) c.B.ownT = a; else if (b != null && this.t - b < 0.05 && (a == null || a < b)) c.A.ownT = b; }
     // 6) integrate, clamp, sleep
     for (const b of L) {
       if (b.sleep) continue;
@@ -388,7 +427,7 @@ class BarrelWorld {
   }
   // the car as a solver body: planar (x, z, yaw), its hull in its own frame
   carBody(V, hl, hw) {
-    const b = { car: V, m: V.P.m, iM: 1 / V.P.m, iI: 1 / V.P.Iz, x: V.x, y: V.y, z: V.z, h: V.h, hl, hw, hit: false, jx: 0, jz: 0, peak: 0, pa: 0, pb: 0, pnx: 0, pnz: 0, rel: 0, bm: 0 };
+    const b = { car: V, m: V.P.m, iM: V.kin ? 0 : 1 / V.P.m, iI: V.kin ? 0 : 1 / V.P.Iz, x: V.x, y: V.y, z: V.z, h: V.h, hl, hw, hit: false, jx: 0, jz: 0, peak: 0, pa: 0, pb: 0, pnx: 0, pnz: 0, rel: 0, bm: 0 };
     const fx = Math.sin(V.h), fz = Math.cos(V.h), lx = Math.cos(V.h), lz = -Math.sin(V.h);
     b.fx = fx; b.fz = fz; b.lx = lx; b.lz = lz;
     b.vx = V.u * fx + V.v * lx; b.vz = V.u * fz + V.v * lz; b.r = V.r;
@@ -557,7 +596,9 @@ class BarrelWorld {
   // the car gets back its new velocity; the hardest barrel hit of this step becomes a damage hit, an impact for the HUD/audio
   carDone(cb) {
     const V = cb.car, fx = cb.fx, fz = cb.fz, lx = cb.lx, lz = cb.lz;
-    V.u = cb.vx * fx + cb.vz * fz; V.v = cb.vx * lx + cb.vz * lz; V.r = clamp(cb.r, -4, 4);
+    // a kinematic car (another player's, multiplayer) pushes with infinite mass and takes nothing back: its own client owns it
+    if (!V.kin) { V.u = cb.vx * fx + cb.vz * fz; V.v = cb.vx * lx + cb.vz * lz; V.r = clamp(cb.r, -4, 4); }
+    for (const c of this.contacts) if (c.B === cb) c.A.ownT = V.kin ? c.A.ownT : this.t;   // last touch by a local car (netApply)
     // strongest single contact (for damage and effects)
     let best = null, bj = 0;
     for (const c of this.contacts) if (c.B === cb && c.jn > bj) { bj = c.jn; best = c; }
@@ -565,11 +606,11 @@ class BarrelWorld {
     const M = barrelMass(BARREL_TYPES[best.A.type]), close = Math.max(0, -best.vn0);
     const rx = best.px - cb.x, rz = best.pz - cb.z, a = rx * fx + rz * fz, bb = rx * lx + rz * lz;
     const dv = Math.hypot(cb.vx - cb.vx0, cb.vz - cb.vz0);
-    V.barT = 0.5; V.lastBarrel = close; V.barHits = (V.barHits || 0) + (close > 1 ? 1 : 0);
     best.A.hitV = Math.max(best.A.hitV, close);
+    if (!V.kin) { V.barT = 0.5; V.lastBarrel = close; V.barHits = (V.barHits || 0) + (close > 1 ? 1 : 0); }
     // damage: the panel / wing that met the barrel feels a hit that grows with the barrel's mass (a 15 kg drum at
     // 150 km/h takes a front wing, an 80 kg water barrel bends a suspension); the car's own delta-v is tiny
-    if (close > 2 && typeof dmgImpact === 'function' && V.dmg) {
+    if (close > 2 && !V.kin && typeof dmgImpact === 'function' && V.dmg) {
       const x = close * Math.min(1, Math.sqrt(M.m / 90)) * 0.3 + dv;
       dmgImpact(V, { x, a, b: bb, nF: -(best.nx * fx + best.nz * fz), nL: -(best.nx * lx + best.nz * lz), soft: 0.4, kind: 'barrel' });
     }

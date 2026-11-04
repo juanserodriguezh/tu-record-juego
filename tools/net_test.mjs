@@ -178,6 +178,17 @@ ok(ra.st.includes('Beto R.') && rb.st.includes('Ana'), 'standings show the other
 // headless Chromium renders in software at a few FPS, so states go out at a few Hz with big jitter: only check the
 // estimates exist and the delay adapted to them (the lab mode measures smoothness)
 ok([...ra.r, ...rb.r].every(r => isFinite(r.off) && isFinite(r.jit) && r.gap > 0), 'interpolation clock running (offset, jitter, send gap estimated)', [...ra.r, ...rb.r].map(r => ({ gap: Math.round(r.gap), jit: Math.round(r.jit) })));
+// barrels: both have the host's attenuator; a barrel the host knocks over lands in the same place on the guest (host-authoritative)
+{ const nb = await Promise.all([A, B].map(p => p.evaluate(() => __spa.BW ? __spa.BW.list.length : -1)));
+  ok(nb[0] > 0 && nb[0] === nb[1], 'both have the attenuator barrels', nb);
+  await A.evaluate(() => { const W = __spa.BW, b = W.list[W.list.length - 1]; W.wake(b); b.vy = 3; b.wx = 4; b.ownT = null; });
+  const moved = await until(B, () => { const b = __spa.BW.list[__spa.BW.list.length - 1]; return !b.sleep || b.dent > 0 || Math.abs(b.qw) < 0.99; }, null, 30000);
+  ok(moved, 'the guest sees the barrel the host knocked over move');
+  const settled = await until(A, () => __spa.BW.list.every(b => b.sleep), null, 60000);
+  await B.waitForTimeout(3000);
+  const ha = await A.evaluate(() => __spa.BW.list.map(b => [b.x, b.y, b.z])), hb = await B.evaluate(() => __spa.BW.list.map(b => [b.x, b.y, b.z]));
+  const dmax = Math.max(...ha.map((p, k) => Math.hypot(p[0] - hb[k][0], p[1] - hb[k][1], p[2] - hb[k][2])));
+  ok(settled && dmax < 0.05, 'after it settles the guest has the host\'s barrels (< 5 cm)', { cm: +(dmax * 100).toFixed(1) }); }
 // look at whoever is ahead from behind: the one behind sees the name tag
 const behind = (await A.evaluate(() => __spa.race.player.progress)) < (await B.evaluate(() => __spa.race.player.progress)) ? A : B;
 await behind.evaluate(() => __spa.setAuto(null));

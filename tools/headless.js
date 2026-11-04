@@ -361,6 +361,30 @@ if (cmd === 'barrels') {   // barrel physics: impacts, towers, walls, determinis
       for (const b of W.list) W.wake(b); const x0 = W.list.map(b => [b.x, b.y, b.z]); for (let t = 0; t < 3; t += dt) W.step(dt, []);
       const mv = W.list.reduce((m, b, k) => Math.max(m, Math.hypot(b.x - x0[k][0], b.y - x0[k][1], b.z - x0[k][2])), 0);
       check(bad === 0 && mv < 0.02 && (n > 0 || id === 'monaco'), `${id.padEnd(14)} attenuator: ${n} barrels, ${bad} on the racing surface, settle ${(mv * 100).toFixed(1)} cm`); } }
+  // 12) multiplayer: a guest's car hits a 2x3 water attenuator. The guest simulates it with its own (dynamic) car; the host
+  //     sees that car 100 ms late as a kinematic body and owns the result; an observer sees it 200 ms late. The host sends its
+  //     barrels at 20 Hz (netPack), they arrive 100 ms later (netApply). Everyone must end with the host's barrels.
+  { const sp = M.CARS.find(c => c.id === 'amg_gt3'), i0 = iAt(600), V = new M.Vehicle(sp, T);
+    V.reset(i0 * T.ds, 0, false, hd(i0)); V.u = 100 / 3.6;
+    const mk = () => { const W = new M.BarrelWorld(T), fx = Math.sin(V.h), fz = Math.cos(V.h); W.grid('water', V.x + fx * 14, V.z + fz * 14, V.h, 2, 3); return W; };
+    const H = mk(), G = mk(), O = mk(), hist = [], inbox = [], kin = (lag) => { const s = hist[Math.max(0, hist.length - 1 - lag)]; return Object.assign({ kin: true, spec: sp, P: { m: 1300, Iz: 2000, race: true } }, s); };
+    let t = 0, n = 0, maxJump = 0, u0 = V.u, hitT = -1, kinV = 0, sent = 0;
+    while (t < 8) {
+      V.step(dt, { steer: 0, throttle: 0, brake: hitT > 0 && t - hitT > 0.4 ? 0.7 : 0 }, env);
+      hist.push({ x: V.x, y: V.y, z: V.z, h: V.h, u: V.u, v: V.v, r: 0 });
+      const prev = G.list.map(b => [b.x, b.y, b.z]);
+      G.step(dt, [V]); if (hitT < 0 && V.barT) hitT = t;
+      const kh = kin(24), ko = kin(48), ku = kh.u; H.step(dt, [kh]); O.step(dt, [ko]); kinV = Math.max(kinV, Math.abs(kh.u - ku));
+      if (++n % 12 === 0) { const pk = H.netPack(); if (pk) { inbox.push({ at: t + 0.1, pk: JSON.parse(JSON.stringify(pk)) }); sent++; } }
+      while (inbox.length && inbox[0].at <= t) { const m = inbox.shift(); G.netApply(m.pk, 0.1); O.netApply(m.pk, 0.1); }
+      if (t > 0.02) G.list.forEach((b, k) => { maxJump = Math.max(maxJump, Math.hypot(b.x - prev[k][0], b.y - prev[k][1], b.z - prev[k][2])); });
+      t += dt;
+    }
+    const diff = (A) => Math.max(...A.list.map((b, k) => Math.hypot(b.x - H.list[k].x, b.y - H.list[k].y, b.z - H.list[k].z)));
+    const moved = Math.max(...H.list.map((b, k) => Math.hypot(b.x - G.list[k].x0 || 0, 0))), pushed = H.list.some(b => b.hitV > 3);
+    const asleep = [H, G, O].every(W => W.list.every(b => b.sleep));
+    console.log(`multiplayer attenuator at 100 km/h: host pushed by the kinematic car ${pushed}, ${sent} packets; after 8 s guest ${(diff(G) * 100).toFixed(1)} cm and observer ${(diff(O) * 100).toFixed(1)} cm from the host, all asleep ${asleep}; biggest guest correction step ${(maxJump * 100).toFixed(1)} cm; car -${((u0 - hist[Math.min(hist.length - 1, Math.round((hitT + 0.25) / dt))].u) * 3.6).toFixed(1)} km/h`);
+    check(pushed && kinV === 0 && diff(G) < 0.05 && diff(O) < 0.05 && asleep && maxJump < 0.5, 'multiplayer: the host owns the barrels (kinematic remote car pushes, takes nothing back), guest and observer converge to < 5 cm, no visible snap (< 0.5 m per step)'); }
   if (fail) { console.log(fail, 'barrel check(s) failed'); process.exit(1); }
 }
 if (cmd === 'walls') {   // car into each barrier type: speed kept, rebound, peak deceleration, yaw, damage: node tools/headless.js walls [old]

@@ -430,3 +430,10 @@
 - `tools/shot.mjs` acepta `DPR=2` (pantalla Retina, como la de Juanse) y `DIST=<carpeta>` (otra compilación, para capturas de antes).
 - Verificado: capturas antes/después en `asfalto-v99/` (Mónaco onboard en la salida de boxes a DPR 2, Spa y Monza desde arriba); `pits` y `city` en verde; sin errores de página. La física no cambia (solo la malla visual).
 - Publicada el 4-nov-2026 como versión 99 del artefacto (id 1793771956-8222). Solo cambió la página.
+
+## v100 (4-nov-2026) — barriles en multijugador
+- Pedido de Juanse («sigue» tras la v97; opción recomendada mientras decide): en multijugador cada jugador simulaba sus barriles por su cuenta y los coches de los demás los atravesaban.
+- Ahora el anfitrión es la autoridad. Todos simulan (predicción): el coche propio es dinámico y los coches remotos entran como cuerpos cinemáticos (`barrelKin` en `main.js`: masa infinita, no reciben impulso ni daño; solo con colisiones activadas). El anfitrión manda los barriles en su presencia (`bw`, secuencia `bs`) a 20 Hz mientras alguno está despierto y 1 s más (`BarrelWorld.netPack`). El invitado los aplica con `netApply`: lo que su coche tocó en el último segundo, y lo que esos barriles empujaron, se queda con el resultado local; lo demás se desliza hacia el anfitrión (35 % por paquete, máx. 0,25 m; salto solo a más de 6 m) y duerme cuando coincide. Si hay barriles lo decide el ajuste del anfitrión (`cfg.bar`).
+- Verificado: `headless.js barrels` 23/23 (caso nuevo: invitado a 100 km/h contra el amortiguador, anfitrión con 100 ms de retraso, observador con 200 ms, paquetes con 100 ms de retardo: final a 0,1 cm del anfitrión, todo dormido, corrección máxima 33 cm por paso incluido el movimiento propio). `net_test.mjs room` pasa entero con la comprobación nueva (los dos tienen 6 barriles; un barril que tumba el anfitrión queda a 0,1 cm en el invitado). `rewind` igual.
+- Límite: con 100-200 ms de red, un golpe de otro jugador se ve con ese retraso; al asentarse todos coinciden.
+- Publicada el 4-nov-2026 como versión 100 del artefacto (id 1793788095-15b3). Solo cambió la página.
