@@ -429,3 +429,4 @@
 - Chequeo nuevo `node tools/road_layers.mjs [pistas]` (exit 1 si falla; también `__spa.roadLayers()`): recorre todos los triángulos planos del escenario y avisa de cualquier superficie que quede sobre el asfalto del circuito (entre −30 y +25 cm de él, a más de 12 cm del borde) y que no sea una calcomanía marcada (`material.userData.decal`: líneas, pianos, cuadros de meta, parrilla, charcos). Antes: falla en Mónaco, Spa y Monza (la vía de salida/escapatoria). Ahora: las 10 pistas OK.
 - `tools/shot.mjs` acepta `DPR=2` (pantalla Retina, como la de Juanse) y `DIST=<carpeta>` (otra compilación, para capturas de antes).
 - Verificado: capturas antes/después en `asfalto-v99/` (Mónaco onboard en la salida de boxes a DPR 2, Spa y Monza desde arriba); `pits` y `city` en verde; sin errores de página. La física no cambia (solo la malla visual).
+- Publicada el 4-nov-2026 como versión 99 del artefacto (id 1793771956-8222). Solo cambió la página.
