@@ -122,10 +122,6 @@ async function loadTrack(id, first) {
 }
 function applyTrackTexts() {
   const D = TRACK;
-  document.title = D.title;
-  document.querySelectorAll('.brand-mark').forEach(el => el.textContent = D.mark);
-  document.querySelectorAll('.load-title, .brand-text strong').forEach(el => el.textContent = D.title);
-  const sm = document.querySelector('.brand-text small'); if (sm) sm.textContent = D.sub;
   const fam = (id) => id.startsWith('toca_') ? 'toca' : id;
   const tt = $('trackTabs'); if (tt) tt.querySelectorAll('.trk').forEach(b => b.setAttribute('aria-pressed', String(fam(b.dataset.k) === fam(D.id))));
   // layouts of the selected circuit (Tocancipá): one button per layout

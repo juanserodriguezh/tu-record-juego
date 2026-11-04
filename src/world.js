@@ -416,6 +416,14 @@ class World {
       return ps * Math.max(ps * b, ps * T.pitC[k] + T.pitHW);
     };
     this.armco = {}; this.barDf = barD;
+    // where a grandstand fence may stand on the rail: [d, foot height] or null (rail cut by an escape road, or moved off the
+    // circuit barrier line by the pit-lane band)
+    const railCut = { 1: new Uint8Array(N), [-1]: new Uint8Array(N) };
+    this.standFence = (side, i) => {
+      const k = ((i % N) + N) % N, raw = side > 0 ? T.barL[k] : T.barR[k], d = barD(side, k);
+      if (railCut[side][k] || railCut[side][(k + N - 1) % N] || Math.abs(side * d - raw) > 0.25) return null;
+      return [side * (raw + 0.1), isStraight(k) ? 1.15 : 0.75];
+    };
     for (const side of [1, -1]) {
       const b = new GeoBuilder(true), st = new Int32Array(N).fill(-1);
       for (let i = 0; i < N; i++) {
@@ -426,6 +434,7 @@ class World {
         // ends the wall steps 10 m sideways, straight across the mouth of the Spa pit exit road), so test inside it too
         const LS = 8, inLane = (f) => T.inEscape && T.inEscape(bot0[0] + (bot1[0] - bot0[0]) * f, bot0[2] + (bot1[2] - bot0[2]) * f);
         let cut = false; if (T.inEscape) for (let q = 0; q <= LS && !cut; q++) cut = inLane(q / LS);
+        if (cut) railCut[side][((i % N) + N) % N] = 1;
         if (isStraight(i)) {
           const top0 = this.P(i, d0, 1.15), top1 = this.P(i2, d1, 1.15);
           const c = (Math.floor(i / 4) % 2) ? col3('#d8dadc') : col3(side > 0 ? '#2f63b8' : '#d8dadc');
@@ -823,10 +832,15 @@ class World {
           B.box(pr[0], base + tiers * 0.45 + 3.6, pr[2], tiers * 0.95 + 1.4, 0.25, segLen, h, C.roof);
         }
         const pc = this.P(k + 2, d0 + side * tiers * 0.5, 0); addFP(pc[0], pc[2], tiers * 0.6 + 8);
-        // catch fence in front of the stand
-        const f0 = this.P(k, side * (bar + 0.1), 0.75), f1 = this.P(k2, side * ((side > 0 ? T.barL[k2] : T.barR[k2]) + 0.1), 0.75);
-        const g0 = [f0[0], f0[1] + 3.2, f0[2]], g1 = [f1[0], f1[1] + 3.2, f1[2]];
-        fenceB.quad(f0, f1, g1, g0, C.white, [[0, 0], [2, 0], [2, 1], [0, 1]]);
+        // catch fence in front of the stand: it stands on the barrier that is really built there, sample by sample. Where the
+        // rail leaves the stand's line (the pit-lane band pushes it outwards, an escape road cuts it) the fence stops at the rail
+        // instead of hanging in the air over the pit entry
+        for (let j = k; j < k + 4; j++) {
+          const fa = this.standFence(side, j), fb = this.standFence(side, j + 1); if (!fa || !fb) continue;
+          const f0 = this.P(j, fa[0], fa[1]), f1 = this.P(j + 1, fb[0], fb[1]);
+          const g0 = [f0[0], f0[1] + 3.2, f0[2]], g1 = [f1[0], f1[1] + 3.2, f1[2]], u0 = (j - k) * 0.5;
+          fenceB.quad(f0, f1, g1, g0, C.white, [[u0, 0], [u0 + 0.5, 0], [u0 + 0.5, 1], [u0, 1]]);
+        }
       }
     };
     for (const g of this.D.stands) grandstand(...g);

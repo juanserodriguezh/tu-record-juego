@@ -397,3 +397,36 @@ if (cmd === 'walls') {   // car into each barrier type: speed kept, rebound, pea
     }
   }
 }
+if (cmd === 'pitwall') {   // walls between the circuit and the pit lane / pit exit road must hold: crash into them from both sides (exit 1)
+  // node tools/headless.js pitwall [tracks] [car]. Rails are NOT reset between crashes (a bent rail must still hold). A crossing = the car's
+  // centre leaves one drivable area, crosses ground that is not drivable and ends in another one where a wall separates them.
+  const tids = process.argv[3] ? process.argv[3].split(',') : Object.keys(M.TRACK_DEFS), sp = M.CARS.find(c => c.id === (process.argv[4] || 'amg_gt3'));
+  const env = { grip: 1, abs: true, tc: true, esc: true, autoShift: true, steerAssist: true, slipCap: true };
+  let fail = 0;
+  for (const tid of tids) { const D = M.TRACK_DEFS[tid], T = M.buildTrack(D), N = T.N, ps = T.pitSide, E = T.esc;
+    const area = (V) => { const q = V.q; if (q.d <= q.bl && q.d >= -q.br) return 'T'; if (q.pc === q.pc && Math.abs(q.d - q.pc) <= q.phw) return 'B'; if (E && E.near(V.x, V.z)[0] < E.hw) return 'L'; return '-'; };
+    // a wall really separates the circuit from the lane / band around sample i on that side (±3 samples)
+    const walled = (i, side) => { for (let k = -3; k <= 3; k++) { const j = (i + k + N) % N, b = side > 0 ? T.barL[j] : T.barR[j], d = side * b, x = T.x[j] + T.nx[j] * d, z = T.z[j] + T.nz[j] * d;
+      if (T.pitSep[j] && side === ps) continue; if (!(E && E.pit) || E.near(x, z)[0] < E.hw + 0.3) return false; } return true; };
+    const starts = [];
+    for (let i = 0; i < N; i += 3) if (T.pitSep[(i + N - 3) % N] && T.pitSep[i] && T.pitSep[(i + 3) % N]) {
+      const w = T.pitBar[i]; starts.push(['pit wall', i, ps, ps * Math.max(0.5, w - 2.5)], ['pit wall', i, -ps, T.pitC[i]]); }
+    if (E && E.pit) for (let j = 2; j < E.pts.length - 1; j += 2) { const [x, z] = E.pts[j], q0 = T.project(x, z, -1), side = q0.d > 0 ? 1 : -1;
+      if (!walled(q0.i, side)) continue; const bar = side > 0 ? q0.bl : q0.br;
+      const tx = E.pts[j + 1][0] - x, tz = E.pts[j + 1][1] - z, same = tx * T.tx[q0.i] + tz * T.tz[q0.i] >= 0 ? 1 : -1;
+      starts.push(['exit road', q0.i, side, side * Math.max(0.5, bar - 2.5)], ['exit road', q0.i, -side, null, x, z, Math.atan2(tx, tz), same]); }
+    let n = 0, bad = 0; const ex = [];
+    for (const [what, i, toward, d0, lx, lz, lh, same] of starts) for (const ang of [10, 30, 60, 90, 120, 150, 170]) for (const thr of [1, -1]) for (const st of [1, -1, 0]) {
+      const V = new M.Vehicle(sp, T);
+      if (d0 !== null) { V.reset((i + 0.5) * T.ds, d0); V.h += toward * ang * Math.PI / 180; }
+      else { V.reset((i + 0.5) * T.ds, 0); V.x = lx; V.z = lz; V.h = lh + same * toward * ang * Math.PI / 180; T.project(V.x, V.z, -1, V.q); V.hint = V.q.i; V.y = E.yAt(lx, lz); }
+      V.u = thr > 0 ? 6 : 0; let last = area(V), off = 0, hit = null;
+      for (let t = 0; t < 6 && !hit; t += 1 / 240) { V.step(1 / 240, { throttle: thr > 0 ? 1 : 0, brake: thr < 0 ? 1 : 0, steer: st }, env);
+        const z = area(V); if (z === '-') { off++; continue; }
+        if (z !== last && off > 0 && (T.pitSep[V.q.i] || walled(V.q.i, V.q.d > 0 ? 1 : -1))) hit = `${what} s ${Math.round(V.q.s * D.nom / T.L)} ${last}->${z} ${ang}° ${thr > 0 ? 'gas' : 'reversa'} volante ${st}`;
+        off = 0; last = z; }
+      n++; if (hit) { bad++; if (ex.length < 5) ex.push(hit); } }
+    if (bad) fail++;
+    console.log(tid.padEnd(14), 'crashes', String(n).padStart(5), ' through the wall', bad, ex.length ? ' e.g. ' + ex.join(' | ') : ''); }
+  if (fail) { console.log(fail, 'track(s) with a pit / pit exit wall a car can drive through'); process.exit(1); }
+}

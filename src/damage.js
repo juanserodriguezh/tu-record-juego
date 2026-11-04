@@ -537,7 +537,7 @@ class Vehicle {
     this.af = 0; this.ar = 0;
     this.wheelRot = 0; this.slipF = 0; this.slipR = 0; this.surfF = 'asphalt'; this.surfR = 'asphalt';
     this.impact = 0; this.impactT = 0; this.pitch = 0; this.roll = 0; this.bump = 0; this.load = 1; this.escLvl = 0; this.escOn = false; this.spin = 0; this.lastImpact = 0; this.sausT = 0; this.sausN = 0;
-    this.inPit = false; this.limiter = false; this.absAct = false; this.tcAct = false;
+    this.inPit = false; this.limiter = false; this.absAct = false; this.tcAct = false; this.zone = null;
     this.T.project(this.x, this.z, keepHint ? this.hint : -1, this.q); this.hint = this.q.i;
   }
   inBand(q, d) { return q.pc === q.pc && d <= q.pc + q.phw && d >= q.pc - q.phw; }
@@ -912,24 +912,32 @@ class Vehicle {
     const BL = q.bl + (dmgOn ? T.dentL[iq] - T.twL[iq] : 0), BR = q.br + (dmgOn ? T.dentR[iq] - T.twR[iq] : 0);
     let wPen = 0, wC = 0, wpx = 0, wpz = 0, wBand = false, wEsc = false, enx = 0, enz = 0;
     const E = T.esc, inBox = E && this.x > E.box[0] - 12 && this.x < E.box[1] + 12 && this.z > E.box[2] - 12 && this.z < E.box[3] + 12;
+    // Drivable areas: the circuit (between its barriers), the pit-lane band and the escape / pit exit road. A body point outside
+    // all of them is pushed back to the face of the area the car's centre is in (kept while the centre is between two areas).
+    // (v96) Before, it was pushed to the NEAREST face: past the middle of a thin wall (pit wall, the wall beside the pit exit
+    // road) a car was shoved through to the other side.
+    const inT = (d) => d <= BL && d >= -BR, inB = (d) => band && d <= q.pc + q.phw && d >= q.pc - q.phw;
+    const inL = (x, z) => inBox && E.near(x, z)[0] < E.hw;
+    { const zT = inT(q.d), zB = inB(q.d), zL = !zT && !zB && inL(this.x, this.z);
+      if (zT || zB || zL) this.zone = zT ? 0 : zB ? 1 : 2; else if (this.zone == null) this.zone = -1; }
+    const zone = this.zone;
     for (let k = 0; k < 6; k++) {
       const a = COLL_PTS[k][0] * hl, b = COLL_PTS[k][1] * hw;
       const px = fx * a + lx * b, pz = fz * a + lz * b;
-      const d = q.d + px * q.nx + pz * q.nz;
-      if (d <= BL && d >= -BR) continue;
-      if (band && d <= q.pc + q.phw && d >= q.pc - q.phw) continue;
+      const d = q.d + px * q.nx + pz * q.nz, wx = this.x + px, wz = this.z + pz;
+      if (inT(d) || inB(d) || inL(wx, wz)) continue;
       let c = d > BL ? BL - d : -BR - d, isBand = false, isEsc = false, ex = 0, ez = 0;
-      if (band) { const c2 = d > q.pc + q.phw ? q.pc + q.phw - d : q.pc - q.phw - d; if (Math.abs(c2) < Math.abs(c)) { c = c2; isBand = true; } }
-      // the escape road is drivable too: the car is held by whichever edge (circuit barrier / lane edge) is closest, never snapped across the gap between them
-      if (inBox) {
-        const wx = this.x + px, wz = this.z + pz, nr = E.near(wx, wz);
-        if (nr[0] < E.hw) continue;
-        const pe = nr[0] - E.hw;
-        if (pe < Math.abs(c)) {
-          const j = nr[1], t = nr[2], cx = E.pts[j][0] + (E.pts[j + 1][0] - E.pts[j][0]) * t, cz = E.pts[j][1] + (E.pts[j + 1][1] - E.pts[j][1]) * t;
-          const dl = Math.hypot(wx - cx, wz - cz) || 1;
-          c = pe; isEsc = true; ez = (cz - wz) / dl; ex = (cx - wx) / dl; isBand = false;   // normal back into the lane
-        }
+      const cB = band ? (d > q.pc + q.phw ? q.pc + q.phw - d : q.pc - q.phw - d) : 1e9;
+      const escFace = () => {
+        const nr = E.near(wx, wz), j = nr[1], t = nr[2], cx = E.pts[j][0] + (E.pts[j + 1][0] - E.pts[j][0]) * t, cz = E.pts[j][1] + (E.pts[j + 1][1] - E.pts[j][1]) * t;
+        const dl = Math.hypot(wx - cx, wz - cz) || 1;
+        c = Math.max(0, nr[0] - E.hw); isEsc = true; ez = (cz - wz) / dl; ex = (cx - wx) / dl; isBand = false;   // normal back into the lane
+      };
+      if (zone === 1) { c = cB; isBand = true; }
+      else if (zone === 2) { if (inBox) escFace(); }
+      else if (zone < 0) {   // centre off every area (spawned there): nearest face, as before
+        if (Math.abs(cB) < Math.abs(c)) { c = cB; isBand = true; }
+        if (inBox) { const pe = E.near(wx, wz)[0] - E.hw; if (pe < Math.abs(c)) escFace(); }
       }
       if (Math.abs(c) > wPen) { wPen = Math.abs(c); wC = c; wpx = px; wpz = pz; wBand = isBand; wEsc = isEsc; enx = ex; enz = ez; }
     }
