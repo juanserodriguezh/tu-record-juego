@@ -93,7 +93,7 @@ async function mergeStatic(root) {
 // The texel moves by (chosen - original) * weight, so the original colour gives the texture back unchanged and shading / edges stay.
 function glbPaintMask(mat) {
   const ref = new THREE.Color(mat.userData.paintRef || '#000000'), mode = mat.userData.paintMode || 'alpha';
-  // v104: the weight is computed here from the texel (same formulas as tools/prep_f1_2026/prep.mjs, on sRGB values). It used to be
+  // v105: the weight is computed here from the texel (same formulas as tools/prep_f1_2026/prep.mjs, on sRGB values). It used to be
   // the texture alpha, but browsers premultiply alpha on decode, so weight-0 texels (the white of the Cadillac livery) came out black.
   const W = mode === 'ref' ? ' float pd = length( ps - pow( paintRef, vec3( 1.0 / 2.2 ) ) ) * 255.0;\n float pw = clamp( ( 70.0 - pd ) / 40.0, 0.0, 1.0 );\n'
     : mode === 'dark' ? ' float pmx = max( ps.r, max( ps.g, ps.b ) ), pmn = min( ps.r, min( ps.g, ps.b ) ), psat = pmx > 0.0 ? ( pmx - pmn ) / pmx : 0.0;\n float pw = ( 1.0 - dot( ps, vec3( 0.2126, 0.7152, 0.0722 ) ) ) * clamp( ( 0.25 - psat ) / 0.15, 0.0, 1.0 );\n'

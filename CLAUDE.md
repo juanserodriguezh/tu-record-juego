@@ -80,6 +80,8 @@ Ejemplos de capturas:
   - `swAt [y,z,x]`: posición del volante.
   - `onb [x,y,z,pitch]`: cámara onboard.
   - `trueWheels`: el juego endereza las ruedas al cargar; `false` si el asset ya viene corregido (comprobarlo midiendo, no copiarlo de otro coche: v98); `2` usa el ajuste más estricto `trueWheel2` (SF-26, MAC-26, Fórmula E); `3` endereza cada pieza sobre sus ejes principales (`trueWheel3`, neumáticos de pocos polígonos: BMW M Hybrid, Valkyrie LM).
+  - Giro de ruedas en pantalla (v105): `spinVis` limita el giro visual a `WHEEL_STEP` (0,45 rad) por fotograma para evitar el efecto estroboscópico de las letras del flanco; no es un problema de geometría. Para medir bamboleo real usa vértices en el marco del eje (`__spa.model.wheels`), no capturas con `wheelRot`.
+  - Máscara de pintura (v105): textura opaca y peso en el shader (`paintMode` 'dark'/'ref' en extras, `opaque_paint.mjs`). Todo clon de material debe copiar `onBeforeCompile` y `customProgramCacheKey` (`material.clone()` no lo hace).
   - `wheelStat`: regex de piezas de rueda que no giran (conductos de freno).
   - `series`: `'f1mod'` o `'gt3'` para la parrilla de su serie.
 - **Boxes:** la calle de boxes va a la derecha de la recta. Con `pitSide: 1` en `TRACK_DEFS` va a la izquierda. En Tocancipá los boxes están por dentro (foto aérea, v72): `pitSide: 1` en el Largo inverso y el Corto inverso. Las tribunas de la recta van en el lado contrario.

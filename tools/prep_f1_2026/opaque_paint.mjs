@@ -1,4 +1,4 @@
-// v104: the recolour weight used to live in the paint texture's alpha. Browsers premultiply alpha when they decode the image
+// v105: the recolour weight used to live in the paint texture's alpha. Browsers premultiply alpha when they decode the image
 // (Chrome's ImageBitmap default, Safari's <img>), so every texel with weight 0 lost its colour: the white half of the Cadillac
 // livery rendered black. The weight is now computed in the shader from the RGB (glbPaintMask, same formulas as prep.mjs), so the
 // texture is stored opaque. This rewrites an existing asset in place: paint texture without alpha + extras.paintMode.
