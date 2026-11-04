@@ -389,3 +389,4 @@
 - Ahora: `<title>ARMK Racing</title>` fijo; la cabecera del menú y la pantalla de carga son una sola marca amarilla «ARMK Racing» (sin código de pista ni subtítulo, `white-space: nowrap` para que no se parta en el móvil). `applyTrackTexts` ya no toca el título. Los nombres de pista siguen en el selector y en el resumen de la sesión. La meta description (texto para buscadores, no visible) sigue nombrando las pistas. `title`/`mark`/`sub` de `TRACK_DEFS` quedan sin uso.
 - Sin cambios: repo, `localStorage` `spa_rec_*` y prefijo P2P.
 - Verificado: capturas del menú en escritorio (1440×900) y móvil (390×844) y de la pantalla de carga; `document.title` = «ARMK Racing»; sin errores de página.
+- Publicada el 4-nov-2026 como versión 95 del artefacto (id 1793754330-a3d9). Solo cambió la página.
