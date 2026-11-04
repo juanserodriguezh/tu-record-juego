@@ -366,7 +366,7 @@
 - Causa: la vía de salida terminaba con el centro a 4,5 m a la derecha del eje (`rejoin: -4.5`, semiancho 4), así que acababa 4 m por fuera del asfalto, con un borde recto. Su raíl terminaba ahí y el muro de la pista estaba 4 m más adentro: entre los dos quedaba un hueco abierto a la acera.
 - Arreglo: `rejoin: -0.7` (el borde exterior de la vía queda en el muro medido de la pista, 4,6 m) y `handles: [0.45, 0.22]` para que la vía no pise la pista antes de tiempo (`pits` lo exige). Donde el centro de la vía ya está sobre el asfalto, no se dibuja su capa hasta el muro (antes quedaba un parche más claro). En `world.js`, un tramo de raíl en curva que cruza una vía de escape ahora conserva los trozos de fuera (antes se quitaba entero, como ya se hacía en las rectas).
 - Verificado: capturas antes/después en `monaco-v94/` (incorporación a ras, aérea y la unión de raíles de cerca); toda la vía es conducible (centro y ±3 m); `pits`, `city` y `tyres` en verde; Monza T1 sin cambios; sin errores de página.
-- Publicada el 4-nov-2026 como versión 94 del artefacto. Solo cambió la página.
+- Publicada el 4-nov-2026 como versión 94 del artefacto (id 1793753531-8b16). Solo cambió la página.
 
 ## Web pública en GitHub Pages (3-nov-2026, sin cambios del juego)
 - Pedido de Juanse: que cualquiera pueda jugar (también en multijugador) con solo un enlace, sin cuenta de Claude. En el artefacto, la sala usa `window.claude.use('room')` y exige sesión de Claude.
