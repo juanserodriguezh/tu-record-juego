@@ -77,7 +77,7 @@ Ejemplos de capturas:
   - `realCab`: usa el interior del modelo.
   - `swAt [y,z,x]`: posición del volante.
   - `onb [x,y,z,pitch]`: cámara onboard.
-  - `trueWheels`: el juego endereza las ruedas al cargar; `false` si el asset ya viene corregido.
+  - `trueWheels`: el juego endereza las ruedas al cargar; `false` si el asset ya viene corregido (comprobarlo midiendo, no copiarlo de otro coche: v98); `2` usa el ajuste más estricto `trueWheel2` (SF-26, MAC-26, Fórmula E).
   - `wheelStat`: regex de piezas de rueda que no giran (conductos de freno).
   - `series`: `'f1mod'` o `'gt3'` para la parrilla de su serie.
 - **Boxes:** la calle de boxes va a la derecha de la recta. Con `pitSide: 1` en `TRACK_DEFS` va a la izquierda. En Tocancipá los boxes están por dentro (foto aérea, v72): `pitSide: 1` en el Largo inverso y el Corto inverso. Las tribunas de la recta van en el lado contrario.
