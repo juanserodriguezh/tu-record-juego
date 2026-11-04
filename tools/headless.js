@@ -1,9 +1,9 @@
 // Headless game core (tracks + cars + physics, no browser): node tools/headless.js accel [ids]  |  node tools/headless.js tyres
 const fs = require('fs'), path = require('path');
 const SRC = path.join(__dirname, '..', 'src');
-const files = ['data_spa', 'data_monza', 'data_albertpark', 'data_toca', 'data_monaco', 'tracks', 'cars', 'physics', 'damage', 'line_offs', 'ai', 'coach', 'rewind'];
+const files = ['data_spa', 'data_monza', 'data_albertpark', 'data_toca', 'data_monaco', 'tracks', 'cars', 'physics', 'damage', 'barrels', 'line_offs', 'ai', 'coach', 'rewind'];
 const src = files.map(f => fs.readFileSync(path.join(SRC, f + '.js'), 'utf8').replace(/if \(typeof module[^\n]*\n/, '')).join('\n');
-const M = new Function(src + '\nreturn { newTyres, TYRES, buildTrack, Vehicle, CARS, TRACK_DEFS, ACCEL_CAL, LINE_OFFS, lineFromOffsets, wxInit, AIDriver, AI_PROFILES, qssProfile, aiProfile, newDamage, pitStopPlan, PIT_CREW, Coach, coachPlan, COACH, DMG, Rewind, REWIND, rwCopy, MONACO_CITY };')();
+const M = new Function(src + '\nreturn { newTyres, TYRES, buildTrack, Vehicle, CARS, TRACK_DEFS, ACCEL_CAL, LINE_OFFS, lineFromOffsets, wxInit, AIDriver, AI_PROFILES, qssProfile, aiProfile, newDamage, pitStopPlan, PIT_CREW, Coach, coachPlan, COACH, DMG, Rewind, REWIND, rwCopy, MONACO_CITY, BarrelWorld, BARREL_TYPES, BARRIER_MAT, BAR, barrelMass, placeBarrels, pitWallNose, collideCars };')();
 const cmd = process.argv[2] || 'accel';
 if (cmd === 'accel') {   // standing-start acceleration on the Spa straight: 0-100 / 0-200 / 0-300 km/h and top speed
   const T = M.buildTrack('spa');
@@ -264,4 +264,136 @@ if (cmd === 'reverse') {   // reverse and full lock at walking pace: the car mus
       if (!ok) fail++;
       console.log('grip', grip, id.padEnd(13), 'R full lock 3 s: turn', turn.toFixed(0).padStart(4), '° moved', dist.toFixed(1).padStart(5), 'm  · late lock at', (-W.u * 3.6).toFixed(0), 'km/h, worst u', (maxU * 3.6).toFixed(1), ' · fwd lock', (F.u * 3.6).toFixed(1), 'km/h', ok ? 'OK' : 'FAIL'); } }
   if (fail) { console.log(fail, 'reverse check(s) failed'); process.exit(1); }
+}
+if (cmd === 'barrels') {   // barrel physics: impacts, towers, walls, determinism, cost (exit 1 on failure): node tools/headless.js barrels
+  const D = M.TRACK_DEFS.monza, T = M.buildTrack(D), dt = 1 / 240, rad = Math.PI / 180;
+  const env = { grip: 1, abs: true, tc: true, esc: true, autoShift: true, steerAssist: true, slipCap: true, noGrade: true };
+  const iAt = (sN) => Math.round(sN * T.L / D.nom / T.ds) % T.N, hd = (i) => Math.atan2(T.tx[i], T.tz[i]);
+  const pt = (i, d) => [T.x[i] + T.nx[i] * d, T.z[i] + T.nz[i] * d];
+  let fail = 0; const check = (ok, txt) => { if (!ok) fail++; console.log((ok ? 'OK   ' : 'FAIL ') + txt); };
+  const hash = (W, V) => { let h = 0; const add = (x) => { h = (h * 31 + Math.round(x * 1e9)) % 2147483647; }; for (const b of W.list) for (const k of ['x', 'y', 'z', 'qw', 'qx', 'qy', 'qz', 'vx', 'vy', 'vz', 'wx', 'wy', 'wz']) add(b[k]); if (V) for (const k of ['x', 'z', 'h', 'u', 'v', 'r']) add(V[k]); return h; };
+  // a car at `kmh`, heading along the track (+ yaw), coasting straight into what `setup` placed `gap` metres ahead
+  const run = (o) => {
+    M.DMG.scale = o.dmg === false ? 0 : 1;
+    const sp = M.CARS.find(c => c.id === (o.car || 'amg_gt3')), i0 = iAt(o.s || 600), V = new M.Vehicle(sp, T), W = new M.BarrelWorld(T);
+    V.reset(i0 * T.ds, o.d || 0, false, hd(i0) + (o.yaw || 0) * rad); V.u = (o.kmh || 0) / 3.6;
+    const fx = Math.sin(V.h), fz = Math.cos(V.h), lx = Math.cos(V.h), lz = -Math.sin(V.h), ahead = (a, c) => [V.x + fx * a + lx * c, V.z + fz * a + lz * c];
+    o.setup(W, ahead, V, i0);
+    const st = W.list.map(b => ({ y0: b.y, x0: b.x, z0: b.z, maxV: 0, maxH: 0, bounce: 0, air: false, vyPrev: 0, sleepAt: -1 }));
+    const h0 = V.h; let u0 = V.u, uHit = -1, t = 0, firstHit = -1, maxAw = 0, msMax = 0, msSum = 0, nSt = 0;
+    const inp = o.inp || { steer: 0, throttle: o.kmh > 15 ? 0 : 0.18, brake: 0 };
+    const brk = Object.assign({}, inp, { throttle: 0, brake: 0.7 });
+    while (t < (o.T || 8)) {
+      V.step(dt, firstHit > 0 && t - firstHit > 0.4 && o.kmh > 15 && !o.coast ? brk : inp, env);   // the driver brakes after the hit
+      const t1 = process.hrtime.bigint(); W.step(dt, [V]); const ms = Number(process.hrtime.bigint() - t1) / 1e6; msMax = Math.max(msMax, ms); msSum += ms; nSt++;
+      t += dt; maxAw = Math.max(maxAw, W.stats.awake);
+      if (firstHit < 0 && V.barT) { firstHit = t; uHit = V.u; }
+      if (firstHit > 0 && uHit >= 0 && t - firstHit >= 0.25) { u0 = uHit + (V.u - V.u); o.du = (uHit - V.u) * 3.6; uHit = -1; }
+      W.list.forEach((b, k) => { const s = st[k], v = Math.hypot(b.vx, b.vy, b.vz); if (s.g0 == null) s.g0 = s.y0 - W.ground(s.x0, s.z0).e; s.maxV = Math.max(s.maxV, v); s.maxVh = Math.max(s.maxVh || 0, Math.hypot(b.vx, b.vz)); if (!b.sleep) s.maxH = Math.max(s.maxH, b.y - W.ground(b.x, b.z).e - s.g0);
+        if (s.vyPrev < -1 && b.vy > 0.5 && b.touch) s.bounce++; s.vyPrev = b.vy; if (b.sleep && s.sleepAt < 0 && t > 0.1) s.sleepAt = t; if (!b.sleep) s.sleepAt = -1; });
+      if (o.snapAt && Math.abs(t - o.snapAt) < dt / 2) o.snap = { w: W.snap(), v: M.rwCopy(Object.fromEntries(Object.entries(V).filter(([k]) => !['spec', 'P', 'T'].includes(k)))), t };
+    }
+    const dist = W.list.map((b, k) => Math.hypot(b.x - st[k].x0, b.z - st[k].z0));
+    const tilt = W.list.map(b => { const a = { qw: b.qw, qx: b.qx, qy: b.qy, qz: b.qz }; const y = 1 - 2 * (a.qx * a.qx + a.qz * a.qz); return Math.acos(Math.max(-1, Math.min(1, y))) / rad; });
+    return { V, W, st, dist, tilt, du: o.du != null ? o.du : 0, dyaw: (V.h - h0) / rad, firstHit, maxAw, msMax, msAvg: msSum / nSt, dmg: V.dmg.total, hash: hash(W, V) };
+  };
+  const one = (type, a, c) => (W, ahead) => { const p = ahead(a, c); W.tower(type || 'plastic', p[0], p[1], 1); };
+  const fmt = (r, k) => `barrel ${(r.st[k].maxV * 3.6).toFixed(0)} km/h max, ${r.st[k].maxH.toFixed(2)} m up, ${r.st[k].bounce} bounces, rests ${r.dist[k].toFixed(1)} m away (tilt ${r.tilt[k].toFixed(0)}°)${r.st[k].sleepAt > 0 ? ', asleep at ' + r.st[k].sleepAt.toFixed(1) + ' s' : ', still moving'}`;
+  console.log('--- car into barrels (Monza main straight, coasting into them, braking 0.4 s after the hit, damage on)');
+  // 1) 80 km/h, front corner: the barrel leaves at an angle, the car yaws a little
+  { const r = run({ kmh: 80, setup: one('plastic', 12, 0.95) }), b = r.W.list[0], ang = Math.atan2((b.x - r.st[0].x0) * Math.cos(r.V.h) - (b.z - r.st[0].z0) * Math.sin(r.V.h), (b.x - r.st[0].x0) * Math.sin(r.V.h) + (b.z - r.st[0].z0) * Math.cos(r.V.h)) / rad;
+    console.log(`80 km/h, GT3 front-left corner: ${fmt(r, 0)}, leaves ${ang.toFixed(0)}° off the car's path; car -${r.du.toFixed(1)} km/h in the hit, yaw ${r.dyaw.toFixed(2)}°, damage ${(r.dmg * 100).toFixed(1)} %`);
+    check(r.st[0].maxV < 80 / 3.6 * 1.45 && r.st[0].maxV > 80 / 3.6 * 0.6 && Math.abs(ang) > 5 && r.du > 0.2 && r.du < 6, '80 km/h corner hit: barrel faster than 0.6x and below 1.45x the car, deflected, car loses 0.2-6 km/h'); }
+  // 2) 150 km/h frontal, GT3 and F1 (raked nose: lifts the barrel more)
+  for (const car of ['amg_gt3', 'w17']) { const r = run({ car, kmh: 150, setup: one('plastic', 14, 0) });
+    console.log(`150 km/h frontal, ${car}: ${fmt(r, 0)}; car -${r.du.toFixed(1)} km/h in the hit, yaw ${r.dyaw.toFixed(2)}°, damage ${(r.dmg * 100).toFixed(1)} %`);
+    check(r.st[0].maxV < 150 / 3.6 * 1.45 && r.st[0].maxH > 0.3 && r.st[0].maxH < 25 && r.du < 8 && r.du > 0.5, `150 km/h ${car}: flies (>0.3 m), no explosion (< 1.45x car speed, < 25 m high), car loses 0.5-8 km/h in the hit`); }
+  // 3) walking pace push: the barrel is pushed or tipped, never thrown
+  { const r = run({ kmh: 8, setup: one('plastic', 3, 0), T: 6, inp: { steer: 0, throttle: 0, brake: 0 } });
+    console.log(`8 km/h push, GT3: ${fmt(r, 0)}; car now ${(r.V.u * 3.6).toFixed(1)} km/h`);
+    check(r.st[0].maxV < 8 / 3.6 * 1.5 && r.st[0].maxH < 0.45, 'push at 8 km/h: barrel never faster than 12 km/h nor above 0.45 m (pushed / tipped, not thrown)'); }
+  // 4) tower of 4 left alone: stays up, asleep, no drift
+  { const r = run({ kmh: 0, T: 10, setup: (W, ahead) => { const p = ahead(30, 0); W.tower('plastic', p[0], p[1], 4); for (const b of W.list) W.wake(b); }, inp: { steer: 0, throttle: 0, brake: 1 } });
+    const drift = Math.max(...r.dist), sl = r.W.list.every(b => b.sleep), sink = r.W.list[3].y - r.st[3].y0;
+    console.log(`tower of 4 untouched 10 s: sideways drift ${(drift * 1000).toFixed(1)} mm, top barrel ${(sink * 1000).toFixed(1)} mm (placed with 2 mm gaps), tilt ${Math.max(...r.tilt).toFixed(2)}°, all asleep ${sl} (at ${Math.max(...r.st.map(s => s.sleepAt)).toFixed(2)} s)`);
+    check(drift < 0.01 && Math.abs(sink) < 0.015 && sl, 'tower of 4 stands still (< 1 cm) and sleeps'); }
+  // 5) tower of 4 hit at the base at 30 km/h: collapses on its own (no script), nothing explodes
+  { const r = run({ kmh: 30, T: 10, setup: (W, ahead) => { const p = ahead(10, 0.3); W.tower('plastic', p[0], p[1], 4); } });
+    const fell = r.W.list.slice(1).filter((b, k) => b.y < r.st[k + 1].y0 - 0.4).length, vmax = Math.max(...r.st.map(s => s.maxVh)), asleep = r.W.list.filter(b => b.sleep).length;
+    console.log(`tower of 4 hit at 30 km/h: ${fell}/3 upper barrels fell, fastest ${(vmax * 3.6).toFixed(0)} km/h horizontally (falling adds speed), spread ${Math.max(...r.dist).toFixed(1)} m, ${asleep}/4 asleep after 10 s; car -${r.du.toFixed(1)} km/h`);
+    check(fell === 3 && vmax < 30 / 3.6 * 1.6, 'tower collapses (3/3 upper barrels down), no barrel faster than 1.6x the car horizontally'); }
+  // 5b) the same tower at 100 km/h: how high do the barrels go above where they stood
+  { const r = run({ kmh: 100, T: 8, setup: (W, ahead) => { const p = ahead(14, 0.3); W.tower('plastic', p[0], p[1], 4); } });
+    const up = r.st.map(s => s.maxH), vmax = Math.max(...r.st.map(s => s.maxVh));
+    console.log(`tower of 4 hit at 100 km/h: rise above the start per barrel ${up.map(h => h.toFixed(1)).join(' / ')} m, fastest ${(vmax * 3.6).toFixed(0)} km/h horizontally; car -${r.du.toFixed(1)} km/h, damage ${(r.dmg * 100).toFixed(1)} %`);
+    check(Math.max(...up) < 6 && vmax < 100 / 3.6 * 1.6, 'tower at 100 km/h: no barrel rises more than 6 m, none faster than 1.6x the car'); }
+  // 6) pyramid 3-2-1 at 60 km/h
+  { const r = run({ kmh: 60, T: 10, setup: (W, ahead, V) => { const p = ahead(12, 0); W.pyramid('plastic', p[0], p[1], V.h, 3); } });
+    const vmax = Math.max(...r.st.map(s => s.maxV)), hmax = Math.max(...r.st.map(s => s.maxH));
+    console.log(`pyramid 3-2-1 at 60 km/h: fastest ${(vmax * 3.6).toFixed(0)} km/h, highest ${hmax.toFixed(2)} m, spread ${Math.max(...r.dist).toFixed(1)} m, ${r.W.list.filter(b => b.sleep).length}/6 asleep; car -${r.du.toFixed(1)} km/h, damage ${(r.dmg * 100).toFixed(1)} %`);
+    check(vmax < 60 / 3.6 * 1.6, 'pyramid: no barrel faster than 1.6x the car'); }
+  // 7) attenuator: 2x3 water barrels (80 kg each) at 100 km/h: the car feels it
+  { const r = run({ kmh: 100, T: 6, setup: (W, ahead, V) => { const p = ahead(14, 0); W.grid('water', p[0], p[1], V.h, 2, 3); } });
+    console.log(`2x3 water barrels at 100 km/h: car -${r.du.toFixed(1)} km/h, yaw ${r.dyaw.toFixed(1)}°, damage ${(r.dmg * 100).toFixed(1)} %, fastest barrel ${(Math.max(...r.st.map(s => s.maxV)) * 3.6).toFixed(0)} km/h`);
+    check(r.du > 8 && r.du < 60, 'water barrels: the car loses 8-60 km/h in the hit'); }
+  // 8) a barrel thrown at a concrete wall: rebound with its own restitution
+  { const i = iAt(300), W = new M.BarrelWorld(T), bl = T.barL[i], p = pt(i, bl - 2); W.tower('plastic', p[0], p[1], 1); const b = W.list[0]; W.wake(b);
+    b.vx = T.nx[i] * 15; b.vz = T.nz[i] * 15; b.y += 0.0; let vin = 0, vout = 0;
+    for (let t = 0; t < 1.5; t += dt) { const vn = b.vx * T.nx[i] + b.vz * T.nz[i]; if (vn > 0) vin = Math.max(vin, vn); W.step(dt, []); const v2 = b.vx * T.nx[i] + b.vz * T.nz[i]; if (v2 < 0) vout = Math.max(vout, -v2); }
+    const typ = ['armco', 'concrete', 'tyres'][T.btL[i]];
+    console.log(`plastic barrel at ${vin.toFixed(1)} m/s into the ${typ} wall: rebounds at ${vout.toFixed(1)} m/s (ratio ${(vout / vin).toFixed(2)}; material e = ${M.BARREL_TYPES.plastic && 0.3})`);
+    check(vout / vin > 0.1 && vout / vin < 0.5, 'barrel rebound off concrete between 0.1 and 0.5 of the impact speed'); }
+  // 9) determinism: same impact twice -> bit-identical; snapshot mid-impact, restore, replay -> identical
+  { const o = { kmh: 150, setup: one('plastic', 14, 0.4), T: 4, coast: true }, a = run(o), b = run(o);
+    const o2 = Object.assign({}, o, { snapAt: 2.0 }); const c = run(o2), sn = o2.snap;
+    const V = c.V, W = c.W; for (const k in sn.v) V[k] = M.rwCopy(sn.v[k], V[k]); W.restore(sn.w);
+    for (let t = sn.t; t < 4 - dt / 2; t += dt) { V.step(dt, { steer: 0, throttle: 0, brake: 0 }, env); W.step(dt, [V]); }
+    const h3 = hash(W, V);
+    check(a.hash === b.hash && h3 === c.hash, `determinism: run twice ${a.hash === b.hash ? 'identical' : 'DIFFERENT'}, snapshot at 2 s + replay ${h3 === c.hash ? 'identical' : 'DIFFERENT'}`); }
+  // 10) cost: 4 towers of 4 + a pyramid knocked over at once
+  { const r = run({ kmh: 120, T: 6, setup: (W, ahead, V) => { for (let k = 0; k < 4; k++) { const p = ahead(14 + k * 3, (k - 1.5) * 0.7); W.tower('plastic', p[0], p[1], 4); } const p = ahead(30, 0); W.pyramid('plastic', p[0], p[1], V.h, 4); } });
+    console.log(`cost with ${r.W.list.length} barrels (${r.maxAw} awake at most): ${r.msAvg.toFixed(3)} ms per step on average, ${r.msMax.toFixed(2)} ms worst (240 steps/s)`);
+    check(r.msAvg < 0.5, 'cost: under 0.5 ms per step on average'); }
+  // 11) the circuits: the pit-wall attenuator sits off the racing surface on every track
+  { for (const id of Object.keys(M.TRACK_DEFS)) { const T2 = M.buildTrack(M.TRACK_DEFS[id]), W = new M.BarrelWorld(T2); M.placeBarrels(W, T2, 'real');
+      let bad = 0, n = W.list.length; for (const b of W.list) { const q = T2.project(b.x, b.z, -1); const d = q.d; if (d < q.wl && d > -q.wr) bad++; }
+      // settle 3 s: nothing may move more than 2 cm (placed on the ground, not inside a wall)
+      for (const b of W.list) W.wake(b); const x0 = W.list.map(b => [b.x, b.y, b.z]); for (let t = 0; t < 3; t += dt) W.step(dt, []);
+      const mv = W.list.reduce((m, b, k) => Math.max(m, Math.hypot(b.x - x0[k][0], b.y - x0[k][1], b.z - x0[k][2])), 0);
+      check(bad === 0 && mv < 0.02 && (n > 0 || id === 'monaco'), `${id.padEnd(14)} attenuator: ${n} barrels, ${bad} on the racing surface, settle ${(mv * 100).toFixed(1)} cm`); } }
+  if (fail) { console.log(fail, 'barrel check(s) failed'); process.exit(1); }
+}
+if (cmd === 'walls') {   // car into each barrier type: speed kept, rebound, peak deceleration, yaw, damage: node tools/headless.js walls [old]
+  const dt = 1 / 240, rad = Math.PI / 180, TR = {}, WDBG = process.env.WDBG;
+  if (process.argv[3] === 'old') Object.assign(M.BARRIER_MAT, { concrete: { e: 0.2, mu: 0.35 }, armco: { e: 0.12, mu: 0.35, scrape: 0.38 }, tyres: { e: 0.12, mu: 0.35, scrape: 0.7 } });
+  const env = { grip: 1, abs: true, tc: true, esc: true, autoShift: true, steerAssist: true, slipCap: true, noGrade: true };
+  // a stretch of 60 m with the same barrier type on that side, nearly straight, away from the pits and escape roads
+  // a stretch of 44 m with the same barrier type on that side, close to the asphalt (the car hits it on tarmac, not after a grass run-off),
+  // nearly straight, away from the pits; searched on every circuit
+  const find = (T, typ, side, len, kMax) => { const bt = side > 0 ? T.btL : T.btR, bar = side > 0 ? T.barL : T.barR, wd = side > 0 ? T.wl : T.wr, w = Math.round(len / T.ds);
+    for (let i = w + 5; i < T.N - w; i++) { let ok = true; for (let k = -w; k <= w && ok; k++) { const j = i + k; if (bt[j] !== typ || T.pitSep[j] || Math.abs(T.k[j]) > kMax || T.project(T.x[j] + T.nx[j] * side * (bar[j] + 2), T.z[j] + T.nz[j] * side * (bar[j] + 2), -1).pc === T.project(T.x[j] + T.nx[j] * side * (bar[j] + 2), T.z[j] + T.nz[j] * side * (bar[j] + 2), -1).pc || (T.esc && T.esc.near(T.x[j] + T.nx[j] * side * bar[j], T.z[j] + T.nz[j] * side * bar[j])[0] < T.esc.hw + 25)) ok = false; } if (ok) return i; } return -1; };
+  const where = (typ) => { for (const [len, kMax] of [[22, 0.004], [12, 0.012]]) for (const id of Object.keys(M.TRACK_DEFS)) { const T = TR[id] || (TR[id] = M.buildTrack(M.TRACK_DEFS[id])); for (const side of [1, -1]) { const i = find(T, typ, side, len, kMax); if (i >= 0) return { T, i, side, id }; } } return null; };
+  for (const [name, typ] of [['concrete', 1], ['armco', 0], ['tyres', 2]]) {
+    const W0 = where(typ); if (!W0) { console.log(name, 'not found'); continue; } const { T, i, side, id } = W0;
+    for (const [kmh, ang] of [[80, 30], [150, 10], [50, 90], [150, 90]]) {
+      M.DMG.scale = 1; T.resetBarriers();
+      const sp = M.CARS.find(c => c.id === 'amg_gt3'), V = new M.Vehicle(sp, T), bar = side > 0 ? T.barL[i] : T.barR[i];
+      V.surfaceAt = () => 'asphalt';   // the run-off is asphalt here: only the barrier is measured
+      const gap = ang >= 89 ? 5 : 2.5, back = ang >= 89 ? 0 : gap / Math.tan(ang * rad), i0 = (i - Math.round(back / T.ds) + T.N) % T.N;
+      V.reset(i0 * T.ds, side * (bar - gap - 2.3), false, Math.atan2(T.tx[i0], T.tz[i0]) + side * ang * rad); V.u = kmh / 3.6;
+      let t = 0, out = 0, hit = -1, v0 = V.u, vHit = 0, d01 = 0, exitV = -1, v1 = -1, yaw = 0;
+      while (t < 2.5) { V.step(dt, { steer: 0, throttle: 0, brake: 0 }, env); t += dt;
+        const fx = Math.sin(V.h), fz = Math.cos(V.h), lx = Math.cos(V.h), lz = -Math.sin(V.h), vx = V.u * fx + V.v * lx, vz = V.u * fz + V.v * lz, sp = Math.hypot(vx, vz);
+        const vd = (vx * V.q.nx + vz * V.q.nz) * side;   // + = towards the wall
+        if (V.impactT > 0.49 && hit < 0) { hit = t; vHit = sp; }
+        if (hit > 0 && t - hit <= 0.1 + 1e-9) d01 = (vHit - sp) / (t - hit + dt) / 9.81;
+        if (hit > 0 && t - hit < 0.8) out = Math.max(out, -vd);
+        const clear = (side > 0 ? V.q.bl : V.q.br) - side * V.q.d - (sp > 0 ? 1.1 : 0);
+        if (hit > 0 && exitV < 0 && t - hit > 0.05 && clear > 0.25) exitV = sp;
+        if (hit > 0 && v1 < 0 && t - hit >= 1) v1 = sp;
+        if (hit > 0 && Math.abs(t - hit - 0.5) < dt / 2) yaw = V.r / rad;
+        if (process.env.WDBG && WDBG === name + kmh + ang && Math.round(t / dt) % 12 === 0) console.log(t.toFixed(2), 'd', V.q.d.toFixed(2), 'bl', (side > 0 ? V.q.bl : -V.q.br).toFixed(2), 'u', (V.u * 3.6).toFixed(0), 'v', V.v.toFixed(1), 'vd', vd.toFixed(1), 'imp', V.impactT.toFixed(2), 'scr', (V.scrapeT || 0).toFixed(2), 'r', (V.r / rad).toFixed(0), 'dead', V.dmg.dead); }
+      console.log(`${(name + ' ' + id).padEnd(20)} ${String(kmh).padStart(3)} km/h ${String(ang).padStart(2)}°: ${hit < 0 ? 'NO HIT ' : ''}${(v1 * 3.6).toFixed(0).padStart(3)} km/h 1 s after the hit, ${ang >= 45 ? '' : exitV < 0 ? 'stays on the wall, ' : 'leaves it at ' + (exitV * 3.6).toFixed(0) + ' km/h, '}rebound ${out.toFixed(1)} m/s, ${d01.toFixed(1)} g mean over 0.1 s, yaw ${yaw.toFixed(0)}°/s at +0.5 s, damage ${(V.dmg.total * 100).toFixed(0)} %`);
+    }
+  }
 }
