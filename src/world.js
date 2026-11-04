@@ -581,7 +581,7 @@ class World {
     const onTrack = (p, j) => { const q = T.project(p[0], p[2], -1); let ml = q.wl + 0.1, mr = q.wr + 0.1;
       if (j != null) { const c = T.project(pts[j][0], pts[j][1], -1); if (c.d < c.wl && c.d > -c.wr) { ml = Math.max(ml, q.bl + 0.2); mr = Math.max(mr, q.br + 0.2); } }
       return q.d < ml && q.d > -mr; };
-    // (v97) the lane surface stops exactly at the edge of the circuit asphalt. Before, a quad was dropped only when all four
+    // (v99) the lane surface stops exactly at the edge of the circuit asphalt. Before, a quad was dropped only when all four
     // corners were on the circuit, so at the merge the lane (another mesh, another texture scale, a straight grade) lay over
     // the asphalt 2-11 cm above or below it: from the onboard camera a patch of coarser, lighter asphalt with a wavy edge where
     // the two surfaces crossed in height (Monaco and Spa pit exits, Monza T1 escape). Now each quad is cut in 1 m cells and

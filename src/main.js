@@ -2411,7 +2411,7 @@ function onResize() {
 }
 
 // debug: render the scene into a half-float target and count NaN / Inf / huge texels (they turn into black squares through the bloom blur)
-// (v97) one road surface per spot: any non-decal surface of the scenery lying on the circuit asphalt (within a few cm of
+// (v99) one road surface per spot: any non-decal surface of the scenery lying on the circuit asphalt (within a few cm of
 // it, above or below) shows through it near the camera (the onboard sees the other layer as a patch of another texture).
 // Decals (lines, kerbs, grid, puddles…) are tagged userData.decal and drawn with polygonOffset on purpose.
 function roadLayers(opt) {

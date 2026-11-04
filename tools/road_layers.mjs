@@ -1,4 +1,4 @@
-// One road surface per spot (v97): loads every circuit in Chromium and lists any non-decal surface of the scenery that lies
+// One road surface per spot (v99): loads every circuit in Chromium and lists any non-decal surface of the scenery that lies
 // on the circuit asphalt (a few cm above or below it). Such a layer shows through the asphalt near a low camera (onboard)
 // as a patch of another texture with a wavy edge. Exit 1 if any circuit has one.
 // node tools/road_layers.mjs [track,track…]      (needs playwright; THREE_DIR for offline sandboxes, like tools/shot.mjs)
