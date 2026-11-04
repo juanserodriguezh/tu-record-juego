@@ -25,6 +25,8 @@ node tools/headless.js city                # Mónaco: ningún edificio ni tribun
 node tools/headless.js pits                # tribunas, boxes y postes no se pisan entre sí ni con la pista (exit 1 si falla)
 node tools/headless.js pitstop             # tiempo de parada por categoría y daño
 node tools/headless.js pitwall [pistas] [coche]   # choques contra el muro de boxes y el de la vía de salida desde los dos lados: ninguno lo atraviesa (exit 1 si falla, ~10 min todas)
+node tools/headless.js barrels            # barriles: golpes a 8/80/150 km/h, torres, pirámide, bloque de agua, determinismo, coste, amortiguadores en los 10 trazados (exit 1 si falla)
+node tools/headless.js walls [old]        # GT3 contra hormigón, armco y neumáticos (ángulos y velocidades); old = materiales anteriores a v97
 node tools/headless.js tyrelife monaco amg_gt3 [nivel]   # vueltas hasta el 80 % de desgaste por compuesto (S/M/H) con IA a ritmo, en seco
 node tools/headless.js tyretemp toca_largo,monaco amg_gt3   # temperatura de neumáticos por vuelta (media/pico, % recalentado) con IA a ritmo
 node tools/headless.js coach monza amg_gt3   # línea adaptativa: zonas y juicio de 3 pilotos IA (exit 1 si falla)
@@ -50,6 +52,7 @@ Ejemplos de capturas:
 | `src/cars.js` | `BODY_DEF` (valores por tipo), `ACCEL_CAL` (calibración a tiempos reales 0-100/0-200) y `CARS` (`mkCar(id, nombre, categoría, tipo, CV, kg, tracción, vmax, extras)`) |
 | `src/physics.js` | `buildTrack`, `computeRacingLine` y el modelo del vehículo `Vehicle` (neumáticos, aero, motor, caja). Lo usa también `tools/headless.js` |
 | `src/damage.js` | Modelo de daños por coche (`DMG_PROFILES`) y contacto entre coches |
+| `src/barrels.js` | Barriles 3D (`BarrelWorld`: solver de impulsos, apilado, sueño, LOD), materiales de muro `BARRIER_MAT` que usa `collide`, colocación `placeBarrels` y dibujo `BarrelView`. Detalle en `docs/fisica-barriles.md` |
 | `src/line_offs.js` | Trazada ideal precalculada (la genera `build.js`) |
 | `src/ai.js` | Pilotos IA |
 | `src/coach.js` | Línea de frenada adaptativa: plan alcanzable, juicio por curva, retirada de ayuda; `CoachLine` la dibuja |
@@ -85,6 +88,7 @@ Ejemplos de capturas:
 - **Menú (v81):** tres pasos en una hoja de cristal: Pista (tarjetas con el trazado, trazados de Tocancipá, clima) · Coche (lista + ficha a la derecha) · Sesión (modo, detalles, «Más opciones»). Escritorio: panel lateral; móvil (≤ 820 px): hoja inferior con dos posiciones que se arrastra por la cabecera. Movimiento con muelles propios (`Spring`: amortiguamiento + respuesta, parten del valor y la velocidad actuales), proyección del gesto y rebote en los bordes, según la guía de diseño de Apple que pasó Juanse. Los ids de los controles antiguos se conservan. La cámara del menú encuadra el coche en el hueco libre (`menuFrame`). Capturas del menú: `node tools/menu_shot.mjs <prefijo> "__spa.menuStep('coche')" [ancho] [alto] [móvil=1]`.
 
 ## Historial reciente y decisiones
+- **v97:** barriles con física 3D determinista (`src/barrels.js`, ajuste «Barriles en pista»: amortiguador de agua en la nariz de boxes o zona de pruebas) y materiales de muro reales (neumáticos absorben, armco ya no frena a 5 g al rozar). Valores, pruebas y lo que no aplica del encargo (Unity/PhysX, juntas de neumáticos…) en `docs/fisica-barriles.md`.
 - **v91:** salas privadas por código (sin matchmaking): `src/net.js` + `src/lobby.js`, sala dentro de la hoja del menú, listo/esperando, colisiones on/off, errores (inválido, sin sala, llena, empezada, anfitrión se fue), nombres sobre los coches, interpolación con reloj del emisor. Flujo y límites en `docs/multijugador.md`.
 - **v84:** la vida de los neumáticos en el menú se mide en la pista y con el coche elegidos (IA nivel 9, 4 vueltas por compuesto, en trozos de 6 ms mientras el menú está abierto: `tyreLifeStart` en `main.js`); antes decía siempre «en Spa» con un número fijo. «Auto» elige el compuesto más blando que aguanta la carrera con esa medida.
 - **v86:** neumáticos: el calor es potencia de deslizamiento (crece con la velocidad), enfriamiento con el cuadrado del exceso (sin desboque) y más masa térmica (`TYH` en `damage.js`). Tocancipá/Mónaco ya no pasan de ~110 °C (antes 130-150); Spa/Monza siguen en ventana. `headless.js tyretemp` lo mide.

@@ -960,6 +960,7 @@ class Vehicle {
     const bLeft = dmgOn && typ !== 1 && !wBand && !wEsc ? T.barLeft(side, iq) : 0;     // travel left in the rail / tyres from the current face
     if (bLeft - wPen > 0.03) {
       const inTyres = (side > 0 ? T.twL[iq] : T.twR[iq]) > 0.05;
+      let jN = 0;                       // normal impulse actually applied this step (Coulomb friction is bounded by it)
       if (vn < 0) {
         const jMax = -vn * effM;
         // constant crush force, raised when needed so the car is stopped inside the travel that is left (no tunnelling, no snap-back)
@@ -969,10 +970,10 @@ class Vehicle {
         this.r = clamp(r + j * rn / P.Iz, -4, 4);
         this.impact = Math.max(this.impact, -vn); this.impactT = 0.5; this.lastImpact = -vn;
         dmgImpact(this, { x: -vn, a: ca, b: cb, nF, nL, soft: inTyres ? 0.95 : 0.35, kind: inTyres ? 'tyres' : 'armco' });
-        this.hitJ = (this.hitJ || 0) + j;
+        this.hitJ = (this.hitJ || 0) + j; jN = j;
       }
       // scraping along it: friction scaled by how hard it is pressed
-      const mu = inTyres ? 0.7 : 0.38, fn = Math.max(0.45 * P.m * G * dt, (vn < 0 ? 12 * G * P.m * dt : 0));
+      const mu = inTyres ? BARRIER_MAT.tyres.scrape : BARRIER_MAT.armco.scrape, fn = Math.max(0.45 * P.m * G * dt, jN);   // (was the nominal crush force whenever closing: a car barely touching the rail was braked at ~5 g)
       const jt = clamp(-vt * effT, -mu * fn, mu * fn);
       Vx += jt / P.m * tx; Vz += jt / P.m * tz; this.r = clamp(this.r + jt * rt / P.Iz, -4, 4);
       dmgScrape(this, vt, ca, cb, dt);
@@ -987,12 +988,12 @@ class Vehicle {
     // push-out is limited per step: a barrier that sweeps onto the car (chicane, corner exit) squeezes it out smoothly instead of snapping it
     { const corr = Math.min(wPen, 0.35 + 1.5 * Math.abs(Math.min(vn, 0)) * dt); this.x += nx * corr; this.z += nz * corr; }
     if (vn < 0) {
-      const e = typ === 1 ? 0.2 : 0.12;
+      const BM = typ === 1 ? BARRIER_MAT.concrete : typ === 2 ? BARRIER_MAT.tyres : BARRIER_MAT.armco, e = BM.e;   // src/barrels.js
       const j = -(1 + e) * vn / (1 / P.m + rn * rn / P.Iz);
       Vx += j / P.m * nx; Vz += j / P.m * nz;
       let rNew = r + j * rn / P.Iz;
       let jt = -vt / (1 / P.m + rt * rt / P.Iz);
-      const mc = 0.35 * j; jt = clamp(jt, -mc, mc);
+      const mc = BM.mu * j; jt = clamp(jt, -mc, mc);
       Vx += jt / P.m * tx; Vz += jt / P.m * tz; rNew += jt * rt / P.Iz;
       this.r = clamp(rNew, -4, 4);
       this.u = Vx * fx + Vz * fz; this.v = Vx * lx + Vz * lz;
