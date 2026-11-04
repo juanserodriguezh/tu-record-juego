@@ -1,4 +1,4 @@
-# Física de barriles y muros (v95)
+# Física de barriles y muros (v97)
 
 Motor: el propio del juego (JavaScript, three.js solo para dibujar). No hay Unity ni PhysX: el coche es un sólido plano (x, z, guiñada) integrado a 240 Hz en `Vehicle.step` (`src/damage.js`), y los barriles se añadieron como sólidos rígidos 3D en `src/barrels.js`, en el mismo paso de 1/240 s. Todo es determinista: el rebobinado y `headless.js barrels` comprueban que la repetición es idéntica bit a bit.
 
