@@ -38,6 +38,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--yellow); ou
   font-family: var(--display); font-weight: 800; font-style: italic; font-size: 22px; letter-spacing: 0.04em;
   background: var(--yellow); color: var(--yellow-ink); padding: 2px 12px 1px 10px; line-height: 1.15;
   clip-path: polygon(8% 0, 100% 0, 92% 100%, 0 100%);
+  white-space: nowrap; flex: none;
 }
 .brand-mark.big { font-size: 44px; padding: 4px 26px 2px 22px; }
 .brand-text { display: flex; flex-direction: column; min-width: 0; }
