@@ -54,7 +54,70 @@ function pilotProfile() {
 function netProfileSync() { if (NET.code) netSet(pilotProfile()); if (lobbyOn()) renderLobby(); }
 const hexOr = (c, d) => /^#[0-9a-f]{6}$/i.test(c) ? c : d;
 
-// ---- transport B: PeerJS ---------------------------------------------------------
+// ---- relay: MQTT over WebSocket (v106) -----------------------------------------------
+// WebRTC needs a direct path between the two browsers. Between two home routers it usually works; on mobile
+// data, carrier-grade NAT, some Wi-Fi and most school/company networks it does not, and the PeerJS TURN relay
+// is not dependable. Then the guest talks to the host through a public MQTT broker (WebSocket + TLS): no account,
+// no backend of ours. Same star protocol; the broker only forwards. Minimal MQTT 3.1.1 client: QoS 0 only.
+const RELAY_URLS = () => window.__RELAY_URLS || ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'];
+const RELAY_TOPIC = 'armk-racing/v1/';
+const RELAY_AFTER = 4000;   // ms a guest waits for the direct link before it also tries the relay
+class MqttWs {
+  constructor(url, will) { this.url = url; this.will = will || null; this.ws = null; this.buf = new Uint8Array(0); this.subs = new Map(); this.pid = 1; this.ok = false; this.onclose = null; this.ping = 0; }
+  static str(s) { const b = new TextEncoder().encode(s); const o = new Uint8Array(b.length + 2); o[0] = b.length >> 8; o[1] = b.length & 255; o.set(b, 2); return o; }
+  static pack(type, parts) {
+    const len = parts.reduce((a, p) => a + p.length, 0), hd = [type]; let x = len;
+    do { let d = x % 128; x = Math.floor(x / 128); if (x > 0) d |= 128; hd.push(d); } while (x > 0);
+    const o = new Uint8Array(hd.length + len); o.set(hd, 0); let k = hd.length; for (const p of parts) { o.set(p, k); k += p.length; } return o;
+  }
+  connect(ms) {
+    return new Promise((res, rej) => {
+      let done = false; const fin = (ok, why) => { if (done) return; done = true; clearTimeout(to); ok ? res(this) : (this.close(), rej(why)); };
+      const to = setTimeout(() => fin(false, 'timeout'), ms || 7000);
+      let ws; try { ws = this.ws = new WebSocket(this.url, ['mqtt']); } catch (e) { fin(false, 'ws'); return; }
+      ws.binaryType = 'arraybuffer';
+      ws.onopen = () => {
+        const id = 'armk-' + Math.random().toString(36).slice(2, 12);
+        const flags = 0x02 | (this.will ? 0x04 : 0);
+        const parts = [MqttWs.str('MQTT'), Uint8Array.of(4, flags, 0, 90), MqttWs.str(id)];   // keep-alive 90 s: a phone loading a circuit can freeze for a while
+        if (this.will) parts.push(MqttWs.str(this.will.topic), MqttWs.str(JSON.stringify(this.will.msg)));
+        ws.send(MqttWs.pack(0x10, parts));
+      };
+      ws.onerror = () => fin(false, 'ws');
+      ws.onclose = () => { const was = this.ok; this.ok = false; clearInterval(this.ping); fin(false, 'ws'); if (was && this.onclose) this.onclose(); };
+      ws.onmessage = (ev) => {
+        const add = new Uint8Array(ev.data), b = new Uint8Array(this.buf.length + add.length); b.set(this.buf); b.set(add, this.buf.length); this.buf = b;
+        for (;;) {
+          const B = this.buf; if (B.length < 2) break;
+          let len = 0, mul = 1, i = 1, d;
+          do { if (i >= B.length) return; d = B[i++]; len += (d & 127) * mul; mul *= 128; } while (d & 128);
+          if (B.length < i + len) break;
+          const type = B[0] >> 4, body = B.subarray(i, i + len); this.buf = B.slice(i + len);
+          if (type === 2) { if (body[1] === 0) { this.ok = true; this.ping = setInterval(() => this.raw(Uint8Array.of(0xc0, 0)), 20000); fin(true); } else fin(false, 'refused'); }
+          else if (type === 3) {
+            const tl = (body[0] << 8) | body[1], topic = new TextDecoder().decode(body.subarray(2, 2 + tl)), qos = (B[0] >> 1) & 3;
+            const pay = body.subarray(2 + tl + (qos ? 2 : 0)), fn = this.subs.get(topic);
+            if (fn) { let m = null; try { m = JSON.parse(new TextDecoder().decode(pay)); } catch (e) { } if (m && typeof m === 'object') fn(m); }
+          }
+        }
+      };
+    });
+  }
+  raw(u8) { try { if (this.ws && this.ws.readyState === 1) this.ws.send(u8); } catch (e) { } }
+  sub(topic, fn) { this.subs.set(topic, fn); const id = this.pid++ & 0xffff || 1; this.raw(MqttWs.pack(0x82, [Uint8Array.of(id >> 8, id & 255), MqttWs.str(topic), Uint8Array.of(0)])); }
+  pub(topic, msg) { if (this.ok) this.raw(MqttWs.pack(0x30, [MqttWs.str(topic), new TextEncoder().encode(JSON.stringify(msg))])); }
+  close() { clearInterval(this.ping); const ws = this.ws; this.ok = false; this.onclose = null; if (ws) { try { if (ws.readyState === 1) ws.send(Uint8Array.of(0xe0, 0)); ws.close(); } catch (e) { } } }
+}
+// a guest reached through the relay, shaped like a PeerJS DataConnection for the host code (open/data/close)
+class RelayConn {
+  constructor(mq, base, peer) { this.mq = mq; this.base = base; this.peer = peer; this.open = true; this.relay = true; this.h = {}; }
+  on(ev, fn) { (this.h[ev] || (this.h[ev] = [])).push(fn); }
+  fire(ev, a) { for (const f of this.h[ev] || []) { try { f(a); } catch (e) { console.warn(e); } } }
+  send(m) { this.mq.pub(this.base + 'g/' + this.peer, m); }
+  close() { if (!this.open) return; this.open = false; this.fire('close'); }
+}
+
+// ---- transport B: PeerJS (+ relay) ---------------------------------------------------
 let peerLib = null;
 function loadPeerJS() {
   if (window.Peer) return Promise.resolve(window.Peer);
@@ -72,7 +135,7 @@ function loadPeerJS() {
   return peerLib;
 }
 class P2PRoom {
-  constructor(Peer) { this.Peer = Peer; this.pj = null; this.id = null; this.list = new Map(); this.me = {}; this.fns = []; this.errs = []; this.conns = new Map(); this.hostConn = null; this.isHost = false; this.dead = false; this.admit = null; this.seen = new Map(); this.gones = new Map(); this.hb = 0; }
+  constructor(Peer) { this.Peer = Peer; this.pj = null; this.id = null; this.list = new Map(); this.me = {}; this.fns = []; this.errs = []; this.conns = new Map(); this.hostConn = null; this.isHost = false; this.dead = false; this.admit = null; this.seen = new Map(); this.gones = new Map(); this.hb = 0; this.mqs = []; this.via = null; this.rtts = []; this.rtt = null; }
   peers() { return [...this.list.values()].map(e => ({ peer: e.peer, sameTab: e.peer === this.id, kind: 'viewer', presence: e.presence, updatedAt: e.at })); }
   onPeers(fn, err) { this.fns.push(fn); if (err) this.errs.push(err); }
   emit() { const ps = this.peers(); for (const f of this.fns) { try { f({ peers: ps }); } catch (e) { console.warn(e); } } }
@@ -84,84 +147,194 @@ class P2PRoom {
     this.lostT = setTimeout(() => { if (!this.dead && pj.disconnected && ![...this.conns.values()].some(c => c.open)) this.fail('server'); }, 10000);
   }
   opts() { return Object.assign({ debug: 0 }, window.__P2P_SERVER || {}); }
+  // guest -> host, over whichever link admitted us
+  up(m) {
+    if (this.via === 'relay') { if (this.upMq) this.upMq.pub(this.base + 'h', Object.assign({ from: this.id }, m)); }
+    else if (this.hostConn && this.hostConn.open) { try { this.hostConn.send(m); } catch (e) { } }
+  }
   presence(patch) {
     for (const k in patch) { if (patch[k] === null) delete this.me[k]; else this.me[k] = patch[k]; }
     if (!this.id) return Promise.resolve();
     const p = Object.assign({}, this.me);
     this.list.set(this.id, { peer: this.id, presence: p, at: Date.now() });
     if (this.isHost) this.broadcast({ t: 'u', peer: this.id, p });
-    else if (this.hostConn && this.hostConn.open) { try { this.hostConn.send({ t: 'p', p }); } catch (e) { } }
+    else this.up({ t: 'p', p });
     this.emit();
     return Promise.resolve();
   }
-  broadcast(msg, except) { for (const [id, c] of this.conns) if (id !== except && c.open) { try { c.send(msg); } catch (e) { } } }
+  // direct links one by one; relay guests share one topic per broker (they skip their own echoes)
+  broadcast(msg, except) {
+    const rel = new Set();
+    for (const [id, c] of this.conns) {
+      if (id === except || !c.open) continue;
+      if (c.relay) rel.add(c.mq); else { try { c.send(msg); } catch (e) { } }
+    }
+    for (const mq of rel) mq.pub(this.base + 'a', msg);
+  }
   snapshot() { return { t: 'all', list: [...this.list.values()].map(e => ({ peer: e.peer, p: e.presence })) }; }
+  // host: a guest link (PeerJS DataConnection or RelayConn) — admission, presence relay, ping answers, departure
+  attach(c) {
+    c.on('open', () => {
+      const why = this.admit && this.admit(c.peer);
+      if (why) { try { c.send({ t: 'deny', why }); } catch (e) { } setTimeout(() => { try { c.close(); } catch (e) { } }, 500); return; }
+      const old = this.conns.get(c.peer);
+      this.conns.set(c.peer, c); this.seen.set(c.peer, Date.now()); this.gones.set(c.peer, () => { try { c.close(); } catch (e) { } gone(); });
+      try { c.send(this.snapshot()); } catch (e) { }
+      if (old && old !== c) { try { old.close(); } catch (e) { } }   // same guest on a new link: the old one is dropped quietly
+    });
+    c.on('data', (m) => {
+      if (this.conns.get(c.peer) !== c) return;
+      this.seen.set(c.peer, Date.now());
+      if (m && m.t === 'pi') { try { c.send({ t: 'po', a: m.a }); } catch (e) { } return; }
+      if (!m || m.t !== 'p' || typeof m.p !== 'object' || m.p === null) return;
+      this.list.set(c.peer, { peer: c.peer, presence: m.p, at: Date.now() });
+      this.broadcast({ t: 'u', peer: c.peer, p: m.p }, c.peer); this.emit();
+    });
+    const gone = () => { if (this.conns.get(c.peer) !== c) return; this.conns.delete(c.peer); this.seen.delete(c.peer); this.gones.delete(c.peer); this.list.delete(c.peer); this.broadcast({ t: 'x', peer: c.peer }); this.emit(); };
+    c.on('close', gone); c.on('error', gone);
+  }
   // host: claim the code on the signalling server, then admit players (this.admit() returns a refusal reason or null)
   host(code) {
-    this.isHost = true;
+    this.isHost = true; this.base = RELAY_TOPIC + code + '/';
     return new Promise((res, rej) => {
       const pj = this.pj = new this.Peer(P2P_PREFIX + code, this.opts());
       const to = setTimeout(() => rej('timeout'), 12000);
-      pj.on('open', (id) => { clearTimeout(to); this.id = id; this.presence({}); this.beat(); res(this); });
+      pj.on('open', (id) => { clearTimeout(to); this.id = id; this.presence({}); this.beat(); this.hostRelay(); res(this); });
       // after the room is up, a lost signalling socket does not break the open player links: reconnect quietly,
       // and only report it if the host is left with nobody connected and cannot get back
       pj.on('error', (e) => { clearTimeout(to); const t = e && e.type; if (!this.id) rej(t === 'unavailable-id' ? 'taken' : t === 'browser-incompatible' ? 'browser' : 'server'); else if (t === 'network' || t === 'server-error' || t === 'socket-error' || t === 'socket-closed') this.softLost(); });
-      pj.on('connection', (c) => {
-        c.on('open', () => {
-          const why = this.admit && this.admit(c.peer);
-          if (why) { try { c.send({ t: 'deny', why }); } catch (e) { } setTimeout(() => { try { c.close(); } catch (e) { } }, 500); return; }
-          this.conns.set(c.peer, c); this.seen.set(c.peer, Date.now()); try { c.send(this.snapshot()); } catch (e) { }
-        });
-        c.on('data', (m) => {
-          if (!this.conns.has(c.peer)) return;
-          this.seen.set(c.peer, Date.now());
-          if (!m || m.t !== 'p' || typeof m.p !== 'object' || m.p === null) return;
-          this.list.set(c.peer, { peer: c.peer, presence: m.p, at: Date.now() });
-          this.broadcast({ t: 'u', peer: c.peer, p: m.p }, c.peer); this.emit();
-        });
-        const gone = () => { if (!this.conns.has(c.peer)) return; this.conns.delete(c.peer); this.seen.delete(c.peer); this.gones.delete(c.peer); this.list.delete(c.peer); this.broadcast({ t: 'x', peer: c.peer }); this.emit(); };
-        c.on('close', gone); c.on('error', gone); this.gones.set(c.peer, () => { try { c.close(); } catch (e) { } gone(); });
-      });
+      pj.on('connection', (c) => this.attach(c));
       pj.on('disconnected', () => { if (!this.dead) { try { pj.reconnect(); } catch (e) { } } });
     });
   }
-  // guest: connect to the host of the code
+  // host: also listen on every relay broker (a guest uses the first one it reaches); reconnects if a broker drops
+  hostRelay() {
+    for (const url of RELAY_URLS()) {
+      // the guests reached through this broker survive a short drop of the host's own link: on reconnection
+      // they are moved to the new socket; one that stays silent is dropped by the heartbeat (NET_SILENCE)
+      const rc = new Map();
+      const open = (wait) => {
+        if (this.dead) return;
+        const mq = new MqttWs(url);   // no last will: a dropped broker link is not the host leaving
+        mq.connect().then(() => {
+          if (this.dead) { mq.close(); return; }
+          this.mqs.push(mq);
+          for (const c of rc.values()) c.mq = mq;
+          mq.onclose = () => { this.mqs = this.mqs.filter(x => x !== mq); setTimeout(() => open(2000), 300); };
+          mq.sub(this.base + 'h', (m) => {
+            const id = typeof m.from === 'string' && m.from.length < 64 ? m.from : null; if (!id) return;
+            let c = rc.get(id);
+            if (m.t === 'bye') { if (c) { c.close(); rc.delete(id); } return; }
+            if (m.t === 'hi') {
+              if (c && this.conns.get(id) === c) { try { c.send(this.snapshot()); } catch (e) { } return; }   // our welcome got lost
+              c = new RelayConn(mq, this.base, id); rc.set(id, c); c.mq = mq;
+              c.on('close', () => { if (rc.get(id) === c) rc.delete(id); });
+              this.attach(c); c.fire('open'); return;
+            }
+            if (c) { delete m.from; c.fire('data', m); }
+          });
+        }, () => setTimeout(() => open(Math.min(wait * 2, 30000)), wait));
+      };
+      open(2000);
+    }
+  }
+  // guest: connect to the host of the code. Direct (WebRTC) first; after RELAY_AFTER ms, or at once if the
+  // signalling server cannot be reached, the relay too. The first link that brings the host's welcome wins.
   join(code) {
+    this.base = RELAY_TOPIC + code + '/';
     return new Promise((res, rej) => {
-      const pj = this.pj = new this.Peer(undefined, this.opts());
-      const to = setTimeout(() => rej('timeout'), 22000);
-      pj.on('open', (id) => {
-        this.id = id;
-        const c = this.hostConn = pj.connect(P2P_PREFIX + code, { reliable: true, serialization: 'json' });
-        let ok = false;
-        c.on('data', (m) => {
-          this.hostSeen = Date.now();
-          if (!m || typeof m !== 'object' || m.t === 'hb') return;
-          if (m.t === 'deny') { clearTimeout(to); rej(NET_ERR[m.why] ? m.why : 'full'); return; }
-          const now = Date.now();
-          if (m.t === 'all' && Array.isArray(m.list)) {
-            const mine = this.list.get(this.id); this.list.clear();
-            for (const e of m.list) if (e && e.peer && e.peer !== this.id) this.list.set(e.peer, { peer: e.peer, presence: e.p || {}, at: now });
-            if (mine) this.list.set(this.id, mine);
-            // the snapshot is the host's "welcome": only now is the guest admitted
-            if (!ok) { ok = true; clearTimeout(to); this.presence({}); this.beat(); res(this); return; }
+      let ok = false, rtcDead = false, relayDead = false, relayOn = false;
+      const to = setTimeout(() => { if (!ok) { this.stopRelay(); rej('timeout'); } }, 22000);
+      const lose = (why) => { if (ok) return; if (rtcDead && relayDead) { clearTimeout(to); rej(why); } };
+      // what the host sends, from either link
+      const handle = (m, via, myId) => {
+        if (!m || typeof m !== 'object') return;
+        if (ok && via !== this.via) return;
+        if (via === this.via || !ok) this.hostSeen = Date.now();
+        if (m.t === 'hb') return;
+        if (m.t === 'po') { if (ok && typeof m.a === 'number') this.rttSample(Date.now() - m.a); return; }
+        if (m.t === 'bye') { if (ok) this.hostLost('bye'); return; }
+        if (m.t === 'deny') { if (ok) return; clearTimeout(to); ok = true; this.stopRelay(); rej(NET_ERR[m.why] ? m.why : 'full'); return; }
+        const now = Date.now();
+        if (m.t === 'all' && Array.isArray(m.list)) {
+          if (via === 'relay') this.hiOk = true;
+          if (!ok) {   // the host's welcome: we are admitted on this link; drop the other one
+            ok = true; clearTimeout(to); this.via = via; this.id = myId;
+            if (via === 'relay') { try { this.pj && this.pj.destroy(); } catch (e) { } this.pj = null; this.hostConn = null; }
+            else this.stopRelay();
           }
-          else if (m.t === 'u' && m.peer && m.peer !== this.id) this.list.set(m.peer, { peer: m.peer, presence: m.p || {}, at: now });
-          else if (m.t === 'x' && m.peer) this.list.delete(m.peer);
-          this.emit();
-        });
-        c.on('close', () => { if (this.lost) return; this.lost = true; const mine = this.list.get(this.id); this.list.clear(); if (mine) this.list.set(this.id, mine); this.emit(); this.fail('hostgone'); });
+          const mine = this.list.get(this.id); this.list.clear();
+          for (const e of m.list) if (e && e.peer && e.peer !== this.id) this.list.set(e.peer, { peer: e.peer, presence: e.p || {}, at: now });
+          if (mine) this.list.set(this.id, mine);
+          if (!this.hb) { this.presence({}); this.beat(); res(this); return; }
+          this.presence({}); return;   // welcomed again after a reconnection: the host needs our record back
+        }
+        else if (!ok) return;
+        else if (m.t === 'u' && m.peer && m.peer !== this.id) this.list.set(m.peer, { peer: m.peer, presence: m.p || {}, at: now });
+        else if (m.t === 'x' && m.peer) this.list.delete(m.peer);
+        this.emit();
+      };
+      const startRelay = () => {
+        if (relayOn || ok || this.dead) return; relayOn = true;
+        const rid = 'r-' + Math.random().toString(36).slice(2, 12);
+        const urls = RELAY_URLS();
+        const tryUrl = (k) => {
+          if (ok || this.dead) return;
+          if (k >= urls.length) { relayDead = true; lose('server'); return; }
+          const mq = new MqttWs(urls[k], { topic: this.base + 'h', msg: { from: rid, t: 'bye' } });
+          const h = (m) => handle(m, 'relay', rid);
+          // relay link up: subscribe and say hello until the host answers (again after a reconnection)
+          const up = (mq) => {
+            this.upMq = mq; this.mqs.push(mq);
+            mq.sub(this.base + 'g/' + rid, h); mq.sub(this.base + 'a', h);
+            let n = 0; const hi = () => { if (this.dead || (ok && this.via !== 'relay') || (ok && n > 0 && this.hiOk)) return; n++; mq.pub(this.base + 'h', { from: rid, t: 'hi' }); this.hiT = setTimeout(hi, 1500); };
+            this.hiOk = false; setTimeout(hi, 150);   // after the subscriptions are in
+            // the broker dropped us (network change, frozen tab): reconnect with the same id; the heartbeat
+            // reports the host gone only if this takes longer than NET_SILENCE
+            mq.onclose = () => {
+              this.mqs = this.mqs.filter(x => x !== mq); if (this.upMq === mq) this.upMq = null;
+              if (this.dead || this.via !== 'relay') return;
+              const log = (w) => { (this.rlog || (this.rlog = [])).push([Date.now() % 100000, w]); if (this.rlog.length > 20) this.rlog.shift(); };
+              const again = (wait) => { if (this.dead || this.lost) return log('stop'); log('try'); const m2 = new MqttWs(urls[k], { topic: this.base + 'h', msg: { from: rid, t: 'bye' } }); m2.connect().then(() => { log('up'); if (this.dead) { m2.close(); return; } up(m2); }, (why) => { log('fail ' + why); setTimeout(() => again(Math.min(wait * 2, 8000)), wait); }); };
+              log('closed');
+              again(1000);
+            };
+          };
+          mq.connect().then(() => { if (ok || this.dead) { mq.close(); return; } up(mq); }, () => tryUrl(k + 1));
+        };
+        tryUrl(0);
+      };
+      const relayTimer = setTimeout(startRelay, RELAY_AFTER);
+      const pj = this.pj = new this.Peer(undefined, this.opts());
+      pj.on('open', (id) => {
+        if (ok) return;
+        const c = this.hostConn = pj.connect(P2P_PREFIX + code, { reliable: true, serialization: 'json' });
+        c.on('data', (m) => handle(m, 'rtc', id));
+        c.on('close', () => { if (ok && this.via === 'rtc') this.hostLost('close'); });
       });
-      pj.on('error', (e) => { clearTimeout(to); const t = e && e.type; if (t === 'peer-unavailable') rej('nohost'); else if (!this.hostConn || !this.hostConn.open) rej(t === 'browser-incompatible' ? 'browser' : 'server'); else if (t === 'network' || t === 'server-error' || t === 'socket-error') { try { if (pj.disconnected && !pj.destroyed) pj.reconnect(); } catch (er) { } } });
-      pj.on('disconnected', () => { if (!this.dead && this.hostConn && this.hostConn.open) { try { pj.reconnect(); } catch (e) { } } });
+      pj.on('error', (e) => {
+        const t = e && e.type;
+        if (ok && this.via === 'rtc') { if (t === 'network' || t === 'server-error' || t === 'socket-error') { try { if (pj.disconnected && !pj.destroyed) pj.reconnect(); } catch (er) { } } return; }
+        if (ok) return;
+        // nobody holds the code on the signalling server: no room (the relay cannot find a host either)
+        if (t === 'peer-unavailable') { clearTimeout(to); clearTimeout(relayTimer); ok = true; this.stopRelay(); rej('nohost'); return; }
+        rtcDead = true; clearTimeout(relayTimer); startRelay(); lose(t === 'browser-incompatible' ? 'browser' : 'server');
+      });
+      pj.on('disconnected', () => { if (!this.dead && this.via === 'rtc' && this.hostConn && this.hostConn.open) { try { pj.reconnect(); } catch (e) { } } });
     });
   }
-  // heartbeat: a closed tab, a crash or a dropped network does not always close the WebRTC channel at once.
+  stopRelay() { clearTimeout(this.hiT); for (const mq of this.mqs) mq.close(); this.mqs = []; this.upMq = null; }
+  hostLost(why) { if (this.lost) return; this.lost = why || true; const mine = this.list.get(this.id); this.list.clear(); if (mine) this.list.set(this.id, mine); this.emit(); this.fail('hostgone'); }
+  // round trip to the host (guests): the smallest of the last 8 pings, i.e. the network without queueing
+  rttSample(ms) { if (!(ms >= 0 && ms < 5000)) return; this.rtts.push(ms); if (this.rtts.length > 8) this.rtts.shift(); this.rtt = Math.min(...this.rtts); }
+  // heartbeat: a closed tab, a crash or a dropped network does not always close the link at once.
   // Everyone sends a beat every 2 s; NET_SILENCE of silence = gone (the host drops that guest; a guest reports the host gone)
   beat() {
     clearInterval(this.hb);
     this.hostSeen = Date.now();
-    let lastTick = Date.now();
+    let lastTick = Date.now(), n = 0;
+    const pingNow = () => { if (!this.isHost) this.up({ t: 'pi', a: Date.now() }); };
+    pingNow();
     this.hb = setInterval(() => {
       if (this.dead) return clearInterval(this.hb);
       const now = Date.now();
@@ -169,13 +342,20 @@ class P2PRoom {
       if (now - lastTick > 4000) { for (const k of this.seen.keys()) this.seen.set(k, now); this.hostSeen = now; }
       lastTick = now;
       if (this.isHost) { this.broadcast({ t: 'hb' }); for (const [id, t] of this.seen) if (now - t > NET_SILENCE && this.gones.has(id)) this.gones.get(id)(); }
-      else if (this.hostConn) {
-        try { if (this.hostConn.open) this.hostConn.send({ t: 'hb' }); } catch (e) { }
-        if (now - this.hostSeen > NET_SILENCE && !this.lost) { this.lost = true; const mine = this.list.get(this.id); this.list.clear(); if (mine) this.list.set(this.id, mine); this.emit(); this.fail('hostgone'); }
+      else {
+        this.up({ t: 'hb' }); if (++n % 2 === 0 || this.rtts.length < 4) pingNow();
+        if (now - this.hostSeen > NET_SILENCE) this.hostLost('silence');
       }
     }, 2000);
   }
-  destroy() { clearInterval(this.hb); this.dead = true; try { this.pj && this.pj.destroy(); } catch (e) { } this.list.clear(); this.conns.clear(); }
+  destroy() {
+    clearInterval(this.hb); clearTimeout(this.hiT);
+    if (!this.dead) { if (this.isHost) this.broadcast({ t: 'bye' }); else if (this.via === 'relay') this.up({ t: 'bye' }); }
+    this.dead = true;
+    try { this.pj && this.pj.destroy(); } catch (e) { }
+    const mqs = this.mqs; this.mqs = []; setTimeout(() => { for (const mq of mqs) mq.close(); }, 100);   // let the bye leave first
+    this.list.clear(); this.conns.clear();
+  }
 }
 for (const ev of ['beforeunload', 'pagehide']) window.addEventListener(ev, () => { if (NET.mode === 'p2p' && NET.room) NET.room.destroy(); });
 
@@ -246,7 +426,8 @@ function netJoin(code, host, tries) {
   if (NET.room) { NET.room.destroy(); NET.room = null; NET.peers = []; }
   NET.joining = true; NET.code = null; NET.host = host; NET.joinCode = code; renderLobby();
   const room = new P2PRoom(window.Peer);
-  if (host) room.admit = () => netRefusal(roomPeers(), roomHost()) || (SES && SES.mode === 'multi' ? 'started' : null);
+  // a pilot of the running race coming back on a new link (the relay dropped and reconnected) is let back in
+  if (host) room.admit = (peer) => (SES && SES.mode === 'multi' && (SES.grid || []).includes(peer)) ? null : netRefusal(roomPeers().filter(p => p.peer !== peer), roomHost()) || (SES && SES.mode === 'multi' ? 'started' : null);
   (host ? room.host(code) : room.join(code)).then(() => {
     if (!NET.joining || NET.joinCode !== code) { room.destroy(); return; }
     NET.joining = false; NET.room = room; NET.code = code; NET.hadHost = !host;
@@ -349,6 +530,7 @@ async function netStartRace(cfg) {
   SES.raceLaps = laps; SES.grid = cfg.grid; SES.netCol = cfg.col !== 0;
   const sl = world.gridSlots[Math.min(slot, world.gridSlots.length - 1)];
   car.reset(sl.s, sl.d); snapshot(SES.player); SES.player.prevS = SES.player.s; SES.player.progress = SES.player.s; SES.prevS = car.q.s; SES.player.grid = slot + 1;
+  NET.rtSent = undefined;
   netSet({ ph: 'race', rs: cfg.seq, fin: null, st: null, rdy: 0, bw: null, bs: null });
   if (!SES.netCol) toast('Colisiones desactivadas: los coches se atraviesan', 4);
   netSyncRemotes();
@@ -359,28 +541,41 @@ function netTick() {
   NET.lastSend = now;
   const r2 = (v) => Math.round(v * 100) / 100;
   const msg = { st: [r2(car.x), r2(car.z), Math.round(car.h * 1000) / 1000, r2(car.u), r2(car.v), SES.player.lap, r2(car.q.s), r2(car.y)], rs: SES.netSeq };
+  const rt = NET.host ? 0 : NET.mode === 'p2p' && NET.room && NET.room.rtt != null ? Math.round(NET.room.rtt) : null;
+  if (rt !== NET.rtSent) { msg.rt = rt; NET.rtSent = rt; }   // my round trip to the host: the others add it to their prediction
   if (NET.host && BW && BW.list.length) { const bw = BW.netPack(); if (bw) { msg.bw = bw; msg.bs = ++NET.bwSeq; } }   // the host owns the barrels
   netSet(msg);
 }
 function netFinish(t) { netSet({ fin: Math.round(t * 1000) / 1000, rs: SES.netSeq }); }
 function netLeaveRace() { netSet({ ph: 'lobby', st: null, rdy: NET.host ? 1 : 0 }); NET.startPerf = 0; if (NET.closed) netLeaveRoom('hostgone'); }
+// a remote pilot's car in this session (from their lobby presence: car, livery, name)
+function netRemoteEntry(R, p) {
+  const pr = pres(p), sp = carById(pr.car) || CARS[0];
+  const liv = { col: hexOr(pr.c1, sp.col), col2: hexOr(pr.c2, sp.col2), col3: sp.col3, pattern: PATTERNS[pr.pt] ? pr.pt : 'solido', finish: FINISH[pr.fn] ? pr.fn : 'brillo', rim: RIMNAMES[pr.rm] ? pr.rm : 'plata' };
+  const m = buildCar(sp, liv, { lite: true }); scene.add(m.root); m.root.visible = false;
+  if (m.blob) m.blob.visible = S.settings.quality === 'bajo';
+  const nm = String(pr.name || 'Piloto').slice(0, 16), gi = (R.grid || []).indexOf(p.peer);
+  const e = newEntry({ id: p.peer, peer: p.peer, pid: pr.pid, isRemote: true, name: nm, code: nm.slice(0, 10), col: liv.col, sp, model: m, len: sp.len, wid: sp.wid, buf: [], q: newQ(), hint: -1, wheelRot: 0, grid: gi + 1 || null });
+  // until their first state arrives (they may still be loading the circuit) the car waits in its grid slot
+  if (gi >= 0 && world.gridSlots.length) {
+    const sl = world.gridSlots[Math.min(gi, world.gridSlots.length - 1)], P = trackPoint(T, sl.s, sl.d);
+    e.gridPose = { x: P.x, z: P.z, h: P.h, y: P.e }; e.x = P.x; e.z = P.z; e.lap = 0; e.progress = sl.s;
+  }
+  R.entries.push(e);
+  return e;
+}
 function netSyncRemotes() {
   const R = SES; if (!R || R.mode !== 'multi') return;
   const seen = new Set();
   for (const p of roomPeers()) {
     if (p.sameTab) continue;
-    const pr = pres(p); if (pr.rs !== R.netSeq) continue;
+    const pr = pres(p), onGrid = (R.grid || []).includes(p.peer);
+    if (pr.rs !== R.netSeq && !onGrid) continue;
     seen.add(p.peer);
-    let e = R.entries.find(x => x.peer === p.peer);
-    if (!e) {
-      const sp = carById(pr.car) || CARS[0];
-      const liv = { col: hexOr(pr.c1, sp.col), col2: hexOr(pr.c2, sp.col2), col3: sp.col3, pattern: PATTERNS[pr.pt] ? pr.pt : 'solido', finish: FINISH[pr.fn] ? pr.fn : 'brillo', rim: RIMNAMES[pr.rm] ? pr.rm : 'plata' };
-      const m = buildCar(sp, liv, { lite: true }); scene.add(m.root); m.root.visible = false;
-      if (m.blob) m.blob.visible = S.settings.quality === 'bajo';
-      const nm = String(pr.name || 'Piloto').slice(0, 16);
-      e = newEntry({ id: p.peer, peer: p.peer, pid: pr.pid, isRemote: true, name: nm, code: nm.slice(0, 10), col: liv.col, sp, model: m, len: sp.len, wid: sp.wid, buf: [], q: newQ(), hint: -1, wheelRot: 0, grid: ((R.grid || []).indexOf(p.peer) + 1) || null });
-      R.entries.push(e);
-    }
+    const e = R.entries.find(x => x.peer === p.peer) || netRemoteEntry(R, p);
+    e.host = !!pr.host; e.rt = typeof pr.rt === 'number' && isFinite(pr.rt) ? pr.rt : null;
+    e.left = false;
+    if (pr.rs !== R.netSeq) continue;   // on the grid but not in this race yet (loading)
     const st = pr.st, ts = +pr.now;
     if (Array.isArray(st) && st.length >= 8 && st.every(v => typeof v === 'number' && isFinite(v)) && isFinite(ts)) {
       const lastB = e.buf[e.buf.length - 1];
@@ -395,7 +590,6 @@ function netSyncRemotes() {
     if (pr.host && !NET.host && pr.bw && pr.bs && pr.bs !== NET.bwSeen && BW && isFinite(ts)) {
       NET.bwSeen = pr.bs; BW.netApply(pr.bw, (Date.now() - ts - (NET.offset || 0)) / 1000 + 0.03);
     }
-    e.left = false;
   }
   for (const e of R.entries) if (e.isRemote && !seen.has(e.peer)) { e.left = true; if (e.model) e.model.root.visible = false; }
   if (R.resultsShown) showRaceResults();
@@ -443,16 +637,54 @@ function netSampleAt(buf, t, o) {
   o.x = A[0] + vx * ex; o.z = A[1] + vz * ex; o.h = A[2]; o.u = A[3]; o.v = A[4]; o.y = A[7];
   return ex > 0 ? 2 : 0;
 }
-const NET_POSE = { x: 0, z: 0, h: 0, u: 0, v: 0, y: 0 };
+// ---- where the other car is NOW (v106) ----------------------------------------------------------
+// Interpolating between received states shows each car where it was ~0.15-0.4 s ago (network + buffer): side
+// by side at 250 km/h that is 10-25 m, so each driver saw the other behind. Now every client estimates the
+// sender's present: clocks from the offset floor (netClock) plus the one-way latency (half of each hop's round
+// trip to the host, measured with pings; the host relays guests, so guest→guest is two hops). The latest state
+// is carried forward along the circuit (speed along the track, lateral offset, the road's heading change), up to
+// NET_PRED_MAX; new states correct it through the same decaying offset as before (no snaps).
+const NET_PRED_MAX = 0.6;
+const NET_Q = newQ();
+function netLatency(e) {
+  const mine = NET.host ? 0 : NET.mode === 'p2p' && NET.room && NET.room.rtt != null ? NET.room.rtt : 80;
+  const theirs = e.host ? 0 : e.rt != null ? e.rt : 80;
+  return (mine + theirs) / 2;
+}
+// pure: state A carried forward `age` seconds. Along the track when the car is running with the road; a straight
+// line when it is slow, spinning or crossing (pit entry, a spin, the grass)
+function netPredict(A, age, o, hint) {
+  const [vx, vz] = netVel(A), sp = Math.hypot(vx, vz);
+  o.x = A[0] + vx * age; o.z = A[1] + vz * age; o.h = A[2]; o.u = A[3]; o.v = A[4]; o.y = A[7]; o.i = -1;
+  if (!(age > 0) || sp < 4 || !T) return o;
+  const q = T.project(A[0], A[1], hint == null ? -1 : hint, NET_Q); o.i = q.i;
+  const vs = vx * q.tx + vz * q.tz, vd = vx * q.nx + vz * q.nz;
+  if (vs < 0.8 * sp) return o;
+  const P0 = trackPoint(T, q.s, q.d), P = trackPoint(T, q.s + vs * age, q.d + vd * age * 0.6);
+  o.x = P.x + (A[0] - P0.x); o.z = P.z + (A[1] - P0.z);   // keep the small projection residue
+  o.h = A[2] + wrapAng(P.h - P0.h); o.y = A[7] + (P.e - P0.e);
+  return o;
+}
+const NET_POSE = { x: 0, z: 0, h: 0, u: 0, v: 0, y: 0, i: -1 };
 function netPoseRemote(e, dt) {
-  if (e.left || !e.buf.length || e.off == null) { e.model.root.visible = false; e.kin = null; e.px = null; return; }
-  const P = NET_POSE;
-  e.mode = netSampleAt(e.buf, netRenderTime(e, Date.now(), dt * 1000), P);
+  const r = e.model.root;
+  if (e.left) { r.visible = false; e.kin = null; e.px = null; return; }
+  if (!e.buf.length || e.off == null) {   // no state yet: in the grid slot, still
+    if (!e.gridPose) { r.visible = false; e.kin = null; return; }
+    const g = e.gridPose; e.x = g.x; e.z = g.z; e.u = 0; e.vx = 0; e.vz = 0; e.mode = 3;
+    e.kin = { kin: true, x: g.x, z: g.z, h: g.h, vx: 0, vz: 0, len: e.len, wid: e.wid };
+    r.visible = true; r.position.set(g.x, g.y, g.z); r.rotation.order = 'YXZ'; r.rotation.set(0, g.h, 0);
+    return;
+  }
+  const P = NET_POSE, last = e.buf[e.buf.length - 1];
+  const age = clamp((Date.now() - e.off + netLatency(e) - last.ts) / 1000, 0, NET_PRED_MAX);
+  netPredict(last.st, age, P, e.phint); if (P.i >= 0) e.phint = P.i;
+  e.mode = age > 0.35 ? 2 : 1; e.age = age;
   let x = P.x, z = P.z;
   const h = P.h, u = P.u, v = P.v, y = P.y;
   const vx = u * Math.sin(h) + v * Math.cos(h), vz = u * Math.cos(h) - v * Math.sin(h);
-  // error smoothing: a jump of the target beyond its own motion (new data after extrapolating) is absorbed
-  // into an offset that decays, so the car glides onto the new path; teleports (> 4 m) are taken as they come
+  // error smoothing: a jump of the target beyond its own motion (a new state corrected the prediction) is
+  // absorbed into an offset that decays, so the car glides onto the new path; teleports (> 4 m) are taken as they come
   if (e.px != null && dt > 0) {
     const dx = x - (e.px + e.pvx * dt), dz = z - (e.pz + e.pvz * dt);
     if (dx * dx + dz * dz < 16) { e.ex -= dx; e.ez -= dz; } else { e.ex = 0; e.ez = 0; }
@@ -463,7 +695,7 @@ function netPoseRemote(e, dt) {
   e.x = x; e.z = z; e.u = u; e.vx = vx; e.vz = vz;
   T.project(x, z, e.hint, e.q); e.hint = e.q.i; e.s = e.q.s; e.d = e.q.d; e.i = e.q.i;
   e.kin = { kin: true, x, z, h, vx, vz, len: e.len, wid: e.wid };
-  const r = e.model.root; r.visible = true;
+  r.visible = true;
   r.position.set(x, y, z); r.rotation.order = 'YXZ'; r.rotation.set(0, h, 0);
   e.wheelRot += u / 0.34 * dt; spinVis(e.model, e.wheelRot);
 }

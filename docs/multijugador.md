@@ -72,12 +72,14 @@ Mínimo de toques para unirse: **Unirse a sala → escribir el código → ¡Est
 ### Transportes
 - **Dentro de Claude (artefacto):** sala de Claude (`window.claude.use('room')`). Solo admite cuentas con acceso al artefacto (organización o invitados); con enlace público o sin sesión no hay sala, y el botón principal abre la versión web (v104). La admisión la comprueba quien entra, con la presencia que ya ve.
 - **Fuera de Claude (hosting propio):** PeerJS (WebRTC). El anfitrión reserva `spa-record-v1-CODIGO` en el servidor público de PeerJS y reenvía el estado de todos (estrella). Decide la admisión y responde `deny` con el motivo.
+- **Relé (v106):** si el invitado no consigue canal WebRTC en 4 s (redes móviles, CGNAT, empresas), entra por un broker MQTT público (`armk-racing/v1/CODIGO/h` al anfitrión, `/a` a todos, `/g/<id>` a uno). Mismo protocolo; gana el primer enlace que trae la bienvenida.
 
 ### Límites conocidos
 - Topología en estrella: si el anfitrión se va en mitad de la carrera (PeerJS), los invitados dejan de ver a los demás; su carrera sigue y cuenta. No hay migración de anfitrión.
 - Sin servidor autoritativo: cada piloto simula su coche y envía su posición (anti-trampas fuera de alcance).
-- PeerJS usa su servidor público de señalización y STUN; en redes que bloquean WebRTC (algunas de empresa o colegio) no conecta y se muestra el aviso correspondiente.
+- PeerJS usa su servidor público de señalización y STUN; donde WebRTC no abre se usa el relé MQTT (brokers públicos gratuitos, sin garantía). Una red que bloquee también WebSocket a 8084/8884 no puede unirse.
+- Coches remotos (v106): se dibujan donde están ahora (`netPredict`), no en el pasado; `net_test.mjs lab` lo mide.
 
 ## Pruebas
-`node tools/net_test.mjs p2p|room|lab` (ver la cabecera del archivo): páginas reales del juego entrando por código, con todos los errores, carrera y salida del anfitrión.
+`node tools/net_test.mjs p2p|relay|room|lab` (ver la cabecera del archivo): páginas reales del juego entrando por código, con todos los errores, carrera y salida del anfitrión.
 `node tools/net_fresh_test.mjs`: dispositivos nuevos (sin datos guardados) crean salas, también pulsando antes de que cargue PeerJS, y el caso Claude sin acceso a la sala.

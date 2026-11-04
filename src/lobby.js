@@ -126,7 +126,7 @@ function renderLobby() {
   $('netRoomCode').textContent = NET.code; $('netCopyLink').hidden = NET.mode !== 'p2p';
   const st = netRoomState();
   setNote(NET.err === 'server' ? NET_ERR.server : '', NET.err === 'server');
-  $('netCount').textContent = st.ps.length + ' de ' + NET_MAX;
+  $('netCount').textContent = st.ps.length + ' de ' + NET_MAX + (NET.mode === 'p2p' && !NET.host && NET.room && NET.room.via ? (NET.room.via === 'relay' ? ' · conexión por servidor' : ' · conexión directa') : '');
   const order = st.ps.slice().sort((a, b) => (pres(b).host - pres(a).host) || ((pres(a).since || 0) - (pres(b).since || 0)));
   $('netPlayers').innerHTML = order.map(p => {
     const pr = pres(p), c = carById(pr.car), [s, k] = netPilotStatus(p, st);

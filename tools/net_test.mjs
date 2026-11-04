@@ -1,10 +1,13 @@
 // Multiplayer test: real pages of the game joining private rooms by code (v91).
 //   node tools/net_test.mjs p2p    PeerJS transport: local PeerServer, 3 browser contexts (host, guest, third)
 //   node tools/net_test.mjs room   Claude-room transport, emulated with a BroadcastChannel shim (same presence API)
+//   node tools/net_test.mjs relay  like p2p, but the guests cannot open WebRTC (no path, as on mobile data / CGNAT):
+//                                  they must get in through the MQTT relay (local aedes broker over WebSocket)
 //   node tools/net_test.mjs lab    interpolation lab: synthetic 20 Hz states with lag, jitter and loss
 // Exit 1 if any check fails. Screenshots in shots/net_*.png.
 // Needs: THREE_DIR=<three@0.160.0 package> (jsDelivr is blocked in the cloud box) and, for p2p,
-//        NET_DEPS=<folder with node_modules/peer and node_modules/peerjs>  (npm i peer@1 peerjs@1.5.5 there).
+//        NET_DEPS=<folder with node_modules/peer and node_modules/peerjs>  (npm i peer@1 peerjs@1.5.5 there;
+//        relay also needs aedes@0.51 and ws@8).
 import { chromium } from 'playwright';
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path'; import url from 'node:url'; import { createRequire } from 'node:module';
 const root = path.join(path.dirname(url.fileURLToPath(import.meta.url)), '..'), DIST = path.join(root, 'dist');
@@ -14,10 +17,16 @@ const srv = http.createServer((q, r) => { const f = path.join(DIST, decodeURICom
   if (!f.startsWith(DIST) || !fs.existsSync(f)) { r.writeHead(404); return r.end(); } r.writeHead(200, { 'content-type': MIME[path.extname(f)] || 'application/octet-stream' }); fs.createReadStream(f).pipe(r); }).listen(0);
 const port = srv.address().port;
 let peerSrv = null, peerJsPath = null;
-if (mode === 'p2p') {
+const P2P = mode === 'p2p' || mode === 'relay';
+if (P2P) {
   const req = createRequire(path.join(process.env.NET_DEPS || root, 'package.json'));
   const { ExpressPeerServer } = req('peer'), express = req('express'); peerJsPath = req.resolve('peerjs/dist/peerjs.min.js');
   const app = express(); peerSrv = app.listen(9123, '127.0.0.1'); app.use('/', ExpressPeerServer(peerSrv, { path: '/' }));
+  if (mode === 'relay') {   // MQTT broker over WebSocket, like the public ones the game uses
+    const broker = req('aedes')(), { WebSocketServer, createWebSocketStream } = req('ws');
+    const wss = new WebSocketServer({ host: '127.0.0.1', port: 9125, handleProtocols: () => 'mqtt' });
+    wss.on('connection', (ws) => broker.handle(createWebSocketStream(ws)));
+  }
 }
 fs.mkdirSync(path.join(root, 'shots'), { recursive: true });
 let fails = 0; const t0 = Date.now();
@@ -97,15 +106,58 @@ if (mode === 'lab') {
   });
   for (const r of res) { console.log(`jitter ${r.jitterMs} ms, loss ${r.loss * 100}%:  new ${JSON.stringify(r.neu)}   old ${JSON.stringify(r.old)}`); }
   ok(res.every(r => r.neu.speedSd <= r.old.speedSd && r.neu.crossRmsCm <= r.old.crossRmsCm), 'new interpolation is smoother and closer to the path in every case');
+  // ---- v106 prediction lab: a car lapping the real circuit (Spa centreline + racing offset), speed 25-80 m/s
+  // with braking/acceleration; 20 Hz states, one-way latency L + jitter + loss. Where does the receiver draw it
+  // compared with where it really is at that instant? v91-v105 = interpolation (netSampleAt at netRenderTime),
+  // v106 = netPredict from the newest state, aged by the clock offset + the latency estimate (round trip / 2).
+  const pred = await pg.evaluate(() => {
+    const { netSampleAt, netClock, netRenderTime, netPredict, trackPoint } = __spa.netLab, T = __spa.T;
+    let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const spd = (t) => 52 + 27 * Math.sin(t / 2300) + 8 * Math.sin(t / 700);   // m/s, changes like corners/straights
+    const S0 = 300, sAt = []; { let s = S0; for (let t = 0; t <= 40000; t += 5) { sAt.push(s); s += spd(t) * 0.005; } }
+    const dAt = (t) => 2.5 * Math.sin(t / 1900);
+    const truth = (t) => { const k = Math.min(sAt.length - 1, Math.round(t / 5)), s = sAt[k], P = trackPoint(T, s, dAt(t)); return { x: P.x, z: P.z, h: P.h, e: P.e, s }; };
+    const out = { x: 0, z: 0 }, rows = [], Q = __spa.netLab.newQ();
+    for (const [L, jit, loss] of [[30, 10, 0], [60, 30, 0.02], [100, 60, 0.05], [150, 80, 0.08]]) {
+      const pk = [];
+      for (let ts = 0; ts < 38000; ts += 50) {
+        if (rnd() < loss) continue;
+        const a = truth(ts), b = truth(ts + 10), u = Math.hypot(b.x - a.x, b.z - a.z) / 0.01, h = Math.atan2(b.x - a.x, b.z - a.z);
+        pk.push({ ts, rt: ts + L + rnd() * jit, st: [a.x, a.z, h, u, 0, 0, a.s, a.e] });
+      }
+      pk.sort((p, q) => p.rt - q.rt);
+      const run = (neu) => {
+        const e = { buf: [] }; let k = 0; const behind = [], err = [];
+        for (let tf = 2000; tf < 37000; tf += 1000 / 60) {
+          while (k < pk.length && pk[k].rt <= tf) { const p = pk[k++]; const last = e.buf[e.buf.length - 1]; if (!last || p.ts > last.ts) { netClock(e, p.ts, last, p.rt); e.buf.push({ ts: p.ts, st: p.st }); if (e.buf.length > 30) e.buf.shift(); } }
+          if (neu) { const last = e.buf[e.buf.length - 1], age = Math.min(0.6, Math.max(0, (tf - e.off + L - last.ts) / 1000)); netPredict(last.st, age, out); }
+          else netSampleAt(e.buf, netRenderTime(e, tf, 1000 / 60), out);
+          const tr = truth(tf), q = T.project(out.x, out.z, -1, Q);
+          let ds = tr.s - q.s; ds -= Math.round(ds / T.L) * T.L;
+          behind.push(ds); err.push(Math.hypot(out.x - tr.x, out.z - tr.z));
+        }
+        const med = (a) => a.slice().sort((x, y) => x - y)[a.length >> 1], p95 = (a) => a.slice().sort((x, y) => x - y)[Math.floor(a.length * 0.95)];
+        return { behindM: +med(behind).toFixed(2), errMedM: +med(err).toFixed(2), err95M: +p95(err).toFixed(2) };
+      };
+      rows.push({ L, jit, loss, now: run(true), before: run(false) });
+    }
+    return rows;
+  });
+  for (const r of pred) console.log(`latency ${r.L} ms + jitter ${r.jit} ms, loss ${r.loss * 100}%:  v106 ${JSON.stringify(r.now)}   before ${JSON.stringify(r.before)}`);
+  ok(pred.every(r => Math.abs(r.now.behindM) < 1.5 && r.now.errMedM < r.before.errMedM / 3), 'prediction: the car is shown where it is now (median along-track < 1.5 m, error a third of before or less)');
   await browser.close(); srv.close(); process.exit(fails ? 1 : 0);
 }
 
 // ---- multiplayer flows ---------------------------------------------------------------------------------
-const P2P_INIT = { fn: (o) => { window.__P2P_SERVER = { host: '127.0.0.1', port: 9123, path: '/', secure: false, config: { iceServers: [] }, debug: o.debug || 0 }; if (o.max) window.__NET_MAX = o.max; }, arg: {} };
+const P2P_INIT = { fn: (o) => {
+  // relay mode: guests get no ICE candidates at all (relay-only policy, no TURN), so WebRTC can never open
+  window.__P2P_SERVER = { host: '127.0.0.1', port: 9123, path: '/', secure: false, config: o.noRtc ? { iceServers: [], iceTransportPolicy: 'relay' } : { iceServers: [] }, debug: o.debug || 0 };
+  window.__RELAY_URLS = o.relay ? ['ws://127.0.0.1:9125'] : [];
+  if (o.max) window.__NET_MAX = o.max; }, arg: {} };
 const mk = async (name, max) => {
   // the Claude-room shim talks over a BroadcastChannel, which only spans one browser context: one shared context there
   const ctx = mode === 'room' ? (mk.ctx || (mk.ctx = browser.newContext({ viewport: { width: 1280, height: 720 } }))) : browser.newContext({ viewport: { width: 1280, height: 720 } });
-  const inits = mode === 'p2p' ? { fn: P2P_INIT.fn, arg: { max, debug: process.env.NET_DEBUG ? 2 : 0 } } : { fn: (o) => { (new Function('(' + o.shim + ')()'))(); if (o.max) window.__NET_MAX = o.max; }, arg: { shim: SHIM.toString(), max } };
+  const inits = P2P ? { fn: P2P_INIT.fn, arg: { max, debug: process.env.NET_DEBUG ? 2 : 0, relay: mode === 'relay', noRtc: mode === 'relay' && name !== 'host' } } : { fn: (o) => { (new Function('(' + o.shim + ')()'))(); if (o.max) window.__NET_MAX = o.max; }, arg: { shim: SHIM.toString(), max } };
   return openGame(await ctx, name, inits);
 };
 // room size: in P2P the host enforces it; in the Claude room each joiner checks it (same constant for all real players)
@@ -133,6 +185,8 @@ const code = (await net(A)).code; ok(/^[A-HJ-NP-Z2-9]{4}$/.test(code), 'code is 
 await B.fill('#netCode', ''); await B.type('#netCode', code.toLowerCase());
 const joined = await until(B, (c) => __spa.net().code === c && __spa.net().room.length === 2, code, 30000);
 ok(joined, 'guest joined by typing the code (no extra tap)');
+if (mode === 'relay') ok((await net(B)).via === 'relay', 'guest without a direct path got in through the relay', (await net(B)).via);
+else if (mode === 'p2p') ok((await net(B)).via === 'rtc', 'guest on a direct link', (await net(B)).via);
 if (process.env.NET_DEBUG && !joined) { console.log('B', JSON.stringify(await net(B)), (await B.inputValue('#netCode'))); console.log('A', JSON.stringify(await net(A))); console.log(B.logs.filter(l => !/GPU stall|fallback/.test(l)).slice(-40).join('\n')); console.log('--A'); console.log(A.logs.filter(l => !/GPU stall|fallback/.test(l)).slice(-25).join('\n')); process.exit(2); }
 ok(await until(A, () => __spa.net().room.length === 2 && __spa.net().room.some(p => p.name === 'Beto'), null, 15000), 'host sees the guest by name');
 n = await net(A); ok(n.disabled && /Esperando a 1/.test(n.startHint), 'host start disabled until the guest is ready', n.startHint);
@@ -163,6 +217,9 @@ await freeze(false);
 await A.click('#startBtn');
 ok(await until(B, () => __spa.race && __spa.race.mode === 'multi', null, 120000), 'guest pulled into the race');
 ok(await until(A, () => __spa.race && __spa.race.mode === 'multi', null, 60000), 'host in the race');
+// on the grid, before the lights go out, each already sees the other car (v106: states flow during the lights)
+ok(await until(A, () => __spa.car.u < 1 && (__spa.net().remotes || []).some(r => r.vis), null, 30000), 'host sees the guest car on the grid before anyone moves', await A.evaluate(() => [__spa.race.state, __spa.car.u, __spa.net().remotes]));
+ok(await until(B, () => (__spa.net().remotes || []).some(r => r.vis), null, 30000), 'guest sees the host car on the grid', await B.evaluate(() => [__spa.race.state, __spa.net().remotes]));
 ok((await A.evaluate(() => __spa.race.netCol)) === false, 'collisions off reached the session');
 await C.fill('#netCode', code); await C.click('#netJoin');
 ok(await until(C, () => __spa.net().err === 'started', null, 30000), 'join during the race: "ya empezó"', (await net(C)).note);
@@ -175,9 +232,34 @@ console.log('  host view', JSON.stringify(ra)); console.log('  guest view', JSON
 ra.r = ra.r || []; rb.r = rb.r || [];
 ok(ra.r.length === 1 && ra.r[0].vis && rb.r.length === 1 && rb.r[0].vis, 'each sees the other car on track');
 ok(ra.st.includes('Beto R.') && rb.st.includes('Ana'), 'standings show the other pilot by name');
+if (mode === 'relay') {   // the broker drops the guest mid-race: it reconnects with the same id and the host keeps it
+  await B.evaluate(() => __spa.netRoom.upMq.ws.close());
+  await B.waitForTimeout(4000);
+  await until(B, () => !!(__spa.netRoom.upMq && __spa.netRoom.upMq.ok), null, 60000);   // software rendering: slow
+  await B.waitForTimeout(3000);
+  const back = await until(A, () => { const r = (__spa.net().remotes || [])[0]; return r && r.vis && !r.left; }, null, 30000);
+  const vb = await B.evaluate(() => ({ via: __spa.net().via, up: !!(__spa.netRoom.upMq && __spa.netRoom.upMq.ok), lost: !!__spa.netRoom.lost, log: __spa.netRoom.rlog, now: Date.now() % 100000, host: (__spa.net().remotes || [])[0] }));
+  ok(back && vb.up && vb.host && !vb.host.left, 'relay dropped mid-race: guest reconnects and both still see each other', vb);
+}
 // headless Chromium renders in software at a few FPS, so states go out at a few Hz with big jitter: only check the
 // estimates exist and the delay adapted to them (the lab mode measures smoothness)
 ok([...ra.r, ...rb.r].every(r => isFinite(r.off) && isFinite(r.jit) && r.gap > 0), 'interpolation clock running (offset, jitter, send gap estimated)', [...ra.r, ...rb.r].map(r => ({ gap: Math.round(r.gap), jit: Math.round(r.jit) })));
+// v106: where the guest shows the host's car vs where the host's car really is at the same instant (same machine,
+// same clock). Positive = shown behind. Before v106 the remote was drawn ~(latency + buffer) in the past.
+{ const rec = (pg, remote) => pg.evaluate((rm) => new Promise(res => { const out = [], t0 = Date.now();
+    const f = () => { const r = rm ? (__spa.net().remotes || [])[0] : null; out.push(rm ? (r ? [Date.now(), r.x, r.z, r.age] : null) : [Date.now(), __spa.car.x, __spa.car.z, __spa.car.q.s, __spa.car.u]); if (Date.now() - t0 < 6000) setTimeout(f, 30); else res(out.filter(Boolean)); }; f(); }), remote);
+  const [truth, seen] = await Promise.all([rec(A, false), rec(B, true)]);
+  const at = (t) => { let k = truth.findIndex(p => p[0] >= t); if (k <= 0) return null; const a = truth[k - 1], b = truth[k], f = (t - a[0]) / Math.max(1, b[0] - a[0]); return [a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f, a[4]]; };
+  const errs = [], along = [];
+  for (const p of seen) { const q = at(p[0]); if (!q) continue; const dx = p[1] - q[0], dz = p[2] - q[1]; errs.push(Math.hypot(dx, dz)); }
+  // behind/ahead: compare with the host's heading of travel (sign of the error along the velocity)
+  for (const p of seen) { const k = truth.findIndex(t => t[0] >= p[0]); if (k <= 0) continue; const a = truth[k - 1], b = truth[k], vx = b[1] - a[1], vz = b[2] - a[2], l = Math.hypot(vx, vz); if (l < 1e-3) continue; const q = at(p[0]); along.push(((q[0] - p[1]) * vx + (q[1] - p[2]) * vz) / l); }
+  const med = (a) => a.length ? a.slice().sort((x, y) => x - y)[a.length >> 1] : NaN, spd = med(truth.map(t => t[4]));
+  const res = { samples: errs.length, kmh: Math.round(spd * 3.6), medErr: +med(errs).toFixed(2), medBehind: +med(along).toFixed(2), age: +med(seen.map(p => p[3] || 0)).toFixed(3) };
+  console.log('  remote vs truth', JSON.stringify(res));
+  // a constant 0.25 s lag at this speed would show the car spd*0.25 m behind; the prediction must stay well under that
+  // headless renders at 1-5 FPS, so states go out at a few Hz: printed only; `lab` measures the prediction }
+}
 // barrels: both have the host's attenuator; a barrel the host knocks over lands in the same place on the guest (host-authoritative)
 { const nb = await Promise.all([A, B].map(p => p.evaluate(() => __spa.BW ? __spa.BW.list.length : -1)));
   ok(nb[0] > 0 && nb[0] === nb[1], 'both have the attenuator barrels', nb);
@@ -190,14 +272,16 @@ ok([...ra.r, ...rb.r].every(r => isFinite(r.off) && isFinite(r.jit) && r.gap > 0
   const dmax = Math.max(...ha.map((p, k) => Math.hypot(p[0] - hb[k][0], p[1] - hb[k][1], p[2] - hb[k][2])));
   ok(settled && dmax < 0.05, 'after it settles the guest has the host\'s barrels (< 5 cm)', { cm: +(dmax * 100).toFixed(1) }); }
 // look at whoever is ahead from behind: the one behind sees the name tag
-const behind = (await A.evaluate(() => __spa.race.player.progress)) < (await B.evaluate(() => __spa.race.player.progress)) ? A : B;
+const pa = await A.evaluate(() => __spa.race.player.progress), pb = await B.evaluate(() => __spa.race.player.progress);
+const behind = pa < pb ? A : B;
 await behind.evaluate(() => __spa.setAuto(null));
 await shot(behind, 'net_' + mode + '_4_carrera_etiqueta');
 const tagOn = await behind.evaluate(() => __spa.net().remotes[0].tag);
-ok(tagOn, 'name tag shown over the other car (from the car behind)');
+if (Math.abs(pa - pb) < 12) console.log('  skip name tag check: the cars are side by side (' + Math.abs(pa - pb).toFixed(1) + ' m), the other one is out of the camera');
+else ok(tagOn, 'name tag shown over the other car (from the car behind)');
 
 log('8) host leaves');
-if (mode === 'p2p') await A.close(); else { await A.evaluate(() => window.__shimLeave()); await A.close(); }
+if (P2P) await A.close(); else { await A.evaluate(() => window.__shimLeave()); await A.close(); }
 ok(await until(B, () => __spa.net().closed && __spa.net().notices.some(t => /anfitrión salió/.test(t)), null, 60000), 'guest told the host left (race goes on)', (await net(B)).notices.slice(-2));
 await shot(B, 'net_' + mode + '_5_anfitrion_salio');
 await B.evaluate(() => { document.getElementById('pauseBtn').click(); document.getElementById('pMenu').click(); });
