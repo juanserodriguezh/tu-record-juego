@@ -213,6 +213,7 @@ function buildTrack(def) {
   buildBarriers(T, def, ds, NOM, L);
   T.project = makeProjector(T);
   buildEscape(T, def);
+  barrierRoom(T, def);
   return T;
 }
 
@@ -241,6 +242,9 @@ function buildBarriers(T, def, ds, NOM, L) {
     }
   }
   T.twL = T.twL0.slice(); T.twR = T.twR0.slice();
+  // travel a rail / the rail behind a tyre wall has before it is rigid (barrierRoom() shortens it where something drivable is behind)
+  T.strL = new Float64Array(N); T.strR = new Float64Array(N);
+  for (let i = 0; i < N; i++) { T.strL[i] = T.btL[i] === 2 ? TYRE_BACK_STROKE : ARMCO_STROKE; T.strR[i] = T.btR[i] === 2 ? TYRE_BACK_STROKE : ARMCO_STROKE; }
   T.dentL = new Float64Array(N); T.dentR = new Float64Array(N);
   T.barEv = [];                       // events for the visuals: { side, i, p, tw, dent }
   T.barVer = 0;
@@ -249,7 +253,7 @@ function buildBarriers(T, def, ds, NOM, L) {
   T.barLeft = (side, i) => {
     const typ = side > 0 ? T.btL[i] : T.btR[i];
     if (typ === 1) return 0;
-    const cap = typ === 2 ? TYRE_BACK_STROKE : ARMCO_STROKE;
+    const cap = (side > 0 ? T.strL : T.strR)[i];
     return (side > 0 ? T.twL[i] : T.twR[i]) + cap - (side > 0 ? T.dentL[i] : T.dentR[i]);
   };
   // push the barrier by p metres at sample i (spreads over the neighbours); returns tyre metres removed
@@ -260,12 +264,36 @@ function buildBarriers(T, def, ds, NOM, L) {
       const j = (i + k + N) % N, w = Math.exp(-0.5 * (k / 2.1) * (k / 2.1)), pe = p * w;
       if (bt[j] === 1) continue;
       const take = Math.min(tw[j], pe); tw[j] -= take; gone += take;
-      const cap = bt[j] === 2 ? TYRE_BACK_STROKE : ARMCO_STROKE;
-      dent[j] = Math.min(cap, dent[j] + (pe - take));
+      dent[j] = Math.min((side > 0 ? T.strL : T.strR)[j], dent[j] + (pe - take));
     }
     T.barVer++;
     return gone;
   };
+}
+// (v96) A barrier may only bend into empty ground: where the pit lane, the pit exit road or another part of the lap is right
+// behind it, its travel is cut so the bent face stays >= 0.4 m short of that ground. Before, a car driven straight at the armco
+// beside the Monaco / Spa pit exit road bent it 1.25 m, through the 0.6-1 m strip, and came out on the other road.
+function barrierRoom(T, def) {
+  const N = T.N, E = T.esc, ps = T.pitSide, skip = Math.ceil(60 / T.ds), MAX = ARMCO_STROKE + TYRE_WALL_W + 0.4;
+  const otherLap = (x, z, i) => {   // drivable ground of another part of the lap (hillside roads, tight venues)
+    const q = T.project(x, z, -1); let di = Math.abs(q.i - i); di = Math.min(di, N - di);
+    return di > skip && q.d < q.bl && q.d > -q.br;
+  };
+  for (const side of [1, -1]) {
+    const bar = side > 0 ? T.barL : T.barR, str = side > 0 ? T.strL : T.strR, tw0 = side > 0 ? T.twL0 : T.twR0, bt = side > 0 ? T.btL : T.btR;
+    for (let i = 0; i < N; i++) {
+      if (bt[i] === 1) continue;
+      const pitBand = side === ps && T.pitC[i] === T.pitC[i];
+      let room = 1e9;
+      for (let x = 0.1; x <= MAX; x += 0.1) {
+        const d = side * (bar[i] + x), wx = T.x[i] + T.nx[i] * d, wz = T.z[i] + T.nz[i] * d;
+        if ((pitBand && Math.abs(d - T.pitC[i]) < T.pitHW) || (E && T.inEscape(wx, wz)) || otherLap(wx, wz, i)) { room = x; break; }
+      }
+      // the face is the rail minus the tyre wall in front of it: travel = tyres crushed + rail bend
+      if (room < 1e9) str[i] = Math.min(str[i], Math.max(0, room - 0.4));
+      void tw0;
+    }
+  }
 }
 // Escape road (Monza T1): a tarmac lane straight on from the braking zone that rejoins after the chicane, with
 // foam blocks to go around. It is drivable regardless of the barrier offsets of the nearby track samples.

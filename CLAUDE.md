@@ -24,6 +24,7 @@ node tools/headless.js tyres               # comprueba que las barreras de neum�
 node tools/headless.js city                # Mónaco: ningún edificio ni tribuna dentro de los muros (exit 1 si falla)
 node tools/headless.js pits                # tribunas, boxes y postes no se pisan entre sí ni con la pista (exit 1 si falla)
 node tools/headless.js pitstop             # tiempo de parada por categoría y daño
+node tools/headless.js pitwall [pistas] [coche]   # choques contra el muro de boxes y el de la vía de salida desde los dos lados: ninguno lo atraviesa (exit 1 si falla, ~10 min todas)
 node tools/headless.js tyrelife monaco amg_gt3 [nivel]   # vueltas hasta el 80 % de desgaste por compuesto (S/M/H) con IA a ritmo, en seco
 node tools/headless.js tyretemp toca_largo,monaco amg_gt3   # temperatura de neumáticos por vuelta (media/pico, % recalentado) con IA a ritmo
 node tools/headless.js coach monza amg_gt3   # línea adaptativa: zonas y juicio de 3 pilotos IA (exit 1 si falla)
@@ -77,6 +78,7 @@ Ejemplos de capturas:
   - `wheelStat`: regex de piezas de rueda que no giran (conductos de freno).
   - `series`: `'f1mod'` o `'gt3'` para la parrilla de su serie.
 - **Boxes:** la calle de boxes va a la derecha de la recta. Con `pitSide: 1` en `TRACK_DEFS` va a la izquierda. En Tocancipá los boxes están por dentro (foto aérea, v72): `pitSide: 1` en el Largo inverso y el Corto inverso. Las tribunas de la recta van en el lado contrario.
+- **Muros de boxes (v96):** el coche se empuja siempre a la cara de su propia zona (`this.zone` en `collide`: pista, banda de boxes, vía de salida) y un raíl blando solo se dobla hasta 0,4 m antes del suelo conducible que tenga detrás (`barrierRoom`, `T.strL/strR`). La valla de las tribunas va sobre el raíl real (`standFence` en `world.js`).
 - **Parada en boxes:** `pitStopPlan` en `damage.js`. Usa `PIT_CREW` (tiempos reales de neumáticos y factor del equipo por tipo de coche) y `PIT_REPAIR` (cada pieza escala con su daño). En Spa la salida de boxes es una vía propia (`escape` con `pit: true`).
 - **Rendimiento (v73):** los coches escaneados rivales cambian a mallas simplificadas por distancia (`glbLod*` en `glb.js`, meshoptimizer en `src/meshopt_simplifier.js`, calculado en un worker). Cada malla usa el nivel más simple cuyo error geométrico en pantalla es < 0,3 px (`LOD_PX`); el coche del jugador siempre lleva el modelo completo. `__spa.lod(false)` lo apaga para comparar; `__spa.freeze(true)` + `__spa.redraw()` congelan un frame para comparar píxel a píxel. Límite de FPS en ajustes (60 por defecto, `paceSkip` en `main.js`). En el postproceso solo la pasada de escena lleva MSAA.
 - **Ajuste de cámara** en juego: teclas 1–0. Se guarda por coche y por vista.
