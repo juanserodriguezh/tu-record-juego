@@ -460,7 +460,7 @@ function netPoseRemote(e, dt) {
   e.kin = { kin: true, x, z, h, vx, vz, len: e.len, wid: e.wid };
   const r = e.model.root; r.visible = true;
   r.position.set(x, y, z); r.rotation.order = 'YXZ'; r.rotation.set(0, h, 0);
-  e.wheelRot += u / 0.34 * dt; for (const w of e.model.wheels) spinWheel(w, e.wheelRot);
+  e.wheelRot += u / 0.34 * dt; spinVis(e.model, e.wheelRot);
 }
 
 // ---- name tags over the other pilots' cars -----------------------------------------------

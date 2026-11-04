@@ -1589,6 +1589,17 @@ function spinWheel(w, r) {
   const c = Math.cos(r), s = Math.sin(r);
   for (const e of st) { const p = e.p; e.o.position.set(p.x, p.y * c + p.z * s, -p.y * s + p.z * c); e.o.rotation.x = -r; }
 }
+// v104: on screen a wheel never turns more than WHEEL_STEP per drawn frame. At 100 km/h a tyre turns ~80 deg per frame at 60 FPS, so
+// anything on it that is not a uniform ring (sidewall lettering, tread blocks, rim spokes) jumps between frames and seems to wobble
+// side to side or run backwards (stroboscopic effect). Visual only: the physics keeps V.wheelRot.
+let WHEEL_STEP = 0.45;
+function spinVis(m, r) {
+  const u = m.root.userData;
+  if (u.wr == null) { u.wr = r; u.wv = r % (2 * Math.PI); }
+  const d = r - u.wr; u.wr = r;
+  u.wv = (u.wv + clamp(d, -WHEEL_STEP, WHEEL_STEP)) % (2 * Math.PI);
+  for (const w of m.wheels) spinWheel(w, u.wv);
+}
 function poseModel(m, V, steer, braking, dt) {
   const r = m.root;
   r.position.set(V.x, V.y, V.z);
@@ -1608,7 +1619,7 @@ function poseModel(m, V, steer, braking, dt) {
   m.body.rotation.x = -(V.pitch - gp) * lm + ka * 0.0028 * jit() * lm;
   m.body.rotation.z = (-V.roll + V.kerbRoll) * lm + ka * 0.004 * jit() * lm + V.sausLift * 0.9 * sSide * lm;
   if (lm < 1) m.body.position.y *= lm;
-  for (const w of m.wheels) spinWheel(w, V.wheelRot);
+  spinVis(m, V.wheelRot);
   { const sv = m.spec.body === 'lmp' ? 0.5 : 1, lim = m.spec.body === 'lmp' ? 0.16 : 9; for (const p of m.steerPivots) p.rotation.y = clamp(V.delta * 1.2 * sv, -lim, lim); }
   if (m.steeringWheel) m.steeringWheel.rotation.z = -steer * 1.9 + (V.kerbA || 0) * 0.035 * jit();
   if (m.arms && m.interior.visible) for (const A of m.arms) { A.hand.getWorldPosition(_va); m.interior.worldToLocal(_va); solveArm(A.arm, A.sh, _va, 0.0); }
@@ -1768,8 +1779,9 @@ function glbCabClip(on) {
     const e = model.eye, xh = c[0], y0 = c[1], y1 = c[2], zb = e.z - c[3], zf = e.z + c[4];
     const L = [[1, 0, 0, -xh], [-1, 0, 0, -xh], [0, 1, 0, -y1], [0, -1, 0, y0], [0, 0, 1, -zf], [0, 0, -1, zb]].map(a => new THREE.Plane(new THREE.Vector3(a[0], a[1], a[2]), a[3]));
     // inside the box every n.p + d is negative -> clipped when ALL planes cut (clipIntersection)
+    // v104: clone() drops the shader hooks; without them the paint mask was lost (Cadillac black, recolours multiplied the texture)
     model.glb.traverse(o => { if (!o.isMesh) return; const ms = Array.isArray(o.material) ? o.material : [o.material];
-      const nm = ms.map(mm => { const cl = mm.clone(); cl.clipIntersection = true; return cl; }); o.material = Array.isArray(o.material) ? nm : nm[0]; });
+      const nm = ms.map(mm => { const cl = mm.clone(); cl.clipIntersection = true; cl.onBeforeCompile = mm.onBeforeCompile; cl.customProgramCacheKey = mm.customProgramCacheKey; return cl; }); o.material = Array.isArray(o.material) ? nm : nm[0]; });
     renderer.localClippingEnabled = true;
     const LG = L.map(p => p.clone()); LG[2].constant = -1.8; // glass: clip up to the roof line so no dark sliver floats above the halo
     return { L, LG, W: L.map(p => p.clone()), WG: LG.map(p => p.clone()), on: null };
@@ -2471,6 +2483,8 @@ function nanScan() {
 }
 window.__spa = { S, roadLayers, trackIds: () => Object.keys(TRACK_DEFS), tyreLife: () => ({ cache: Object.fromEntries(TYRE_LIFE.cache), job: TYRE_LIFE.job && { key: TYRE_LIFE.job.key, c: TYRE_LIFE.job.c, n: TYRE_LIFE.job.st && TYRE_LIFE.job.st.n, t: TYRE_LIFE.job.st && +TYRE_LIFE.job.st.t.toFixed(1) } }), menuStep(k, anim) { setMenuStep(k, { instant: !anim }); return MENU_UI.step; }, sheet(full) { MENU_UI.sheet.set(MENU_UI.det[full ? 0 : 1]); sheetSettled(); return MENU_UI.det; }, menuUI: MENU_UI, nanScan, freeze(on) { FREEZE = on ? { draw: false } : null; return 'ok'; }, redraw() { if (FREEZE) FREEZE.draw = true; return 'ok'; }, lod(on) { if (on != null) LOD_ON = on !== false; return { on: LOD_ON, jobs: LOD_JOBS.length, ms: Math.round(LOD_MS) }; }, async lodFlush() { for (let k = 0; k < 600 && (LOD_JOBS.length || (LOD_W && LOD_W.pend.size)); k++) await new Promise(r => setTimeout(r, 100)); return { worker: !!LOD_W, left: LOD_JOBS.length, ms: Math.round(LOD_MS) }; }, get INPUT() { return INPUT; }, switchTrack, post: () => POST.ready, get TRACK() { return TRACK; }, audioLab: { CarAudio, EngineVoice, engineProfile, engineWave }, get car() { return car; }, get model() { return model; }, get race() { return SES; }, get world() { return world; }, get skids() { return skids; }, get camera() { return camera; }, get T() { return T; }, get DFX() { return DFX; }, get coach() { return COACH_ST; }, setLineMode, crashTest, startSession, rewind, get RW() { return RW; }, get BW() { return BW; }, barrelsReset, BARREL_TYPES, BAR, selectCar, cycleCam, net: () => ({ code: NET.code, host: NET.host, mode: NET.mode, avail: NET.avail, err: NET.err, joining: NET.joining, closed: NET.closed, room: netRoomState().ps.map(p => ({ peer: p.peer, me: p.sameTab, name: pres(p).name, car: pres(p).car, c1: pres(p).c1, host: pres(p).host, rdy: pres(p).rdy, trk: pres(p).trk, ph: pres(p).ph })), canStart: !!netRoomState().canStart, remotes: SES && SES.mode === 'multi' ? SES.entries.filter(e => e.isRemote).map(e => ({ name: e.name, x: e.x, z: e.z, mode: e.mode, off: e.off, jit: e.jit, gap: e.gap, left: e.left, vis: !!(e.model && e.model.root.visible), tag: !!(e.tag && !e.tag.hidden) })) : null, startText: $('startLbl').textContent, startHint: $('startHint').textContent, disabled: $('startBtn').disabled, toast: $('netToast').hidden ? '' : $('netToast').textContent, notices: (netNotify.log || []).slice(), note: $('lobbyNote').hidden ? '' : $('lobbyNote').textContent }), get netLab() { return { netSampleAt, normCode, codeValid, netClock, netDelay, netRenderTime }; }, netJoin, lobbyPrimary, openLobby, netReady, netHostSettings, netNotify, netDbg: () => ({ code: NET.code, host: NET.host, off: NET.offset, seen: NET.cfgSeen, peers: NET.peers.map(p => [p.peer, p.sameTab, pres(p).code, pres(p).host, pres(p).ph, pres(p).cfg && pres(p).cfg.seq, pres(p).cfg && pres(p).cfg.startAt - Date.now()]) }), setAuto(k) { AUTO = k != null ? { k } : null; }, renderer: () => renderer, menu: MENU, setWeather, WXS, TYRES, tyreRequestCycle, startFromMenu, endQuali,
   view(sN, d, h, back, lookD, fov) { $('menu').hidden = true; const s = ((sN + T.nom) % T.nom) * T.L / T.nom; const p = trackPoint(T, s - (back || 0), d), t = trackPoint(T, s, lookD != null ? lookD : d); DEBUGCAM = [p.x, p.e + h, p.z, t.x, t.e + 1, t.z, fov || 60]; return 'ok'; }, noview() { DEBUGCAM = null; }, cam(a, b, c, d, e, f, g) { $('menu').hidden = true; DEBUGCAM = [a, b, c, d, e, f, g || 60]; return 'ok'; },
+  // test hooks (v104): pose the car and camera as one drawn frame would while frozen; wheelStep(1e9) = old unlimited spin
+  pose(dt) { updateModelTransform(dt || 1 / 60); updateCamera(dt || 1 / 60); return 'ok'; }, wheelStep(v) { if (v != null) WHEEL_STEP = v; return WHEEL_STEP; },
   camAt(p, t, fov) { $('menu').hidden = true; model.root.updateMatrixWorld(true); const a = model.body.localToWorld(new THREE.Vector3(p[0], p[1], p[2])), b = model.body.localToWorld(new THREE.Vector3(t[0], t[1], t[2])); DEBUGCAM = [a.x, a.y, a.z, b.x, b.y, b.z, fov || 40]; return 'ok'; },
   orbit(ang, dist, h, fov) { $('menu').hidden = true; const a = car.h + ang, y = car.y; DEBUGCAM = [car.x + Math.sin(a) * dist, y + h, car.z + Math.cos(a) * dist, car.x, y + 0.55, car.z, fov || 35]; return 'ok'; },
   simulate(sec) { const n = Math.round(sec / DT); for (let i = 0; i < n; i++) { if (i % 4 === 0) readInput(DT * 4); sessionStep(DT); if (!SES) break; } return { t: SES.t, s: car.q.s, lap: SES.player.lap, laps: SES.laps.map(l => [Math.round(l.time * 1000) / 1000, l.valid, l.clean]), pos: SES.kind === 'race' ? raceOrder().indexOf(SES.player) + 1 : null, state: SES.state, fin: SES.player.fin }; } };
