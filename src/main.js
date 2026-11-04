@@ -84,7 +84,7 @@ async function boot() {
     requestAnimationFrame(frame);
     // a shared room link (…#ABCD) opens the lobby and joins that room
     const hc = normCode(location.hash || '');
-    if (codeValid(hc)) { $('netCode').value = hc; NET.pendingCode = hc; openLobby(); }
+    if (codeValid(hc)) { $('netCode').value = hc; NET.pending = { code: hc, host: false }; openLobby(); }
   } catch (err) {
     console.error(err);
     $('loadMsg').textContent = 'No se pudo iniciar el juego: ' + (err && err.message ? err.message : err) + '. Prueba en un navegador con WebGL activado.';
@@ -1176,7 +1176,32 @@ function barrelsReset() {
   BWV.build(BW);
 }
 const _bwCars = [];
+// (v103) a car crushing a tyre wall knocks tyres loose: every TYRE_QUANT metres of wall gone, the oldest pooled tyre drops where
+// the wall gave way, thrown along with the car and up (deterministic: rewind and replays stay exact)
+const tyHash = (k) => { const v = Math.sin(k * 12.9898 + 78.233) * 43758.5453; return v - Math.floor(v); };
+function tyresOut() {
+  const O = T.tyreOut; if (!O || !O.length) return;
+  if (!BW || !BW.tyres) { O.length = 0; return; }
+  let made = 0;
+  for (const ev of O) {
+    T.tyreAcc += ev.gone;
+    while (T.tyreAcc >= TYRE_QUANT && made < 2) {
+      T.tyreAcc -= TYRE_QUANT; made++;
+      const k = (T.tyreSeq = (T.tyreSeq || 0) + 1), h1 = tyHash(k), h2 = tyHash(k + 0.37), h3 = tyHash(k + 0.71), h4 = tyHash(k + 0.13);
+      const tx = -ev.nz, tz = ev.nx, along = (h1 - 0.5) * 2.2, back = 0.36 + 0.3 * h2;   // behind the face: never inside the car (its nose would launch it)
+      const x = ev.x + tx * along - ev.nx * back, z = ev.z + tz * along - ev.nz * back, q = T.project(x, z, -1);
+      const row = Math.floor(h3 * 3), sp = Math.hypot(ev.vx, ev.vz), f = 0.45 + 0.4 * h4, up = 1.2 + Math.min(5, ev.close * 0.18 + sp * 0.04) * (0.5 + h2);
+      const out = 0.6 + ev.close * 0.15 * h1;   // part of the hit comes back out of the wall
+      BW.spawnTyre(x, q.e + 0.14 + row * 0.25, z, ev.vx * f + ev.nx * out + tx * (h3 - 0.5) * 2, up, ev.vz * f + ev.nz * out + tz * (h3 - 0.5) * 2,
+        (h1 - 0.5) * 12, (h2 - 0.5) * 8, (h4 - 0.5) * 12, (h4 - 0.5) * 0.6, h3 * 6.283);
+      if (ev.V === car && SES && SES.clean) { SES.clean = false; setValidChip(); }
+    }
+  }
+  if (T.tyreAcc > TYRE_QUANT) T.tyreAcc = TYRE_QUANT;   // a long scrape does not bank tyres for later
+  O.length = 0;
+}
 function barrelStep(dt) {
+  tyresOut();
   if (!BW || !BW.list.length) return;
   const cars = _bwCars; cars.length = 0;
   for (const e of SES.entries) {

@@ -33,14 +33,19 @@ const BARREL_TYPES = {
   // the same drum one third full of water (impact attenuator in front of a wall nose)
   water:   { r: 0.29, h: 0.93, shell: 9.5, ballast: 70, hb: 0.27, mat: 'water', cd: [0.9, 1.0], crr: 0.25, color: 0xf0c418, band: 0x161618 },
   // 200 L steel drum (Ø 0.572 × 0.88 m, 19 kg) with 3 kg of residue in the base
-  steel:   { r: 0.286, h: 0.88, shell: 19, ballast: 3, hb: 0.01, mat: 'steel', cd: [0.9, 1.0], crr: 0.05, color: 0x1f3f8f, band: 0xd8dade }
+  steel:   { r: 0.286, h: 0.88, shell: 19, ballast: 3, hb: 0.01, mat: 'steel', cd: [0.9, 1.0], crr: 0.05, color: 0x1f3f8f, band: 0xd8dade },
+  // (v103) a car tyre knocked out of a tyre wall (Ø 0.62 × 0.24 m, 9 kg, no rim): drawn as a tyre, rubber against everything
+  tyre:    { r: 0.31, h: 0.24, shell: 9, ballast: 0, hb: 0, mat: 'rubber', cd: [1.0, 1.1], crr: 0.06, color: 0x2a2a2d, band: 0x2a2a2d, tyre: true }
 };
+const TYRE_POOL = 30;     // loose tyres per session (recycled oldest first)
+const TYRE_QUANT = 0.5;   // metres of tyre wall crushed per tyre knocked loose
 
 // pair materials: mu = sliding friction, e = restitution (the barrel deforms: its own material decides)
 const BMAT = {
-  plastic: { asphalt: [0.62, 0.35], grass: [0.45, 0.2], gravel: [0.65, 0.05], plastic: [0.5, 0.4], water: [0.5, 0.25], steel: [0.48, 0.3], car: [0.45, 0.3], concrete: [0.6, 0.3], armco: [0.45, 0.3], tyres: [0.8, 0.1] },
-  water:   { asphalt: [0.62, 0.15], grass: [0.45, 0.1], gravel: [0.65, 0.03], plastic: [0.5, 0.25], water: [0.5, 0.15], steel: [0.48, 0.18], car: [0.45, 0.15], concrete: [0.6, 0.15], armco: [0.45, 0.15], tyres: [0.8, 0.05] },
-  steel:   { asphalt: [0.55, 0.22], grass: [0.42, 0.12], gravel: [0.6, 0.04], plastic: [0.48, 0.3], water: [0.48, 0.18], steel: [0.45, 0.25], car: [0.4, 0.2], concrete: [0.55, 0.2], armco: [0.42, 0.25], tyres: [0.8, 0.08] }
+  plastic: { asphalt: [0.62, 0.35], grass: [0.45, 0.2], gravel: [0.65, 0.05], plastic: [0.5, 0.4], water: [0.5, 0.25], steel: [0.48, 0.3], car: [0.45, 0.3], concrete: [0.6, 0.3], armco: [0.45, 0.3], tyres: [0.8, 0.1], rubber: [0.75, 0.3] },
+  water:   { asphalt: [0.62, 0.15], grass: [0.45, 0.1], gravel: [0.65, 0.03], plastic: [0.5, 0.25], water: [0.5, 0.15], steel: [0.48, 0.18], car: [0.45, 0.15], concrete: [0.6, 0.15], armco: [0.45, 0.15], tyres: [0.8, 0.05], rubber: [0.75, 0.15] },
+  steel:   { asphalt: [0.55, 0.22], grass: [0.42, 0.12], gravel: [0.6, 0.04], plastic: [0.48, 0.3], water: [0.48, 0.18], steel: [0.45, 0.25], car: [0.4, 0.2], concrete: [0.55, 0.2], armco: [0.42, 0.25], tyres: [0.8, 0.08], rubber: [0.7, 0.25] },
+  rubber:  { asphalt: [0.85, 0.3], grass: [0.6, 0.15], gravel: [0.7, 0.05], plastic: [0.75, 0.3], water: [0.75, 0.15], steel: [0.7, 0.25], car: [0.6, 0.3], concrete: [0.75, 0.3], armco: [0.6, 0.3], tyres: [0.9, 0.1], rubber: [0.9, 0.35] }
 };
 const BCRR = { asphalt: 1, grass: 3.5, gravel: 9 };   // rolling resistance multiplier by surface
 
@@ -87,7 +92,7 @@ class BarrelWorld {
     this.stats = { awake: 0, contacts: 0, ms: 0 };
   }
   // ---------------------------------------------------------------- layouts
-  clear() { this.list.length = 0; this.cache = {}; this.ev.length = 0; this.ver++; this._netQuiet = 99; }
+  clear() { this.list.length = 0; this.cache = {}; this.ev.length = 0; this.ver++; this._netQuiet = 99; this.tyres = null; this.tyreNext = 0; }
   add(type, x, y, z, ax, ay, az, spin) {   // a barrel whose geometric centre is at (x, y, z), axis (ax, ay, az)
     const B = BARREL_TYPES[type], M = barrelMass(B);
     const al = Math.hypot(ax, ay, az) || 1; ax /= al; ay /= al; az /= al;
@@ -100,6 +105,28 @@ class BarrelWorld {
       vx: 0, vy: 0, vz: 0, wx: 0, wy: 0, wz: 0, sleep: true, slowT: BAR.sleepT, air: false, fly: false, dent: 0, dentA: 0, hint: -1, gE: 0, gSurf: 'asphalt', hitV: 0 };
     bqRot(b, 0, -M.g, 0, _bv); b.x = x + _bv.x; b.y = y + _bv.y; b.z = z + _bv.z;   // store the centre of mass
     this.list.push(b); this.ver++;
+    return b;
+  }
+  // (v103) loose tyres: a fixed pool parked out of the world (ids and list length never change: rewind and the network keep working);
+  // a hit on a tyre wall takes the oldest one and drops it where the wall gave way
+  tyrePool(n) {
+    this.tyres = []; this.tyreNext = 0;
+    for (let k = 0; k < n; k++) { const b = this.add('tyre', 0, 0, 0, 0, 1, 0, 0); this.park(b); this.tyres.push(b.id); }
+  }
+  park(b) { b.park = true; b.x = 1e6 + b.id * 10; b.y = -500; b.z = 1e6; b.dent = 0; this.freeze(b); this.ver++; }
+  spawnTyre(x, y, z, vx, vy, vz, wx, wy, wz, tilt, spin) {
+    if (!this.tyres || !this.tyres.length) return null;
+    // never inside another body (overlapping spawns explode apart) and never recycle a tyre that is still flying about
+    for (const o of this.list) if (!o.park && (o.x - x) ** 2 + (o.z - z) ** 2 < 0.66 * 0.66 && Math.abs(o.y - y) < 0.5) return null;
+    const b = this.list[this.tyres[this.tyreNext % this.tyres.length]];
+    if (!b.park && (!b.sleep || this.t - (b.spawnT || 0) < 3)) return null;
+    this.tyreNext++; b.spawnT = this.t;
+    // flat (axis up), tipped by `tilt` about the local x axis, turned `spin` about the vertical
+    const ht = tilt / 2, hs = spin / 2, cs = Math.cos(hs), ss = Math.sin(hs), ct = Math.cos(ht), st = Math.sin(ht);
+    b.qw = cs * ct; b.qx = cs * st; b.qy = ss * ct; b.qz = -ss * st;
+    b.x = x; b.y = y; b.z = z; b.vx = vx; b.vy = vy; b.vz = vz; b.wx = wx; b.wy = wy; b.wz = wz;
+    b.park = false; b.dent = 0; b.air = true; b.fly = false; b.hitV = 0; b.ownT = this.t;
+    b.sleep = false; b.slowT = 0; this.ver++;
     return b;
   }
   // the ground height under (x, z) and the surface there
@@ -150,8 +177,8 @@ class BarrelWorld {
     this.cache = {}; this.ver++;
   }
   // snapshot including the warm-start cache (exact replay); plain data for rwCopy
-  snap() { return { b: this.state(), c: Object.assign({}, this.cache), t: this.t }; }
-  restore(s) { this.setState(s.b); this.cache = Object.assign({}, s.c); this.t = s.t; }
+  snap() { return { b: this.state(), c: Object.assign({}, this.cache), t: this.t, tn: this.tyreNext || 0 }; }
+  restore(s) { this.setState(s.b); this.cache = Object.assign({}, s.c); this.t = s.t; if (s.tn != null) this.tyreNext = s.tn; }
   wake(b) { if (b.sleep) { b.sleep = false; b.slowT = 0; } }
   // ---------------------------------------------------------------- multiplayer (host authoritative, guests predict)
   // The host packs the barrels while any is awake (and once more when they all sleep); null when nothing changed.
@@ -244,6 +271,7 @@ class BarrelWorld {
       const hl = (V.spec.len || 4.5) / 2, hw = (V.spec.wid || 1.9) / 2, rc = Math.hypot(hl, hw) + 0.1;
       let body = null;
       for (const b of L) {
+        if (b.park) continue;
         const M = barrelMass(BARREL_TYPES[b.type]), dx = b.x - V.x, dz = b.z - V.z, rr = rc + M.R;
         if (dx * dx + dz * dz > rr * rr || b.y - M.R > V.y + 1.6) continue;
         if (!body) { body = this.carBody(V, hl, hw); body.idx = ci; }
@@ -636,6 +664,7 @@ function pitWallNose(T) {
 }
 function placeBarrels(W, T, mode) {
   W.clear();
+  if (T.twL0 && (T.twL0.some(v => v > 0.05) || T.twR0.some(v => v > 0.05))) W.tyrePool(TYRE_POOL);   // tyre walls shed loose tyres (v103)
   if (mode === 'off' || !mode) return W;
   const N = T.N, at = (i, d) => { const k = ((i % N) + N) % N; return [T.x[k] + T.nx[k] * d, T.z[k] + T.nz[k] * d, Math.atan2(T.tx[k], T.tz[k])]; };
   // attenuator: 3 rows of 2 water barrels against the nose of the pit wall, on the run-off side of it (the pit lane passes on the
@@ -663,6 +692,20 @@ function placeBarrels(W, T, mode) {
 // ---------------------------------------------------------------------------
 //  Rendering: one InstancedMesh per barrel type; a dent squashes the instance across the hit (visual only)
 // ---------------------------------------------------------------------------
+// (v103) a car tyre lying flat (axis Y): rounded tread, sidewalls and the open bead hole; shared by the tyre walls and loose tyres
+function tyreGeometry(ro, ri, h, seg) {
+  const a = h / 2, c = Math.min(0.06, h * 0.22), P = [];
+  const arc = (cx, cy, r, a0, a1, n) => { for (let k = 0; k <= n; k++) { const t = a0 + (a1 - a0) * k / n; P.push(new THREE.Vector2(cx + r * Math.cos(t), cy + r * Math.sin(t))); } };
+  P.push(new THREE.Vector2(ri, -a));
+  arc(ro - c, -a + c, c, -Math.PI / 2, 0, 2);       // lower shoulder
+  arc(ro - c, a - c, c, 0, Math.PI / 2, 2);          // upper shoulder
+  P.push(new THREE.Vector2(ri, a), new THREE.Vector2(ri, -a));   // 7 bands x seg: ~170 triangles at 12 sides
+  const g = new THREE.LatheGeometry(P, seg || 14);
+  g.computeVertexNormals();
+  return g;
+}
+let _tyreMat = null;
+function tyreMaterial() { return _tyreMat || (_tyreMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2d, roughness: 0.88, metalness: 0, side: THREE.DoubleSide })); }
 class BarrelView {
   constructor(scene) { this.scene = scene; this.meshes = {}; this.ver = -1; this.n = -1; this.M = null; }
   build(W) {
@@ -671,6 +714,11 @@ class BarrelView {
     const count = {}; for (const b of W.list) count[b.type] = (count[b.type] || 0) + 1;
     for (const type in count) {
       const B = BARREL_TYPES[type], M = barrelMass(B);
+      if (B.tyre) {   // (v103) a loose tyre: same shape as the wall's
+        const im = new THREE.InstancedMesh(tyreGeometry(B.r, B.r * 0.6, B.h, 16).translate(0, M.g, 0), tyreMaterial(), count[type]);
+        im.castShadow = true; im.receiveShadow = true; im.frustumCulled = false; im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        this.meshes[type] = im; this.scene.add(im); im.userData.n = 0; continue;
+      }
       const geo = new THREE.CylinderGeometry(B.r, B.r, B.h, 22, 6, false).translate(0, M.g, 0);
       // ribs: the side bulges slightly at two hoops; a reflective band in the middle (vertex colours)
       const pos = geo.attributes.position, col = new Float32Array(pos.count * 3), c0 = new THREE.Color(B.color), c1 = new THREE.Color(B.band);
@@ -695,9 +743,12 @@ class BarrelView {
     if (W.list.length !== this.n) this.build(W);
     if (W.ver === this.ver) return;
     this.ver = W.ver;
-    const dirty = new Set();
+    const dirty = new Set(), live = new Set();
+    for (const b of W.list) if (!b.park) live.add(b.type);
+    for (const k in this.meshes) this.meshes[k].visible = live.has(k);   // a pool of parked tyres costs no draw call
     for (const b of W.list) {
       const im = this.meshes[b.type], i = this.idx[b.id];
+      if (b.park) { this.M.makeScale(1e-4, 1e-4, 1e-4); this.M.setPosition(0, -500, 0); im.setMatrixAt(i, this.M); dirty.add(im); continue; }
       this.M.compose(this.P.set(b.x, b.y, b.z), this.Q.set(b.qx, b.qy, b.qz, b.qw), this.S.set(1, 1, 1));
       if (b.dent > 0.001) {   // squash across the hit direction (local), bulge the other way a little
         const a = b.dentA; this.R.makeRotationY(a); this.D.makeScale(1 + b.dent * 0.45, 1, 1 - b.dent).premultiply(this.R).multiply(this.R.makeRotationY(-a));

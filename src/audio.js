@@ -792,8 +792,8 @@ class DfxBarriers {
     this.slots = []; this.bySample = [{}, {}]; this.meshes = [];
     this.ver = T.barVer; this.tyreBudget = 0;
     const N = T.N, ds = T.ds, step = 0.72;
-    const geo = new THREE.CylinderGeometry(0.36, 0.36, 0.31, 8);
-    const mat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+    const geo = tyreGeometry(0.34, 0.2, 0.3, 12);   // (v103) real tyres, not 8-sided slabs
+    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.88, metalness: 0, side: THREE.DoubleSide });
     for (const side of [1, -1]) {
       const tw0 = side > 0 ? T.twL0 : T.twR0, si = side > 0 ? 0 : 1;
       let i = 0;
@@ -827,7 +827,7 @@ class DfxBarriers {
           list.forEach((sl, n) => {
             sl.mesh = im; sl.idx = n;
             const r = dfxHash(n * 1.3 + side * 5.1 + sl.s);
-            col.setHex(r < 0.1 ? 0xd9dadc : r < 0.2 ? 0xa81a1e : 0x1c1c1e).multiplyScalar(0.8 + 0.4 * dfxHash(n * 2.1 + sl.s));
+            col.setHex(r < 0.1 ? 0xd9dadc : r < 0.2 ? 0xa81a1e : 0x2a2a2d).multiplyScalar(0.8 + 0.4 * dfxHash(n * 2.1 + sl.s));
             im.setColorAt(n, col);
             (this.bySample[si][sl.s] || (this.bySample[si][sl.s] = [])).push(sl);
             this.slots.push(sl);
@@ -863,6 +863,7 @@ class DfxBarriers {
   }
   // a tyre of the wall gets thrown out
   loose(sl, ev) {
+    if (typeof BW !== 'undefined' && BW && BW.tyres) return;   // (v103) the barrel world throws real tyres (main.js tyresOut)
     if (this.tyreBudget <= 0 || Math.random() > 0.3) return;
     this.tyreBudget--;
     const mesh = new THREE.Mesh(DFX.tyreGeo, DFX.tyreMat); mesh.position.set(sl.x, sl.y, sl.z); mesh.quaternion.setFromAxisAngle(_dUp, sl.yaw);

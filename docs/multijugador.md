@@ -70,7 +70,7 @@ Mínimo de toques para unirse: **Unirse a sala → escribir el código → ¡Est
 `pid` (id persistente en `localStorage`), `name`, `car`, librea (`c1` = color del avatar, `c2`, `pt`, `fn`, `rm`), `rdy`, `trk`, `ph`. El id de sesión en red es el id del par (PeerJS o la sala de Claude). Ver la cabecera de `src/net.js` para el registro completo.
 
 ### Transportes
-- **Dentro de Claude (artefacto):** sala de Claude (`window.claude.use('room')`). Funciona solo con la sesión de Claude iniciada. La admisión la comprueba quien entra, con la presencia que ya ve.
+- **Dentro de Claude (artefacto):** sala de Claude (`window.claude.use('room')`). Solo admite cuentas con acceso al artefacto (organización o invitados); con enlace público o sin sesión no hay sala, y el botón principal abre la versión web (v104). La admisión la comprueba quien entra, con la presencia que ya ve.
 - **Fuera de Claude (hosting propio):** PeerJS (WebRTC). El anfitrión reserva `spa-record-v1-CODIGO` en el servidor público de PeerJS y reenvía el estado de todos (estrella). Decide la admisión y responde `deny` con el motivo.
 
 ### Límites conocidos
@@ -80,3 +80,4 @@ Mínimo de toques para unirse: **Unirse a sala → escribir el código → ¡Est
 
 ## Pruebas
 `node tools/net_test.mjs p2p|room|lab` (ver la cabecera del archivo): páginas reales del juego entrando por código, con todos los errores, carrera y salida del anfitrión.
+`node tools/net_fresh_test.mjs`: dispositivos nuevos (sin datos guardados) crean salas, también pulsando antes de que cargue PeerJS, y el caso Claude sin acceso a la sala.
