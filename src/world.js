@@ -298,7 +298,7 @@ class World {
     g.setIndex(ind); g.computeVertexNormals();
     this.asphaltMat = this.q === 'bajo' ? new THREE.MeshPhongMaterial({ map: TEX.asphalt, vertexColors: true, shininess: 8, specular: 0x111111 })
       : new THREE.MeshStandardMaterial({ map: TEX.asphalt, vertexColors: true, roughness: 0.86, metalness: 0, bumpMap: TEX.asphalt, bumpScale: 1.0, envMapIntensity: 0.35 });
-    const asphalt = new THREE.Mesh(g, this.asphaltMat); asphalt.receiveShadow = true;
+    const asphalt = new THREE.Mesh(g, this.asphaltMat); asphalt.receiveShadow = true; asphalt.userData.road = 'track';
     this.group.add(asphalt);
 
     // ---- generic ribbon helper
@@ -317,12 +317,12 @@ class World {
       return new THREE.Mesh(b.build(), mat);
     };
     const white = col3('#eeeeee');
-    const lineMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    const lineMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }); lineMat.userData.decal = true;   // decal: drawn over the asphalt on purpose (__spa.roadLayers)
     this.group.add(ribbon(0, N, i => T.wl[i % N] - 0.32, i => T.wl[i % N] - 0.05, 0.005, 0.005, () => white, 0, lineMat));
     this.group.add(ribbon(0, N, i => -T.wr[i % N] + 0.32, i => -T.wr[i % N] + 0.05, 0.005, 0.005, () => white, 0, lineMat));
 
     // ---- kerbs (runs)
-    const kerbMat = new THREE.MeshLambertMaterial({ map: TEX.kerb, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+    const kerbMat = new THREE.MeshLambertMaterial({ map: TEX.kerb, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }); kerbMat.userData.decal = true;
     const runs = (arr) => { const r = []; let st = -1; for (let i = 0; i <= N; i++) { const on = i < N && arr[i]; if (on && st < 0) st = i; if (!on && st >= 0) { r.push([st, i]); st = -1; } } return r; };
     const kg = [];
     for (const [a, b] of runs(T.kerbL)) kg.push(ribbon(a, b, i => T.wl[i % N] - 0.05, i => T.wl[i % N] + 1.3, 0.01, 0.07, () => white, 2.0, kerbMat).geometry);
@@ -549,7 +549,7 @@ class World {
       const pA = trackPoint(T, 0, -T.wr[0]), pB = trackPoint(T, 0, T.wl[0]), pC = trackPoint(T, 1.2, T.wl[0]), pD = trackPoint(T, 1.2, -T.wr[0]);
       sb.quad([pA.x, pA.e + 0.012, pA.z], [pD.x, pD.e + 0.012, pD.z], [pC.x, pC.e + 0.012, pC.z], [pB.x, pB.e + 0.012, pB.z], white, [[0, 0], [0, 1], [8, 1], [8, 0]]);
     }
-    this.group.add(new THREE.Mesh(sb.build(), new THREE.MeshLambertMaterial({ map: TEX.checker, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 })));
+    { const cm = new THREE.MeshLambertMaterial({ map: TEX.checker, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }); cm.userData.decal = true; this.group.add(new THREE.Mesh(sb.build(), cm)); }
     const gb = new GeoBuilder(false);
     const mk = (ss, d) => { const p = trackPoint(T, ss, d); return [p.x, p.e + 0.012, p.z]; };
     const SN = this.D.startS, S0 = this.startS = SN * this.sc;
@@ -573,7 +573,7 @@ class World {
   buildEscape(white) {
     const T = this.T, E = T.esc, pts = E.pts, hw = E.hw;
     const b = new GeoBuilder(true), sk = new GeoBuilder(false), ln = new GeoBuilder(false);
-    const cT = E.pit ? new THREE.Color(0.95, 0.95, 0.98) : new THREE.Color(1.35, 1.35, 1.4), cS = col3('#3d4a33');   // pit exit: the asphalt of the circuit, not a pale run-off
+    const cT = E.pit ? new THREE.Color(0.95, 0.95, 0.98) : new THREE.Color(1.05, 1.05, 1.08), cS = col3('#3d4a33');   // pit exit: the asphalt of the circuit, not a pale run-off
     const side = (j, o, dy) => { const p = pts[j], q = pts[Math.min(j + 1, pts.length - 1)], r = pts[Math.max(j - 1, 0)]; let tx = q[0] - r[0], tz = q[1] - r[1]; const l = Math.hypot(tx, tz); tx /= l; tz /= l; return [p[0] + tz * o, p[2] + (dy || 0), p[1] - tx * o]; };
     // where the lane runs onto the circuit asphalt (the merge) the circuit itself is the surface: no lane, edge line or skirt
     // (v94) up to the circuit barriers: the Monaco exit lane is wider than the asphalt where it merges (it drew a lighter patch on the track)
@@ -581,18 +581,57 @@ class World {
     const onTrack = (p, j) => { const q = T.project(p[0], p[2], -1); let ml = q.wl + 0.1, mr = q.wr + 0.1;
       if (j != null) { const c = T.project(pts[j][0], pts[j][1], -1); if (c.d < c.wl && c.d > -c.wr) { ml = Math.max(ml, q.bl + 0.2); mr = Math.max(mr, q.br + 0.2); } }
       return q.d < ml && q.d > -mr; };
+    // (v97) the lane surface stops exactly at the edge of the circuit asphalt. Before, a quad was dropped only when all four
+    // corners were on the circuit, so at the merge the lane (another mesh, another texture scale, a straight grade) lay over
+    // the asphalt 2-11 cm above or below it: from the onboard camera a patch of coarser, lighter asphalt with a wavy edge where
+    // the two surfaces crossed in height (Monaco and Spa pit exits, Monza T1 escape). Now each quad is cut in 1 m cells and
+    // clipped against the circuit (inside > 0 on the asphalt; v94 margins), and its height eases onto the circuit edge.
+    const inside = (x, z, y, cen) => { const q = T.project(x, z, -1); if (Math.abs(q.e - y) > 1.5) return [-9, y];
+      let ml = q.wl, mr = q.wr; if (cen) { ml = Math.max(ml, q.bl + 0.2); mr = Math.max(mr, q.br + 0.2); }
+      return [Math.min(ml - q.d, q.d + mr), q.e]; };
+    const cenOn = pts.map(p => { const c = T.project(p[0], p[1], -1); return c.d < c.wl && c.d > -c.wr; });
+    const uvW = (p) => [p[0] / 5, p[2] / 5];   // the grain of the circuit asphalt (its uv is metres / 5)
+    const emit = (poly) => {   // poly: [x, yLane, z] points, convex, clipped to inside <= 0
+      const out = poly.map(([x, yl, z]) => { const [g, e] = inside(x, z, yl, cen); const u = Math.min(1, Math.max(0, -g / 1.5)), k = u * u * (3 - 2 * u); return [x, e + (yl - e) * k, z]; });
+      for (let t = 1; t + 1 < out.length; t++) {
+        const A = out[0], B = out[t], C = out[t + 1], ny = (B[2] - A[2]) * (C[0] - A[0]) - (B[0] - A[0]) * (C[2] - A[2]);
+        if (Math.abs(ny) < 1e-6) continue;
+        if (ny > 0) b.tri(A, B, C, cT, uvW(A), uvW(B), uvW(C)); else b.tri(A, C, B, cT, uvW(A), uvW(C), uvW(B));
+      }
+    };
+    let cen = false;
     for (let j = 0; j < pts.length - 1; j++) {
       const a0 = side(j, hw, 0.035), a1 = side(j, -hw, 0.035), b0 = side(j + 1, hw, 0.035), b1 = side(j + 1, -hw, 0.035);
-      const uv = (p) => [p[0] / 9, p[2] / 9];
-      if (!(onTrack(a0, j) && onTrack(a1, j) && onTrack(b0, j + 1) && onTrack(b1, j + 1))) b.quad(a0, b0, b1, a1, cT, [uv(a0), uv(b0), uv(b1), uv(a1)]);
+      cen = cenOn[j] || cenOn[j + 1];
+      const near = [a0, a1, b0, b1].some(p => inside(p[0], p[2], p[1], cen)[0] > -3);
+      if (!near) { emit([a0, b0, b1, a1]); }
+      else {
+        const nW = Math.ceil(2 * hw), nL = Math.max(1, Math.ceil(Math.hypot(b0[0] - a0[0], b0[2] - a0[2]) / 1.2));
+        const at = (u, v) => { const L = [a0[0] + (b0[0] - a0[0]) * v, a0[1] + (b0[1] - a0[1]) * v, a0[2] + (b0[2] - a0[2]) * v], R = [a1[0] + (b1[0] - a1[0]) * v, a1[1] + (b1[1] - a1[1]) * v, a1[2] + (b1[2] - a1[2]) * v];
+          return [L[0] + (R[0] - L[0]) * u, L[1] + (R[1] - L[1]) * u, L[2] + (R[2] - L[2]) * u]; };
+        for (let iu = 0; iu < nW; iu++) for (let iv = 0; iv < nL; iv++) {
+          const cell = [at(iu / nW, iv / nL), at(iu / nW, (iv + 1) / nL), at((iu + 1) / nW, (iv + 1) / nL), at((iu + 1) / nW, iv / nL)];
+          const g = cell.map(p => inside(p[0], p[2], p[1], cen)[0]);
+          if (g.every(v => v >= 0)) continue;
+          if (g.every(v => v < 0)) { emit(cell); continue; }
+          const poly = [];   // Sutherland-Hodgman against inside = 0 (keep the part off the circuit)
+          for (let k = 0; k < 4; k++) { const P = cell[k], Qp = cell[(k + 1) % 4], gp = g[k], gq = g[(k + 1) % 4];
+            if (gp < 0) poly.push(P);
+            if ((gp < 0) !== (gq < 0)) { const t = gp / (gp - gq); poly.push([P[0] + (Qp[0] - P[0]) * t, P[1] + (Qp[1] - P[1]) * t, P[2] + (Qp[2] - P[2]) * t]); } }
+          if (poly.length >= 3) emit(poly);
+        }
+      }
       for (const o of [hw, -hw]) { const c0 = side(j, o, 0.035), c1 = side(j + 1, o, 0.035), d0 = side(j, o * 1.04, -1.2), d1 = side(j + 1, o * 1.04, -1.2); if (onTrack(c0) && onTrack(c1)) continue; sk.quad(c0, c1, d1, d0, cS); sk.quad(c0, d0, d1, c1, cS); }
       for (const o of [hw - 0.3, -hw + 0.3]) { const e0 = side(j, o + 0.12, 0.045), e1 = side(j, o - 0.12, 0.045), f0 = side(j + 1, o + 0.12, 0.045), f1 = side(j + 1, o - 0.12, 0.045); if (onTrack(e0) || onTrack(f0)) continue; ln.quad(e0, f0, f1, e1, white); ln.quad(e0, e1, f1, f0, white); }
       if (j % 3 === 0) this.footprints.push([pts[j][0], pts[j][1], hw + 4]);
     }
-    const lane = new THREE.Mesh(b.build(), new THREE.MeshLambertMaterial({ vertexColors: true, map: TEX.asphalt, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    // same material as the circuit (lighting, bump, wet look): only the colour tells the pale Monza run-off from the asphalt
+    // (polygonOffset: off the circuit it still covers the run-off ribbons it crosses, as before; on the circuit it is clipped)
+    this.laneMat = this.asphaltMat.clone(); Object.assign(this.laneMat, { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    const lane = new THREE.Mesh(b.build(), this.laneMat); lane.userData.road = 'escape';
     lane.receiveShadow = true; this.group.add(lane);
     this.group.add(new THREE.Mesh(sk.build(), new THREE.MeshLambertMaterial({ vertexColors: true })));
-    this.group.add(new THREE.Mesh(ln.build(), new THREE.MeshLambertMaterial({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 })));
+    { const lm = new THREE.MeshLambertMaterial({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }); lm.userData.decal = true; this.group.add(new THREE.Mesh(ln.build(), lm)); }
     // rails along both edges of the lane (the physics holds the car at hw)
     { const rl = new GeoBuilder(true), pb = new GeoBuilder(false), cR = col3('#ffffff'), cP = col3('#7d848a');
       const ul = [0]; for (let j = 1; j < pts.length; j++) ul.push(ul[j - 1] + Math.hypot(pts[j][0] - pts[j - 1][0], pts[j][1] - pts[j - 1][1]) / 4);
@@ -1848,7 +1887,7 @@ class World {
   buildPuddles() {
     const T = this.T;
     if (this.puddles) { this.group.remove(this.puddles); this.puddles.traverse(o => { if (o.geometry) o.geometry.dispose(); }); this.puddles = null; }
-    this.puddleMat = new THREE.MeshStandardMaterial({ color: 0x080c10, roughness: 0.04, metalness: 0.0, envMapIntensity: 1.6, transparent: true, opacity: 0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    this.puddleMat = new THREE.MeshStandardMaterial({ color: 0x080c10, roughness: 0.04, metalness: 0.0, envMapIntensity: 1.6, transparent: true, opacity: 0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }); this.puddleMat.userData.decal = true;
     const grp = new THREE.Group(); this.puddles = grp; grp.visible = false;
     for (const p of T.puddles || []) {
       const pos = [], idx = [], K = 6;
@@ -1973,8 +2012,7 @@ class Sky {
     this.wetLvl = wl;
     if (!world) return;
     const k = smoothstep(0.02, 0.5, wl);
-    if (world.asphaltMat) {
-      const m = world.asphaltMat;
+    for (const m of [world.asphaltMat, world.laneMat]) if (m) {
       if (m.isMeshStandardMaterial) { m.color.set('#ffffff').lerp(_wetCol, k * 0.9); m.roughness = lerp(0.86, 0.26, k); m.envMapIntensity = lerp(0.35, 1.05, k); }
       else { m.color.set('#ffffff').lerp(_wetCol2, k * 0.9); m.specular.set('#111111').lerp(_wetSpec, k); m.shininess = lerp(8, 70, k); }
     }
