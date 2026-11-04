@@ -247,8 +247,9 @@ function buildBarriers(T, def, ds, NOM, L) {
   for (let i = 0; i < N; i++) { T.strL[i] = T.btL[i] === 2 ? TYRE_BACK_STROKE : ARMCO_STROKE; T.strR[i] = T.btR[i] === 2 ? TYRE_BACK_STROKE : ARMCO_STROKE; }
   T.dentL = new Float64Array(N); T.dentR = new Float64Array(N);
   T.barEv = [];                       // events for the visuals: { side, i, p, tw, dent }
+  T.tyreOut = []; T.tyreAcc = 0;      // (v103) tyre wall crushed by a car: loose tyres for the barrel world (main.js tyresOut)
   T.barVer = 0;
-  T.resetBarriers = () => { T.twL.set(T.twL0); T.twR.set(T.twR0); T.dentL.fill(0); T.dentR.fill(0); T.barEv.length = 0; T.barVer++; T.barReset = true; };
+  T.resetBarriers = () => { T.twL.set(T.twL0); T.twR.set(T.twR0); T.dentL.fill(0); T.dentR.fill(0); T.barEv.length = 0; T.tyreOut.length = 0; T.tyreAcc = 0; T.barVer++; T.barReset = true; };
   // capacity left (m) at sample i on a side
   T.barLeft = (side, i) => {
     const typ = side > 0 ? T.btL[i] : T.btR[i];

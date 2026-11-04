@@ -981,6 +981,7 @@ class Vehicle {
       // the barrier gives way to where the car is
       const gone = T.pushBarrier(side, iq, wPen);
       T.barEv.push({ side, i: iq, p: wPen, gone, x: this.x + px, z: this.z + pz, vx: Vx, vz: Vz, nx, nz, typ, close: Math.max(0, -vn) });
+      if (typ === 2 && gone > 0 && T.tyreOut && T.tyreOut.length < 64) T.tyreOut.push({ side, i: iq, gone, x: this.x + px, z: this.z + pz, vx: Vx, vz: Vz, nx, nz, close: Math.max(0, -vn), V: this });   // loose tyres (v103, main.js)
       this.scrapeT = 0.12; this.scrapeAt = [this.x + px, this.z + pz, Math.abs(vt)];
       return;
     }
