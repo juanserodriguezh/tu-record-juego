@@ -127,8 +127,8 @@ function applyGlb(out, spec) {
     const n = hub[k], front = k[0] === 'F';
     if (spec.trueWheels !== false) {   // keep the correction only when it measurably trues the tyre (unstable fits on wide road tyres are rolled back)
       const save = n.children.map(o => [o, o.position.clone(), o.quaternion.clone(), o.scale.clone()]);
-      const t0 = trueWheel(n, true);
-      if (t0 > 0.006) { trueWheel(n); trueWheel(n); const t1 = trueWheel(n, true);
+      const tw = spec.trueWheels === 2 ? trueWheel2 : trueWheel, t0 = tw(n, true);
+      if (t0 > 0.006) { tw(n); tw(n); if (tw === trueWheel2) tw(n); const t1 = tw(n, true);
         if (!(t1 < t0 * 0.5)) { for (const [o, p, q, sc] of save) { o.position.copy(p); o.quaternion.copy(q); o.scale.copy(sc); } n.userData.trued = 0; }
         else n.userData.trued = [+(t0 * 57.3).toFixed(2), +(t1 * 57.3).toFixed(2)]; } }
     const R = Math.max(...n.children.map(c => { const b = new THREE.Box3().setFromObject(c); return (b.max.y - b.min.y) / 2; }));
@@ -358,4 +358,44 @@ function trueWheel(n, measure) {
   const F = new THREE.Matrix4().makeTranslation(xc, 0, 0).multiply(new THREE.Matrix4().makeRotationFromQuaternion(q)).multiply(new THREE.Matrix4().makeTranslation(-xc, 0, 0));
   for (const o of n.children) { o.updateMatrix(); o.matrix.premultiply(F); o.matrix.decompose(o.position, o.quaternion, o.scale); }
   return tilt;
+}
+// v98 (trueWheels: 2): stricter wheel truing for cars whose tyres still wobbled after trueWheel (SF-26, MAC-26, Formula E). The axle is fitted on the centre of the x extent per angular bin ((min + max) / 2), not on the mean x: the mean followed the vertex
+// density (tread blocks, lettering on one sidewall) and left 2-4 deg of camber on the Formula E. Round parts (rim, sidewall) whose own axle
+// still leans after the tyre is trued (the Formula E rim sat 3 deg off its tyre) are trued on their own.
+function wheelAxle(n, o, M, rmin) {
+  const P = o.geometry.attributes.position, v = new THREE.Vector3(), NB = 36, lo = new Float64Array(NB).fill(1e9), hi = new Float64Array(NB).fill(-1e9);
+  let tr = 0, cy = 0, cz = 0, k = 0;
+  for (let i = 0; i < P.count; i++) { v.fromBufferAttribute(P, i).applyMatrix4(M); tr = Math.max(tr, Math.hypot(v.y, v.z)); cy += v.y; cz += v.z; k++; }
+  if (!k || Math.hypot(cy / k, cz / k) > 0.04 * tr) return null;   // off-axis parts (brake ducts, calipers) are not round
+  let rs = 0, rn = 0;
+  for (let i = 0; i < P.count; i++) { v.fromBufferAttribute(P, i).applyMatrix4(M); const r = Math.hypot(v.y, v.z); if (r < rmin * tr) continue;
+    const b = Math.min(NB - 1, Math.floor((Math.atan2(v.z, v.y) + Math.PI) / (2 * Math.PI) * NB)); lo[b] = Math.min(lo[b], v.x); hi[b] = Math.max(hi[b], v.x); rs += r; rn++; }
+  let S = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], R = [0, 0, 0], used = 0;
+  for (let b = 0; b < NB; b++) { if (hi[b] < lo[b]) continue; used++; const ph = -Math.PI + (b + 0.5) * 2 * Math.PI / NB, f = [1, Math.cos(ph), Math.sin(ph)], x = (lo[b] + hi[b]) / 2;
+    for (let i = 0; i < 3; i++) { R[i] += f[i] * x; for (let j = 0; j < 3; j++) S[i][j] += f[i] * f[j]; } }
+  if (used < 30) return null;   // not a full ring
+  const rm = rs / rn, sol = new THREE.Matrix3().set(S[0][0], S[0][1], S[0][2], S[1][0], S[1][1], S[1][2], S[2][0], S[2][1], S[2][2]).invert(), r3 = new THREE.Vector3(R[0], R[1], R[2]).applyMatrix3(sol);
+  const ax = new THREE.Vector3(1, -r3.y / rm, -r3.z / rm).normalize();
+  return { ax, xc: r3.x, tilt: Math.acos(Math.min(1, ax.x)), tr };
+}
+function trueWheel2(n, measure) {
+  n.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(n.matrixWorld).invert(), M = new THREE.Matrix4();
+  const fit = (o) => { M.multiplyMatrices(inv, o.matrixWorld); return wheelAxle(n, o, M, 0.85); };
+  let tyre = null, tf = null;
+  for (const o of n.children) { if (!o.isMesh) continue; const f = fit(o); if (f && (!tf || f.tr > tf.tr)) { tyre = o; tf = f; } }
+  if (!tyre) return 0;
+  const parts = []; for (const o of n.children) if (o.isMesh && o !== tyre) { const f = fit(o); if (f && f.tr > 0.45 * tf.tr) parts.push([o, f]); }
+  const worst = Math.max(tf.tilt, ...parts.map(p => p[1].tilt).filter(t => t <= 0.2));
+  if (measure) return worst;
+  const turn = (f, list) => { if (f.tilt < 0.002 || f.tilt > 0.2) return;   // already true, or a fit we do not trust
+    const q = new THREE.Quaternion().setFromUnitVectors(f.ax, new THREE.Vector3(1, 0, 0));
+    // rotate about the part centre (on the axle), not the node origin, so it does not move off the axle
+    const F = new THREE.Matrix4().makeTranslation(f.xc, 0, 0).multiply(new THREE.Matrix4().makeRotationFromQuaternion(q)).multiply(new THREE.Matrix4().makeTranslation(-f.xc, 0, 0));
+    for (const o of list) { o.updateMatrix(); o.matrix.premultiply(F); o.matrix.decompose(o.position, o.quaternion, o.scale); o.updateMatrixWorld(true); } };
+  turn(tf, n.children);
+  // a part keeps its own correction only if that measurably trues it (spoked hubs and calipers give fits we cannot trust)
+  for (const [o] of parts) { const f = fit(o); if (!f) continue; const p0 = o.position.clone(), q0 = o.quaternion.clone(), s0 = o.scale.clone(); turn(f, [o]);
+    const g = fit(o); if (!g || g.tilt > f.tilt * 0.5) { o.position.copy(p0); o.quaternion.copy(q0); o.scale.copy(s0); o.updateMatrixWorld(true); } }
+  return worst;
 }
