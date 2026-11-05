@@ -536,7 +536,7 @@
 - Publicado: artefacto versión 112, id 1793885388-3ed5 (main 8d6a4a4). Pages se publica sola.
 - Límite: no puedo medir la sala de Claude real desde aquí (el emulador es local). La próxima prueba dirá su ping; si pasa de ~150 ms, la web es la opción para 5.
 
-## v113 (5-nov-2026) — coches de los demás fluidos aunque la red sea mala
+## v113 (5-nov-2026) (publicada, id 1793889491-2488) — coches de los demás fluidos aunque la red sea mala
 - Juanse sobre v112: «sigue mejorando, es menos el lag que hay pero sigue sin estar fluido para los usuarios que es primordial para un juego así».
 - Causa: la posición predicha de cada coche remoto se corrige con cada estado que llega (0,3-3 m con 150-300 ms de ping). v106-v112 absorbían la corrección con un decaimiento de primer orden: la velocidad del coche dibujado saltaba en cada paquete (20 veces por segundo) y el rumbo salía directo de la predicción, así que también saltaba.
 - Arreglo (`netPoseStep` en `net.js`, puro y usado también por el laboratorio): el coche dibujado sigue al objetivo como un muelle críticamente amortiguado de segundo orden (`NET_SPRING` 9 rad/s, paso exacto) sobre posición y velocidad, con la velocidad del objetivo como anticipación, así que posición y velocidad son continuas. El rumbo sale de la dirección en la que se mueve el coche dibujado menos el ángulo de deriva del emisor (suavizado); parado o marcha atrás sigue al objetivo. Solo un salto de más de 25 m (reinicio, grúa) se teletransporta (antes 4 m).
