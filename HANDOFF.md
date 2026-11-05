@@ -518,3 +518,4 @@
 - Juanse sobre v109: «tiene que ser el mismo render solo que con polarizado, tú ahí cambiaste todo y lo hiciste súper mal». v109 dejaba el cristal casi negro y opaco (0,9), y el coche parecía otro.
 - Arreglo (`tools/prep_tesla.mjs`): el cristal vuelve al de v108 (mismo color, rugosidad y metal; glb.js ya lo subía a opacidad 0,72). El único cambio es que se dibuja por las dos caras: en el FBX muchas caras del vidrio miran hacia dentro, y en v108 esas ventanas no se veían desde fuera y el interior quedaba a la vista sin tinte. El parabrisas queda idéntico a v108, por una sola cara. La carrocería, el interior, las luces y la cabina no cambian.
 - Verificado: capturas lado a lado v108 / v110 desde los mismos 4 ángulos (`tesla-polarizado-v110/`). La carrocería sale igual y los vidrios tintados, con el interior aún visible detrás. Solo cambia `assets/tesla3.glb` (pack8).
+- Publicado: artefacto versión 110, id 1793838843-700a (main 029a1da).
