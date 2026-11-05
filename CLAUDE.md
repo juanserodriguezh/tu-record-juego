@@ -138,3 +138,13 @@ El juego público es el artefacto de Claude **https://claude.ai/artifact/Y3YH8j5
 ## Fuentes originales (no están en el repo)
 Los 28 archivos originales (zips de coches de Sketchfab/vecarz, circuitos de Assetto Corsa, el F40 y Tocancipá en `.rar`; 2,1 GB, verificados por sha256) **no están en el repo**: viven en el Mac de Juanse, en `~/Documents/juego-carreras/fuentes/` (`fuentes/` está en `.gitignore`). En `assets/` solo están los GLB ya optimizados.
 Para rehacer un coche (p. ej. el redondeo de ruedas del RB22 o el MCL39) se usan desde esa carpeta, en un hilo con acceso al dispositivo. Solo si el archivo no está ahí, se le pide a Juanse.
+
+## graphify (grafo del código, para gastar menos tokens)
+El grafo vive en `graphify-out/` (no se versiona: `.gitignore`). El hook `SessionStart` de `.claude/settings.json` instala `graphifyy==0.9.102` si falta y corre `graphify update .` (solo AST, sin LLM, ~7 s). Los hooks `PreToolUse` (modo `--strict`) bloquean la primera lectura o búsqueda de la sesión hasta que se consulte el grafo.
+
+**Regla:** antes de abrir o buscar en archivos, usa `graphify query "<pregunta>"`, `graphify explain "<símbolo>"` o `graphify path "<A>" "<B>"` para ubicar el código exacto (archivo y línea), y lee solo esas líneas (`Read` con `offset`/`limit`, o `sed -n`). Pon esta regla en el prompt de cualquier subagente que explore código.
+- Pregunta en inglés o con nombres del código: los comentarios y símbolos están en inglés. «posición del volante en la cabina» no encuentra `fitSteeringWheel()` (`src/glb.js`); «swAt steering wheel position» sí.
+- Los `src/data_*.js` y `MONACO_CITY` son datos, no tienen símbolos en el grafo: para ellos, `grep` directo.
+- `graphify-out/GRAPH_REPORT.md` solo para revisar la arquitectura completa.
+- Después de cambiar código: `graphify update .`.
+- Si `pip` falla en el Mac (Python de Homebrew, PEP 668): `pipx install graphifyy==0.9.102`.
