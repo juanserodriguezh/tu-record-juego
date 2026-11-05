@@ -797,9 +797,44 @@ function netPredict(A, age, o, hint) {
   return o;
 }
 const NET_POSE = { x: 0, z: 0, h: 0, u: 0, v: 0, y: 0, i: -1 };
+// ---- smooth display of a remote car (v113) ---------------------------------------------------------
+// The prediction (netPredict) is where the car should be NOW; every new state corrects it a little, and with
+// 150-300 ms of ping and jitter those corrections are 0.3-3 m. v106-v112 absorbed them with a first-order decay
+// (the car's speed jumped at each packet) and took the heading straight from the prediction (it snapped).
+// Now the drawn car is a second-order follower: position error AND velocity error decay together as a critically
+// damped spring (NET_SPRING rad/s), so speed and direction are continuous (C1); the heading comes from the drawn
+// velocity plus the sender's slip angle, so it turns as smoothly as the car moves. Only a real teleport (reset,
+// crane, > NET_SNAP m) jumps.
+const NET_SPRING = 9, NET_SNAP = 25;   // 9 rad/s: measured in net_test lab (7 = smoother but +50 % position error, 14 = kicks again)
+// pure (also the lab): advance the drawn state `e` to wall time `nowMs` (sender clock offset in e.off, latency `lat` ms)
+function netPoseStep(e, nowMs, dt, lat) {
+  const P = NET_POSE, last = e.buf[e.buf.length - 1];
+  const age = clamp((nowMs - e.off + lat - last.ts) / 1000, 0, NET_PRED_MAX);
+  netPredict(last.st, age, P, e.phint); if (P.i >= 0) e.phint = P.i;
+  const tvx = P.u * Math.sin(P.h) + P.v * Math.cos(P.h), tvz = P.u * Math.cos(P.h) - P.v * Math.sin(P.h);
+  e.age = age; e.mode = age > 0.35 ? 2 : 1;
+  const D = e.dsp;
+  if (!D || !(dt > 0) || (P.x - D.x) ** 2 + (P.z - D.z) ** 2 > NET_SNAP * NET_SNAP) {
+    e.dsp = { x: P.x, z: P.z, vx: tvx, vz: tvz, h: P.h, y: P.y, slip: Math.atan2(P.v, Math.max(1, Math.abs(P.u))) };
+  } else {
+    // error of the drawn state against the target, then the exact critically damped step over dt
+    const w = e.spring || NET_SPRING, k = Math.exp(-w * dt);
+    const step = (x, v) => { const c = (v + w * x) * dt; return [(x + c) * k, (v - w * c) * k]; };
+    // error at the start of the frame = drawn position minus the (new) target carried back by dt
+    const [ex, evx] = step(D.x - P.x + tvx * dt, D.vx - tvx), [ez, evz] = step(D.z - P.z + tvz * dt, D.vz - tvz);
+    D.x = P.x + ex; D.z = P.z + ez; D.vx = tvx + evx; D.vz = tvz + evz;
+    D.y += (P.y - D.y) * (1 - Math.exp(-10 * dt));
+    // heading: the direction it is moving minus the sender's slip angle (smoothed); slow or reversing: follow the target
+    const sp = Math.hypot(D.vx, D.vz), slipT = Math.atan2(P.v, Math.max(1, Math.abs(P.u)));
+    D.slip += wrapAng(slipT - D.slip) * (1 - Math.exp(-8 * dt));
+    const hT = sp > 4 && P.u > 0 ? Math.atan2(D.vx, D.vz) - D.slip : P.h;
+    D.h += wrapAng(hT - D.h) * (1 - Math.exp(-(sp > 4 ? 25 : 8) * dt));
+  }
+  return e.dsp;
+}
 function netPoseRemote(e, dt) {
   const r = e.model.root;
-  if (e.left) { r.visible = false; e.kin = null; e.px = null; return; }
+  if (e.left) { r.visible = false; e.kin = null; e.dsp = null; return; }
   if (!e.buf.length || e.off == null) {   // no state yet: in the grid slot, still
     if (!e.gridPose) { r.visible = false; e.kin = null; return; }
     const g = e.gridPose; e.x = g.x; e.z = g.z; e.u = 0; e.vx = 0; e.vz = 0; e.mode = 3;
@@ -807,27 +842,13 @@ function netPoseRemote(e, dt) {
     r.visible = true; r.position.set(g.x, g.y, g.z); r.rotation.order = 'YXZ'; r.rotation.set(0, g.h, 0);
     return;
   }
-  const P = NET_POSE, last = e.buf[e.buf.length - 1];
-  const age = clamp((Date.now() - e.off + netLatency(e) - last.ts) / 1000, 0, NET_PRED_MAX);
-  netPredict(last.st, age, P, e.phint); if (P.i >= 0) e.phint = P.i;
-  e.mode = age > 0.35 ? 2 : 1; e.age = age;
-  let x = P.x, z = P.z;
-  const h = P.h, u = P.u, v = P.v, y = P.y;
-  const vx = u * Math.sin(h) + v * Math.cos(h), vz = u * Math.cos(h) - v * Math.sin(h);
-  // error smoothing: a jump of the target beyond its own motion (a new state corrected the prediction) is
-  // absorbed into an offset that decays, so the car glides onto the new path; teleports (> 4 m) are taken as they come
-  if (e.px != null && dt > 0) {
-    const dx = x - (e.px + e.pvx * dt), dz = z - (e.pz + e.pvz * dt);
-    if (dx * dx + dz * dz < 16) { e.ex -= dx; e.ez -= dz; } else { e.ex = 0; e.ez = 0; }
-  } else { e.ex = 0; e.ez = 0; }
-  e.px = x; e.pz = z; e.pvx = vx; e.pvz = vz;
-  const k = Math.exp(-dt * 7); e.ex *= k; e.ez *= k;
-  x += e.ex; z += e.ez;
-  e.x = x; e.z = z; e.u = u; e.vx = vx; e.vz = vz;
+  const D = netPoseStep(e, Date.now(), dt, netLatency(e)), u = NET_POSE.u;
+  const x = D.x, z = D.z, h = D.h;
+  e.x = x; e.z = z; e.u = u; e.vx = D.vx; e.vz = D.vz;
   T.project(x, z, e.hint, e.q); e.hint = e.q.i; e.s = e.q.s; e.d = e.q.d; e.i = e.q.i;
-  e.kin = { kin: true, x, z, h, vx, vz, len: e.len, wid: e.wid };
+  e.kin = { kin: true, x, z, h, vx: D.vx, vz: D.vz, len: e.len, wid: e.wid };
   r.visible = true;
-  r.position.set(x, y, z); r.rotation.order = 'YXZ'; r.rotation.set(0, h, 0);
+  r.position.set(x, D.y, z); r.rotation.order = 'YXZ'; r.rotation.set(0, h, 0);
   e.wheelRot += u / 0.34 * dt; spinVis(e.model, e.wheelRot);
 }
 

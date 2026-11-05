@@ -145,6 +145,75 @@ if (mode === 'lab') {
   });
   for (const r of pred) console.log(`latency ${r.L} ms + jitter ${r.jit} ms, loss ${r.loss * 100}%:  v106 ${JSON.stringify(r.now)}   before ${JSON.stringify(r.before)}`);
   ok(pred.every(r => Math.abs(r.now.behindM) < 1.5 && r.now.errMedM < r.before.errMedM / 3), 'prediction: the car is shown where it is now (median along-track < 1.5 m, error a third of before or less)');
+  // ---- v113 smoothness lab: the same lapping car, drawn at 60 FPS through the full display path. Smooth = the drawn
+  // car's acceleration and turn rate match the real car's (no speed kicks or heading snaps when a state arrives).
+  // v112 = first-order decay of the correction + heading straight from the prediction; v113 = netPoseStep.
+  const smooth = await pg.evaluate(() => {
+    const { netClock, netPredict, netPoseStep, trackPoint } = __spa.netLab, T = __spa.T;
+    let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const spd = (t) => 52 + 27 * Math.sin(t / 2300) + 8 * Math.sin(t / 700);
+    const S0 = 300, sAt = []; { let s = S0; for (let t = 0; t <= 40000; t += 5) { sAt.push(s); s += spd(t) * 0.005; } }
+    const dAt = (t) => 2.5 * Math.sin(t / 1900);
+    const truth = (t) => { const f = Math.max(0, Math.min(sAt.length - 2, t / 5)), k = Math.floor(f), sv = sAt[k] + (sAt[k + 1] - sAt[k]) * (f - k), P = trackPoint(T, sv, dAt(t)); return { x: P.x, z: P.z, e: P.e, s: sv }; };
+    const wrap = (a) => a - Math.round(a / (2 * Math.PI)) * 2 * Math.PI;
+    const rows = [];
+    for (const [L, jit, loss] of [[60, 30, 0.02], [150, 80, 0.05], [250, 150, 0.08], [300, 200, 0.12]]) {
+      const pk = [];
+      for (let ts = 0; ts < 38000; ts += 50) {
+        if (rnd() < loss) continue;
+        const a = truth(ts), b = truth(ts + 10), u = Math.hypot(b.x - a.x, b.z - a.z) / 0.01, h = Math.atan2(b.x - a.x, b.z - a.z);
+        pk.push({ ts, rt: ts + L + rnd() * jit, st: [a.x, a.z, h, u, 0, 0, a.s, a.e] });
+      }
+      pk.sort((p, q) => p.rt - q.rt);
+      const run = (neu, spring) => {
+        const e = { buf: [], phint: -1, spring }, pos = [], tru = [], hd = [];
+        let k = 0, old = null; const out = { x: 0, z: 0 };
+        for (let i = 0, tf = 2000; tf < 37000; i++) {
+          const dt = (1000 / 60 + (rnd() - 0.5) * 6) / 1000; tf += dt * 1000;   // a real frame clock wobbles a little
+          while (k < pk.length && pk[k].rt <= tf) { const p = pk[k++]; const last = e.buf[e.buf.length - 1]; if (!last || p.ts > last.ts) { netClock(e, p.ts, last, p.rt); e.buf.push({ ts: p.ts, st: p.st }); if (e.buf.length > 30) e.buf.shift(); } }
+          if (!e.buf.length) continue;
+          let x, z, h;
+          if (neu) { const D = netPoseStep(e, tf, dt, L); x = D.x; z = D.z; h = D.h; }
+          else {   // v112 netPoseRemote
+            const last = e.buf[e.buf.length - 1], age = Math.min(0.6, Math.max(0, (tf - e.off + L - last.ts) / 1000));
+            netPredict(last.st, age, out, e.phint); if (out.i >= 0) e.phint = out.i;
+            const vx = out.u * Math.sin(out.h), vz = out.u * Math.cos(out.h);
+            if (!old) old = { ex: 0, ez: 0 };
+            else { const dx = out.x - (old.px + old.pvx * dt), dz = out.z - (old.pz + old.pvz * dt); if (dx * dx + dz * dz < 16) { old.ex -= dx; old.ez -= dz; } else { old.ex = 0; old.ez = 0; } }
+            old.px = out.x; old.pz = out.z; old.pvx = vx; old.pvz = vz;
+            const kk = Math.exp(-dt * 7); old.ex *= kk; old.ez *= kk;
+            x = out.x + old.ex; z = out.z + old.ez; h = out.h;
+          }
+          const tr = truth(tf);
+          pos.push([tf, x, z]); tru.push([tf, tr.x, tr.z]); hd.push([tf, h]);
+        }
+        // accelerations by finite differences over each frame (drawn vs real), turn rate error, position error
+        const acc = (a, i) => { const [t0, x0, z0] = a[i - 1], [t1, x1, z1] = a[i], [t2, x2, z2] = a[i + 1], d1 = (t1 - t0) / 1000, d2 = (t2 - t1) / 1000;
+          return [((x2 - x1) / d2 - (x1 - x0) / d1) / ((d1 + d2) / 2), ((z2 - z1) / d2 - (z1 - z0) / d1) / ((d1 + d2) / 2)]; };
+        const aErr = [], rErr = [], pErr = [], kick = [];
+        for (let i = 2; i < pos.length - 1; i++) {
+          const a = acc(pos, i), b = acc(tru, i); aErr.push(Math.hypot(a[0] - b[0], a[1] - b[1]));
+          const dtv = (hd[i][0] - hd[i - 1][0]) / 1000, rate = wrap(hd[i][1] - hd[i - 1][1]) / dtv;
+          const vx1 = (tru[i][1] - tru[i - 1][1]), vz1 = (tru[i][2] - tru[i - 1][2]), vx0 = (tru[i - 1][1] - tru[i - 2][1]), vz0 = (tru[i - 1][2] - tru[i - 2][2]);
+          const trate = wrap(Math.atan2(vx1, vz1) - Math.atan2(vx0, vz0)) / dtv;
+          rErr.push([rate, trate]);
+          pErr.push(Math.hypot(pos[i][1] - tru[i][1], pos[i][2] - tru[i][2]));
+          // speed kick: change of drawn speed in one frame beyond the real one (m/s)
+          const sp = (A, j) => Math.hypot(A[j][1] - A[j - 1][1], A[j][2] - A[j - 1][2]) / ((A[j][0] - A[j - 1][0]) / 1000);
+          kick.push(Math.abs((sp(pos, i) - sp(pos, i - 1)) - (sp(tru, i) - sp(tru, i - 1))));
+        }
+        const q = (a, f) => +a.slice().sort((x, y) => x - y)[Math.floor(a.length * f)].toFixed(2), rms = (a) => +Math.sqrt(a.reduce((s, v) => s + v * v, 0) / a.length).toFixed(2);
+        // turn kick: change of the drawn turn rate in one frame (deg/s), p99 -- a heading snap shows up here
+        const tk = []; for (let i = 1; i < rErr.length; i++) tk.push(Math.abs(rErr[i][0] - rErr[i - 1][0]) * 180 / Math.PI);
+        return { accErrRms: rms(aErr), turnKick99: q(tk, 0.99), kick99: q(kick, 0.99), posMed: q(pErr, 0.5), pos95: q(pErr, 0.95) };
+      };
+      rows.push({ L, jit, loss, v113: run(true), v112: run(false) });
+    }
+    return rows;
+  });
+  for (const r of smooth) console.log(`smooth: latency ${r.L} ms + jitter ${r.jit} ms, loss ${r.loss * 100}%:  v113 ${JSON.stringify(r.v113)}   v112 ${JSON.stringify(r.v112)}`);
+  ok(smooth.every(r => r.v113.accErrRms < r.v112.accErrRms / 2 && r.v113.kick99 < r.v112.kick99 / 2 && r.v113.turnKick99 <= r.v112.turnKick99 && r.v113.pos95 < r.v112.pos95 * 1.5 + 0.3),
+    'smoothness: no speed kicks or heading snaps when states arrive (acceleration error and speed kicks at most half of v112), position error not worse than 1.5x');
   await browser.close(); srv.close(); process.exit(fails ? 1 : 0);
 }
 
