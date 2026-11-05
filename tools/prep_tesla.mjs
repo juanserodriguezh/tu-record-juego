@@ -98,7 +98,7 @@ for (const m of root.listMaterials()) {
   else if (/^(dvorright|JUST_BLACK|black_lights|hitam|Plastic|front_black|door_lf)/.test(n)) m.setRoughnessFactor(0.55);
   else if (/^(Putih|Seat Leather|movsteer_1\.0\.0|Carpet)/.test(n)) m.setRoughnessFactor(/Carpet/.test(n) ? 0.95 : 0.5);
   else if (/^mirror_inside/.test(n)) m.setMetallicFactor(1).setRoughnessFactor(0.05);
-  if (/^glass/.test(n)) m.setBaseColorTexture(null).setAlphaMode('BLEND').setAlpha(0.9).setBaseColorFactor([0.004, 0.005, 0.006, 0.9]).setMetallicFactor(0.2).setRoughnessFactor(0.04).setDoubleSided(true);   // v109: polarizado (ventanas, luneta, techo); a dos caras: las normales del FBX miran hacia dentro
+  if (/^glass/.test(n)) m.setBaseColorTexture(null).setAlphaMode('BLEND').setAlpha(0.72).setBaseColorFactor([0.02, 0.025, 0.03, 0.72]).setMetallicFactor(0).setRoughnessFactor(0.05).setDoubleSided(true);   // v110: mismo cristal de v108 (glb.js ya lo subía a 0,72) pero a dos caras: muchas caras miran hacia dentro y desde fuera no se veían
   if (/vehiclelights/.test(tx)) { m.setRoughnessFactor(0.15); if (!/rear|break|revlight|indicator .r/.test(n)) m.setEmissiveFactor([0, 0, 0]); }
   if (/rear light|breaklight/.test(n)) m.setEmissiveTexture(m.getBaseColorTexture()).setEmissiveFactor([0.3, 0.3, 0.3]);
   if (/^LCDs/.test(n)) m.setEmissiveTexture(m.getBaseColorTexture()).setEmissiveFactor([0.6, 0.6, 0.6]);
@@ -107,8 +107,8 @@ for (const m of root.listMaterials()) {
   if (/^platnomor/.test(n)) m.setBaseColorTexture(null).setBaseColorFactor([0.85, 0.85, 0.85, 1]);
 }
 await doc.transform(dedup());
-// windscreen: lighter tint (it is the view from the cockpit camera)
-for (const n of root.listNodes()) if (n.getName() === 'windscreen_ok') for (const p of n.getMesh().listPrimitives()) { const m = p.getMaterial(); if (m && m.getAlphaMode() === 'BLEND') p.setMaterial(m.clone().setName('windscreen').setAlpha(0.5).setBaseColorFactor([0.01, 0.012, 0.015, 0.5])); }
+// windscreen: exactly as v108 (one-sided), so the cockpit view does not change
+for (const n of root.listNodes()) if (n.getName() === 'windscreen_ok') for (const p of n.getMesh().listPrimitives()) { const m = p.getMaterial(); if (m && m.getAlphaMode() === 'BLEND') p.setMaterial(m.clone().setName('windscreen').setDoubleSided(false)); }
 
 // cabin parts (hidden in the cockpit view, where the procedural cabin is drawn)
 const INT = /^(movsteer|ped_|Plastic$|belt|black(\.00[1-25])?$|satin_red|paint_black|chrome_$|aluminium$|hitam\.00[25]|texture_|aluminium2|Putih|whiteleather|Carpet|chromeBELT|LCDs|Seat Leather|Leather_white|mirror_inside)/;
