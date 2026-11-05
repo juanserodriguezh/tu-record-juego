@@ -519,3 +519,9 @@
 - Arreglo (`tools/prep_tesla.mjs`): el cristal vuelve al de v108 (mismo color, rugosidad y metal; glb.js ya lo subía a opacidad 0,72). El único cambio es que se dibuja por las dos caras: en el FBX muchas caras del vidrio miran hacia dentro, y en v108 esas ventanas no se veían desde fuera y el interior quedaba a la vista sin tinte. El parabrisas queda idéntico a v108, por una sola cara. La carrocería, el interior, las luces y la cabina no cambian.
 - Verificado: capturas lado a lado v108 / v110 desde los mismos 4 ángulos (`tesla-polarizado-v110/`). La carrocería sale igual y los vidrios tintados, con el interior aún visible detrás. Solo cambia `assets/tesla3.glb` (pack8).
 - Publicado: artefacto versión 110, id 1793838843-700a (main 029a1da).
+
+## v111 (5-nov-2026) — Tesla: faros sin rojo al cambiar el color
+- Juanse: «cambiarle el color no funciona bien porque en las luces le deja aún algunos detalles rojos».
+- Causa: los faros delanteros y la tira de intermitente/antiniebla usaban la misma mica translúcida roja (`tembus red`) que los pilotos traseros; en v108 le di ese rojo a todo el material. Con la pintura roja de serie no se notaba; con cualquier otro color los faros salían rojos.
+- Arreglo (`tools/prep_tesla.mjs`): la mica de `tembus_depan_ok` (faros y tira delantera) es un clon transparente casi incoloro (`lens_front`). Los pilotos traseros, la tercera luz de freno y los catadióptricos siguen rojos, como en el coche real. Ningún otro material cambia.
+- Verificado con capturas en blanco (antes/después, frente y faro de cerca), azul (frente y trasera) y rojo (`tesla-color-v111/`). Solo cambia `assets/tesla3.glb` (pack8).

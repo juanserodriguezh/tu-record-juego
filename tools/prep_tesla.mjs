@@ -107,6 +107,9 @@ for (const m of root.listMaterials()) {
   if (/^platnomor/.test(n)) m.setBaseColorTexture(null).setBaseColorFactor([0.85, 0.85, 0.85, 1]);
 }
 await doc.transform(dedup());
+// v111: the front lamp lenses (headlights, fog/indicator strip) share the red 'tembus' lens of the tail lamps; with any paint but red
+// they showed as red lamps. Front lenses become clear glass; the rear lenses stay red like the real car.
+for (const n of root.listNodes()) if (n.getName() === 'tembus_depan_ok') for (const p of n.getMesh().listPrimitives()) { const m = p.getMaterial(); if (m && /^tembus/.test(m.getName())) p.setMaterial(m.clone().setName('lens_front').setBaseColorFactor([0.9, 0.92, 0.95, 0.12]).setAlpha(0.12).setMetallicFactor(0).setRoughnessFactor(0.03)); }
 // windscreen: exactly as v108 (one-sided), so the cockpit view does not change
 for (const n of root.listNodes()) if (n.getName() === 'windscreen_ok') for (const p of n.getMesh().listPrimitives()) { const m = p.getMaterial(); if (m && m.getAlphaMode() === 'BLEND') p.setMaterial(m.clone().setName('windscreen').setDoubleSided(false)); }
 
