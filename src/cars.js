@@ -41,6 +41,7 @@ const ACCEL_CAL = {
   civic_r: [0.846, 1],
   duster: [0.8, 1],
   seagull: [1, 1.09],
+  model3_p: [1, 1.05],
   amg_gt3: [0.79, 1],
   amg_gt3_rb: [0.79, 1],
   amg_gt3_evo: [0.79, 1],
@@ -124,6 +125,10 @@ const CARS = [
   // BYD Seagull 2024 (38,88 kWh «Flying»): 55 kW / 135 Nm delantero, 1.240 kg, 130 km/h limitada, 0-100 en 13,0 s. Sin límite llegaría a ~160 km/h
   // con su CdA (~0,72 m²): vmax 160 + lim 130 deja la resistencia aerodinámica real. Eléctrico de una marcha: par constante hasta ~40 km/h (xpk 0,24: 4,6 kN en rueda ≈ 135 Nm × reducción ~10).
   mkCar('seagull', 'BYD Seagull', 'calle', 'hatch', 75, 1240, 'F', 160, { lim: 130, sub: 'Eléctrico · 55 kW · 135 Nm · batería Blade LFP 38,9 kWh', ev: true, gears: 1, shift: 0, red: 12000, cyl: 4, shape: 1.0, xpk: 0.24, xLaunch: 0.2, spread: 1, isNew: true, glb: 'seagull', trueWheels: false, cdz: 0, cdy: -0.1, swAt: [0.95, 0.42, 0.4], col: '#8fa018', col2: '#1b1c1e', len: 3.78, wid: 1.715, hgt: 1.54, wb: 2.5, wf: 0.6, cgh: 0.56, mu: 0.95, cla: 0, rw: 0.3, rim: 'negro' }),
+  // Tesla Model 3 Performance 2018 (doble motor): ~335 kW / 639 Nm, 1.847 kg, 47/53 de reparto, 0-100 en 3,4 s, limitado a 261 km/h
+  // (Track Mode; 250 sin él). Eléctrico de una marcha: par constante hasta ~70 km/h. vmax 275 + lim 261 deja que pase de 200 despacio, como el real
+  // (la potencia cae con la velocidad), en vez de la CdA 0,51 sola que con 335 kW constantes daría > 300 km/h.
+  mkCar('model3_p', 'Tesla Model 3 Performance', 'calle', 'hatch', 450, 1847, 'A', 275, { lim: 261, sub: 'Eléctrico · doble motor · 335 kW · 639 Nm · 2018', ev: true, gears: 1, shift: 0, red: 16000, cyl: 4, shape: 1.0, xpk: 0.21, xLaunch: 0.2, spread: 1, awdF: 0.4, isNew: true, glb: 'tesla3', trueWheels: false, cdz: 0, onb: [0, 1.05, 1.25, -0.06], col: '#b5121b', col2: '#111214', len: 4.694, wid: 1.849, hgt: 1.443, wb: 2.875, wf: 0.47, cgh: 0.47, mu: 1.06, cla: 0.1, rw: 0.335, rim: 'plata' }),
   mkCar('duster', 'Renault Duster', 'calle', 'hatch', 150, 1290, 'F', 187, { sub: '2.ª gen · Intens 1.3 TCe 150 · SUV', suv: true, isNew: true, glb: 'duster', cdz: 0, col: '#f2f4f5', col2: '#1b1c1e', len: 4.33, wid: 1.93, hgt: 1.77, wb: 2.69, wf: 0.61, cgh: 0.68, mu: 0.97, cla: 0, gears: 6, red: 6000, cyl: 4, shift: 0.26, rim: 'plata' }),
 
   // ---- supercars
