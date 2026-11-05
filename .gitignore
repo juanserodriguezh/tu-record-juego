@@ -5,3 +5,4 @@ dist/online/
 dist/
 fuentes/
 graphify-out/
+.claude/*.graphify-bak
