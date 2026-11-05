@@ -533,4 +533,5 @@
 - Barriles: el paquete del anfitrión (36 barriles, 2,8 KB) se quedaba en su presencia aunque estuvieran dormidos; en la sala de Claude la presencia viaja entera con cada estado (20 Hz), así que eran ~65 KB/s de más por el anfitrión. Ahora se quita (`bw: null`) cuando todos duermen.
 - Indicador: «Sala de Claude (servidor) · ping N ms · FPS» (invitado) y «Anfitrión · sala de Claude · ping máx N ms · FPS» (anfitrión), «midiendo ping…» los primeros segundos. En la sala, la fila «Abrir la versión web» recomienda la web para carreras de varios (conexión directa, sin pasar por Claude).
 - Verificado: `net_test.mjs room` comprueba el indicador con ping medido en anfitrión e invitado (en SwiftShader ~1,5 s porque el ping incluye fotogramas a 1 FPS); `p2p`, `relay`, `lab` y `net_fresh_test.mjs`.
+- Publicado: artefacto versión 112, id 1793885388-3ed5 (main 8d6a4a4). Pages se publica sola.
 - Límite: no puedo medir la sala de Claude real desde aquí (el emulador es local). La próxima prueba dirá su ping; si pasa de ~150 ms, la web es la opción para 5.
