@@ -231,6 +231,11 @@ const rb = await B.evaluate(() => ({ stall: __spa.netRoom && __spa.netRoom.maxGa
 console.log('  host view', JSON.stringify(ra)); console.log('  guest view', JSON.stringify(rb));
 ra.r = ra.r || []; rb.r = rb.r || [];
 ok(ra.r.length === 1 && ra.r[0].vis && rb.r.length === 1 && rb.r[0].vis, 'each sees the other car on track');
+// v108: the race badge says how this pilot is connected, with a measured ping (the Claude room too)
+const badge = (pg) => pg.evaluate(() => { const b = document.getElementById('netInfo'); return b && !b.hidden ? b.textContent : null; });
+await until(B, () => __spa.net().rtt != null, null, 30000);
+const bA = await badge(A), bB = await badge(B), rttB = await B.evaluate(() => __spa.net().rtt);
+ok(bA && /Anfitrión/.test(bA) && /FPS/.test(bA) && bB && /ping \d+ ms/.test(bB) && /FPS/.test(bB) && rttB != null, 'race badge: connection, ping and FPS on host and guest', [bA, bB, rttB]);
 ok(ra.st.includes('Beto R.') && rb.st.includes('Ana'), 'standings show the other pilot by name');
 if (mode === 'relay') {   // the broker drops the guest mid-race: it reconnects with the same id and the host keeps it
   await B.evaluate(() => __spa.netRoom.upMq.ws.close());

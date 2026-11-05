@@ -470,8 +470,9 @@ function netRefusal(ps, host) {
 function netLeaveRoom(why) {
   // state first: the presence update below can call onNetPeers synchronously, which must already see "no room"
   NET.code = null; NET.host = false; NET.joining = false; NET.err = why || null; NET.closed = false; NET.roster = null; NET.hadHost = false; NET.pending = null;
+  NET.rtt = null; NET.rtts = []; NET.poSeen = null; NET.poSent = null; NET.bwOn = false;
   if (NET.mode === 'p2p') { if (NET.room) NET.room.destroy(); NET.room = null; NET.peers = []; }
-  else netSet({ code: null, host: 0, ph: null, cfg: null, st: null, rdy: 0, lp: null, col: null });
+  else netSet({ code: null, host: 0, ph: null, cfg: null, st: null, rdy: 0, lp: null, col: null, pi: null, po: null, bw: null, bs: null });
   renderLobby();
 }
 function netFail(why) { NET.err = why; renderLobby(); netNotify(NET_ERR[why] || NET_ERR.server, 'err'); }
@@ -526,8 +527,34 @@ function netRosterDiff() {
   }
   NET.roster = now;
 }
+// Claude room ping (v108): the room has no direct link to measure, so a guest puts its own clock in its presence
+// (`pi`, once a second) and the host echoes everyone's latest one in its presence (`po`, keyed by peer). The round
+// trip is the real path of a car state (presence -> Claude's servers -> host page -> back), frames included.
+function netRoomPing(h) {
+  if (NET.mode !== 'room' || !NET.code) return;
+  if (NET.host) {
+    const po = {};
+    for (const p of roomPeers()) if (!p.sameTab && typeof pres(p).pi === 'number') po[p.peer] = pres(p).pi;
+    const k = JSON.stringify(po);
+    if (k !== NET.poSent) { NET.poSent = k; netSet({ po }); }
+    return;
+  }
+  const me = myPeer(), po = h && pres(h).po, t = me && po && po[me.peer];
+  if (typeof t !== 'number' || t === NET.poSeen) return;
+  NET.poSeen = t;
+  const rtt = Date.now() - t; if (!(rtt >= 0 && rtt < 10000)) return;
+  (NET.rtts || (NET.rtts = [])).push(rtt); if (NET.rtts.length > 7) NET.rtts.shift();
+  NET.rtt = NET.rtts.slice().sort((a, b) => a - b)[NET.rtts.length >> 1];   // median: one slow frame does not move it
+}
+// my measured round trip to the host, whichever transport (null until measured)
+function netMyRtt() {
+  if (NET.host) return 0;
+  if (NET.mode === 'p2p') return NET.room && NET.room.rtt != null ? NET.room.rtt : null;
+  return NET.mode === 'room' && NET.rtt != null ? NET.rtt : null;
+}
 function onNetPeers() {
   const h = roomHost();
+  netRoomPing(h);
   if (h && !h.sameTab && pres(h).now) { const o = h.updatedAt - pres(h).now; if (NET.offset == null || o < NET.offset) NET.offset = o; }
   if (h && h.sameTab) NET.offset = 0;
   if (NET.code && !NET.host) {
@@ -612,9 +639,15 @@ function netTick() {
   NET.lastSend = now;
   const r2 = (v) => Math.round(v * 100) / 100;
   const msg = { st: [r2(car.x), r2(car.z), Math.round(car.h * 1000) / 1000, r2(car.u), r2(car.v), SES.player.lap, r2(car.q.s), r2(car.y)], rs: SES.netSeq };
-  const rt = NET.host ? 0 : NET.mode === 'p2p' && NET.room && NET.room.rtt != null ? Math.round(NET.room.rtt / 10) * 10 : null;
+  const mr = netMyRtt(), rt = mr == null ? null : Math.round(mr / 10) * 10;
   if (rt !== NET.rtSent) { msg.rt = rt; NET.rtSent = rt; }   // my round trip to the host: the others add it to their prediction
-  if (NET.host && BW && BW.list.length) { const bw = BW.netPack(); if (bw) { msg.bw = bw; msg.bs = ++NET.bwSeq; } }   // the host owns the barrels
+  if (NET.mode === 'room' && !NET.host && now - (NET.piAt || 0) > 1000) { NET.piAt = now; msg.pi = Date.now(); }
+  if (NET.host && BW && BW.list.length) {   // the host owns the barrels
+    const bw = BW.netPack();
+    if (bw) { msg.bw = bw; msg.bs = ++NET.bwSeq; NET.bwOn = true; }
+    // all asleep: take the ~2.8 KB pack out of the presence, or it rides along with every state (Claude room)
+    else if (NET.bwOn) { msg.bw = null; NET.bwOn = false; }
+  }
   if (NET.mode === 'p2p' && NET.room && NET.room.state) {
     // P2P (v107): the state goes on its own small channel; the presence only when something else changed
     NET.room.state([Date.now(), msg.rs].concat(msg.st));
@@ -743,7 +776,7 @@ function netSampleAt(buf, t, o) {
 const NET_PRED_MAX = 0.6;
 const NET_Q = newQ();
 function netLatency(e) {
-  const mine = NET.host ? 0 : NET.mode === 'p2p' && NET.room && NET.room.rtt != null ? NET.room.rtt : 80;
+  const mr = netMyRtt(), mine = mr != null ? mr : 80;
   const theirs = e.host ? 0 : e.rt != null ? e.rt : 80;
   // P2P guests get the states in the host's batches: on average they waited half a batch at the host
   const batch = NET.mode === 'p2p' && !NET.host ? NET_BATCH_MS / 2 : 0;
@@ -806,7 +839,13 @@ const NET_INFO = { acc: 0, n: 0, worst: 0, worstT: 0, shown: '' };
 function netInfoText(fps, hitch) {
   const ms = (v) => Math.round(v) + ' ms';
   let parts = [], ping = null;
-  if (NET.mode !== 'p2p') parts.push('Sala de Claude');
+  if (NET.mode !== 'p2p') {   // Claude room: everything goes through Claude's servers
+    parts.push(NET.host ? 'Anfitrión · sala de Claude' : 'Sala de Claude (servidor)');
+    if (NET.host) {
+      const rts = (SES && SES.entries || []).filter(e => e.isRemote && !e.left && e.rt != null).map(e => e.rt);
+      if (rts.length) { ping = Math.max(...rts); parts.push('ping máx ' + ms(ping)); } else parts.push('midiendo ping…');
+    } else if (NET.rtt != null) { ping = NET.rtt; parts.push('ping ' + ms(ping)); } else parts.push('midiendo ping…');
+  }
   else if (NET.host) {
     const r = NET.room, cs = r && r.conns ? [...r.conns.values()] : [], nr = cs.filter(c => c.relay).length, nd = cs.length - nr;
     parts.push('Anfitrión');
