@@ -506,3 +506,9 @@
 - Cámaras: `onb [0, 1.05, 1.25, -0.06]` (la de capó por defecto quedaba a ras de suelo); la cabina es la procedural, igual que el Seagull.
 - Verificado con capturas: exterior delante/detrás/lado, rueda delantera, capó, cabina, rodando en Spa a 159 km/h y ficha del garaje (`tesla-model3-v108/` en los archivos del proyecto). Packs: el 7 y el 8 cambian y aparece el pack9 (el modelo nuevo entra en orden alfabético).
 - Publicado: artefacto versión 108, id 1793837675-9821 (main 9740cf4). Pages se publica sola desde main.
+
+## v109 (5-nov-2026) — Tesla: vidrios y techo polarizados
+- Juanse: «polariza los vidrios y la parte de arriba del Tesla».
+- Causa de que el tinte de v108 casi no se notara: el cristal del FBX tiene las normales hacia dentro, así que desde fuera se descartaba (solo se veía desde la cabina) y el interior quedaba a la vista como sin vidrio.
+- Arreglo (`tools/prep_tesla.mjs`): ventanas, luneta y techo de cristal en casi negro, opacidad 0,9 y a dos caras; el parabrisas queda aparte con tinte claro (0,5, que glb.js sube a 0,72 como el resto de parabrisas) para que la cámara de cabina vea la pista.
+- Verificado con capturas: tres cuartos delantero, vista desde arriba (techo) y cabina (`tesla-model3-v108/7_polarizado_*.png`). Solo cambia `assets/tesla3.glb` (pack8).
