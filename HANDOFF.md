@@ -512,3 +512,4 @@
 - Causa de que el tinte de v108 casi no se notara: el cristal del FBX tiene las normales hacia dentro, así que desde fuera se descartaba (solo se veía desde la cabina) y el interior quedaba a la vista como sin vidrio.
 - Arreglo (`tools/prep_tesla.mjs`): ventanas, luneta y techo de cristal en casi negro, opacidad 0,9 y a dos caras; el parabrisas queda aparte con tinte claro (0,5, que glb.js sube a 0,72 como el resto de parabrisas) para que la cámara de cabina vea la pista.
 - Verificado con capturas: tres cuartos delantero, vista desde arriba (techo) y cabina (`tesla-model3-v108/7_polarizado_*.png`). Solo cambia `assets/tesla3.glb` (pack8).
+- Publicado: artefacto versión 109, id 1793838417-b372 (main 40964cb).
