@@ -4,3 +4,5 @@ dist/online/
 .DS_Store
 dist/
 fuentes/
+graphify-out/
+.claude/*.graphify-bak
