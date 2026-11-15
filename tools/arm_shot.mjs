@@ -1,7 +1,7 @@
 // Cockpit arms check: for each car, cockpit camera with the wheel straight, full left and full right lock.
 // Saves shots/<prefix>_<car>_<0|L|R>.png and prints how much of the screen the arms + gloves cover
 // (pixels that change when they are hidden; frozen frame, so the comparison is pixel exact).
-// node tools/arm_shot.mjs <prefix> <track> <car,car,...> [width]     (env: DIST, THREE_DIR, DPR)
+// node tools/arm_shot.mjs <prefix> <track> <car,car,...> [width]     (env: DIST, THREE_DIR, DPR, OPEN)
 import { chromium } from 'playwright';
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path'; import url from 'node:url';
 const root = path.join(path.dirname(url.fileURLToPath(import.meta.url)), '..'), DIST = process.env.DIST || path.join(root, 'dist');
@@ -21,7 +21,7 @@ for (const car of cars.split(',')) {
   await pg.waitForFunction(() => window.__spa && !document.getElementById('menu').hidden);
   await pg.evaluate(async ([t, c]) => { await __spa.switchTrack(t); __spa.selectCar(c); }, [trk, car]);
   await pg.waitForFunction(() => document.getElementById('loading').hidden);
-  await pg.evaluate(() => { __spa.startFromMenu(); __spa.S.camIdx = 2; });
+  await pg.evaluate((o) => { __spa.startFromMenu(); __spa.S.camIdx = 2; if (o) __spa.armCfg.open = +o; }, process.env.OPEN || '');   // OPEN=<rad>: try another single-seater wheel lock
   await pg.waitForTimeout(5000);
   const row = { car };
   for (const [tag, key] of [['0', null], ['L', 'KeyA'], ['R', 'KeyD']]) {
