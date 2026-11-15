@@ -553,7 +553,7 @@
 - Límite honesto: en monoplaza a tope (horquilla, parado) el antebrazo de la mano que sube sigue cruzando el lado exterior de la curva (~7 % de la zona central, la mitad que antes); es lo que pasa en un F1 real. Bajar más el giro máximo lo eliminaría, pero el volante dejaría de parecer que gira.
 - Capturas: `brazos-v114/` en los archivos del proyecto (antes arriba, después abajo; recto, izquierda, derecha).
 
-## v115 (15-nov-2026) — monoplazas: giro máximo del volante 52° → 28°, el brazo ya no sale de la carrocería
+## v115 (15-nov-2026) (publicada, id 1794754843-62e7) — monoplazas: giro máximo del volante 52° → 28°, el brazo ya no sale de la carrocería
 - Juanse sobre el límite que quedó en v114 (a tope, el antebrazo de la mano que sube cruzaba el lado exterior de la curva): «sí, que lo haga» (bajar el giro máximo).
 - Medido en el SF-26 con `OPEN=<rad> node tools/arm_shot.mjs` (zona central tapada a tope): 52° 7,1 % · 40° 5,4 % · 32° 3,4 % · 28° 2,4 % · 23° 1,6 %. En las capturas, a 32° la punta del guante aún asoma sobre la pista; a 28° guante y antebrazo quedan sobre la carrocería del propio coche (lo que queda del porcentaje es carrocería, no pista). Elegido 28° (`WHEEL_VIS_OPEN` 0,48 rad en `main.js`): es el giro más grande que deja la pista libre.
 - Aplica a monoplazas y prototipos (f1, f1h, indy, fe, lmp). GT, calle e hiper siguen en 80° (ya tapaban ≤ 0,1 %).
