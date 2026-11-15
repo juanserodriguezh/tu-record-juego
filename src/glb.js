@@ -46,13 +46,61 @@ async function loadGlbs(progress) {
       // tinted glass: darker / less mirror-like so windows read as glass and not as flat grey holes; clearer from the cockpit (setInterior)
       gltf.scene.traverse(o => { if (!o.isMesh) return; for (const m of (Array.isArray(o.material) ? o.material : [o.material])) {
         if (m && m.transparent && m.color && m.color.r + m.color.g + m.color.b < 0.35 && m.opacity < 0.75 && !m.userData.isGlass) { m.userData.isGlass = 1; m.userData.hiOp = Math.max(m.opacity, 0.72); m.opacity = m.userData.hiOp; m.envMapIntensity = 0.45; m.roughness = Math.max(m.roughness, 0.15); m.metalness = 0; m.depthWrite = false; m.needsUpdate = true; } } });
-      // single-sided scans (919, Valkyrie, Valkyrie LM): shells look see-through from inside the cockpit
-      if (['p919', 'valk', 'valklm'].includes(id)) gltf.scene.traverse(o => { if (o.isMesh) for (const m of (Array.isArray(o.material) ? o.material : [o.material])) if (m && !m.transparent) { m.side = THREE.DoubleSide; } });
+      // v115: single-sided materials on open shells (wings, floor, tub sides, door skins) vanish when seen from their back: the Formula E
+      // looked see-through from behind and from the side, and nine scans had it. Every opaque material of a scan draws both faces.
+      if (id !== 'sw') gltf.scene.traverse(o => { if (o.isMesh) for (const m of (Array.isArray(o.material) ? o.material : [o.material])) if (m && !m.transparent && m.side === THREE.FrontSide) { m.side = THREE.DoubleSide; m.shadowSide = THREE.FrontSide; } });
+      if (GLB_FIX[id]) GLB_FIX[id](gltf.scene);
+      // cabin parts sit under a roof: they must not mirror the open sky (glossy tubs and dashboards went white in the cockpit view)
+      { const tagOf = (o) => { for (let p = o; p; p = p.parent) if (p.userData && p.userData.tag) return p.userData.tag; return ''; }, inM = new Set(), exM = new Set();
+        gltf.scene.traverse(o => { if (o.isMesh) for (const m of (Array.isArray(o.material) ? o.material : [o.material])) if (m) (tagOf(o) === 'int' ? inM : exM).add(m); });
+        for (const m of inM) if (!exM.has(m) && !m.transparent) m.envMapIntensity = 0.3; }
+      if (GLB_OWNSW[id]) glbSplitOwnWheel(gltf.scene, GLB_OWNSW[id]);
       if (id !== 'sw') await mergeStatic(gltf.scene);
       glbLodTag(gltf.scene);
       GLBS[id] = gltf.scene;
     } catch (e) { console.warn('GLB failed', id, e); }
     i++;
+  }
+}
+// v115 real cabins: the cockpit view shows the model's own interior (spec.realCab + eyeAt + swAt). Where the model carries its own
+// steering wheel, its triangles are split into meshes tagged 'swown' (hidden in the cockpit: the shared wheel with the hands turns there).
+// [x, y, z of the wheel centre, radius, depth towards the driver, depth towards the dash, column tilt (rad)] in asset coordinates.
+const GLB_OWNSW = { rexy: [0.30, 0.70, 0.14, 0.20, 0.06, 0.10, 0], valklm: [0.17, 0.68, 0.46, 0.18, 0.06, 0.06, 0], duster: [0.36, 1.03, 0.47, 0.21, 0.07, 0.07, 0.4],
+  seagull: [0.40, 1.0, 0.415, 0.21, 0.07, 0.07, 0.45], tesla3: [0.38, 0.82, 0.57, 0.21, 0.07, 0.07, 0.37] };
+// asset defects fixed at load, by asset id
+const GLB_FIX = {
+  // Chiron: untextured trim lost its colour in the export (white 'black_plastic', 'guma_black', grilles...): white cabin and white grilles
+  chiron(root) { const done = new Set(); root.traverse(o => { if (!o.isMesh) return; for (const m of (Array.isArray(o.material) ? o.material : [o.material])) { if (m && /^16 \(4\)/.test(m.name)) m.color.setRGB(0.13, 0.14, 0.17);   // light leather: the map is near white and burned out in the sun
+      if (!m || done.has(m) || m.map || m.transparent || m.color.r + m.color.g + m.color.b < 2.9) continue; done.add(m);
+    const n = m.name, hx = /^rgba([0-9a-f]{6})/.exec(n);
+    if (hx) m.color.set('#' + hx[1]); else if (/turquoise/.test(n)) m.color.set(0x2a6fd0); else if (/black|guma|grill|undercarr|flx|7 \(8\)/.test(n)) { m.color.set(0x0e0f11); m.roughness = Math.max(m.roughness, 0.6); m.metalness = Math.min(m.metalness, 0.2); } } }); },
+  // Valkyrie LMH: the tub textures are mid grey and read as a white cockpit in the sun -> carbon
+  valklm(root) { root.traverse(o => { if (!o.isMesh || !o.material || !/^INT_/.test(o.material.name)) return; const m = o.material; if (m.roughnessMap) { m.roughnessMap = m.metalnessMap = null; m.roughness = 0.7; m.metalness = 0; m.needsUpdate = true; }
+    if (m.name === 'INT_CARBON') m.color.setScalar(0.1); else if (m.name === 'INT_COCKPIT_PARTS') m.color.setScalar(0.22); }); },   // their base maps are baked shading (light grey), the carbon colour came from the game shader
+  // 992 GT3 R: every cabin part lost its material and took the white rim paint (a white cockpit, seen through the windows too)
+  p992(root) { const M = {}, mk = (k, c, r, m) => M[k] || (M[k] = new THREE.MeshStandardMaterial({ name: 'int_' + k, color: c, roughness: r, metalness: m, side: THREE.DoubleSide }));
+    root.traverse(o => { if (!o.isMesh || !o.material || o.material.name !== 'EXT_RIM_0') return; let t = ''; for (let p = o; p; p = p.parent) if (p.userData && p.userData.tag) { t = p.userData.tag; break; } if (t !== 'int') return;
+      const n = o.name + '|' + (o.parent ? o.parent.name : '');
+      o.material = /METAL_PARTS/i.test(n) ? mk('metal', 0x8a8e94, 0.4, 0.7) : /SEAT|FOAM|ALCANTARA/i.test(n) ? mk('seat', 0x121214, 0.95, 0) : /DASH|PLASTIC/i.test(n) ? mk('dash', 0x17181b, 0.8, 0) : /CARBON/i.test(n) ? mk('carbon', 0x1b1c20, 0.45, 0.3) : mk('shell', 0x2a2c30, 0.75, 0.1); }); },
+};
+function glbSplitOwnWheel(root, c) {
+  root.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert(), M = new THREE.Matrix4(), v = new THREE.Vector3();
+  const C = new THREE.Vector3(c[0], c[1], c[2]), ax = new THREE.Vector3(0, -Math.sin(c[6] || 0), Math.cos(c[6] || 0)), R = c[3], h0 = -c[4], h1 = c[5];
+  const list = []; root.traverse(o => { if (!o.isMesh || Array.isArray(o.material)) return; for (let p = o; p; p = p.parent) if (/^WHL_/.test(p.name)) return; list.push(o); });
+  for (const o of list) {
+    const g = o.geometry, P = g.attributes.position, n = P.count, inC = new Uint8Array(n); let any = 0;
+    M.multiplyMatrices(inv, o.matrixWorld);
+    for (let i = 0; i < n; i++) { v.fromBufferAttribute(P, i).applyMatrix4(M).sub(C); const h = v.dot(ax); if (h < h0 || h > h1) continue; v.addScaledVector(ax, -h); if (v.length() < R) { inC[i] = 1; any = 1; } }
+    if (!any) continue;
+    const I = g.index, nI = I ? I.count : n, keep = [], cut = [];
+    for (let t = 0; t < nI; t += 3) { const a = I ? I.getX(t) : t, b = I ? I.getX(t + 1) : t + 1, d = I ? I.getX(t + 2) : t + 2; (inC[a] && inC[b] && inC[d] ? cut : keep).push(a, b, d); }
+    if (!cut.length) continue;
+    const g2 = new THREE.BufferGeometry(); for (const k in g.attributes) g2.setAttribute(k, g.attributes[k]); g2.setIndex(cut);
+    const g1 = new THREE.BufferGeometry(); for (const k in g.attributes) g1.setAttribute(k, g.attributes[k]); g1.setIndex(keep);
+    o.geometry = g1;
+    const m = new THREE.Mesh(g2, o.material); m.name = o.name + '_swown'; m.userData.tag = 'swown'; m.position.copy(o.position); m.quaternion.copy(o.quaternion); m.scale.copy(o.scale); m.renderOrder = o.renderOrder;
+    o.parent.add(m);
   }
 }
 // Scanned cars come as hundreds of tiny meshes: with 20+ of them on the grid that is thousands of draw calls (lag). Everything that never
@@ -157,19 +205,22 @@ function applyGlb(out, spec) {
   out.glbInt = [];
   g.traverse(o => { if (o.userData && o.userData.tag === 'int') out.glbInt.push(o); });
   // real cockpit: the model's own dash/trim replace the procedural cabin shell (wheel, hands, cluster and mirror stay procedural)
+  out.glbOwnSw = []; g.traverse(o => { if (o.userData && o.userData.tag === 'swown') out.glbOwnSw.push(o); });
   if (spec.realCab && out.interior && (out.glbInt.length || spec.realCab === 2)) {
-    const hide = new Set([CM.cab, CM.cabLit, CM.cabSatin, CM.cabGloss, CM.windshield]);
+    const hide = new Set([CM.cab, CM.cabLit, CM.cabSatin, CM.cabGloss, CM.windshield, CM.mirrorGlass, CM.navScreen].filter(Boolean));
     out.interior.traverse(o => { if (o.isMesh && hide.has(o.material)) { o.visible = false; o.userData.procCab = true; } });
     out.glbCab = true;
   }
   // 4) procedural cockpit parts follow the real cockpit position
-  const cdz = spec.cdz || 0, cdx = spec.cdx || 0, cdy = spec.cdy || 0;
+  let cdz = spec.cdz || 0, cdx = spec.cdx || 0, cdy = spec.cdy || 0; const camS = [cdx, cdy, cdz];
+  // eyeAt [x, y, z]: the driver's eye in asset coordinates (the head of the model's own seat); the bonnet camera keeps its place
+  if (spec.eyeAt && out.eye) { cdx = spec.eyeAt[0] - out.eye.x; cdy = spec.eyeAt[1] + dy - out.eye.y; cdz = spec.eyeAt[2] + dz - out.eye.z; }
   if (cdz || cdx || cdy) {
     const cock = new THREE.Group(); cock.position.set(cdx, cdy, cdz); body.add(cock);
     body.remove(out.interior); cock.add(out.interior);
     for (const m of [...(out.helmetParts || []), ...(out.hideInCockpit || [])]) { body.remove(m); cock.add(m); }
     if (out.eye) { out.eye.z += cdz; out.eye.x += cdx; out.eye.y += cdy; }
-    if (out.cams && out.cams.onboard && spec.cdzCam !== false) { out.cams.onboard.z += cdz; out.cams.onboard.x += cdx; if (spec.cdyCam) out.cams.onboard.y += cdy; }
+    if (out.cams && out.cams.onboard && spec.cdzCam !== false) { out.cams.onboard.z += camS[2]; out.cams.onboard.x += camS[0]; if (spec.cdyCam) out.cams.onboard.y += camS[1]; }
     out.cdz = cdz; out.cdx = cdx; out.cdy = cdy;
   }
   out.glbCabHide = []; g.traverse(o => { if (o.isMesh && o.material && o.material.userData && o.material.userData.cabHide) out.glbCabHide.push(o); });
@@ -190,6 +241,7 @@ function applyGlb(out, spec) {
     if (TC) { out.cams.onboard.set(0, TC.y + 0.13, Math.min(TC.z + 0.1, out.eye.z - 0.2) + (spec.tcFwd || 0)); out.cams.onPitch = spec.tcPitch != null ? spec.tcPitch : -0.07; }
   }  // put the shared wheel where the scanned car had its own wheel (asset coords [y, z]), so it sits in the tub the model was built around
   if (spec.swAt && out.swModel && out.swModel.parent && out.swModel.parent.parent) { const wg = out.swModel.parent.parent, p0 = wg.position.clone();
+    if (spec.swTilt != null) wg.rotation.x = spec.swTilt;
     wg.position.set(spec.swAt[2] != null ? spec.swAt[2] - (out.cdx || 0) : 0, spec.swAt[0] + dy - (out.cdy || 0), spec.swAt[1] + dz - (out.cdz || 0));
     if (out.arms) for (const A of out.arms) { A.sh.y += (wg.position.y - p0.y) * 0.6; A.sh.z += (wg.position.z - p0.z) * 0.6; } }
   // single-seaters: the shared wheel + gloves sweep through the scanned tub -> cut a slot around the swept disc out of the bodywork in the

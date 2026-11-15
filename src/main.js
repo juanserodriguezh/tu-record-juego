@@ -1834,7 +1834,8 @@ function glbCabClip(on) {
   const closedBody = !['f1', 'f1h', 'indy', 'fe'].includes(model.spec.body);
   if (!model.spec.cabClip && !model.swClip && !closedBody) return;
   const K = model.cabClip || (model.cabClip = (() => {
-    const e0 = model.eye, c0 = model.spec.cabClip || model.swClip || [0.8, e0.y - 0.65, e0.y + 0.5, 1.0, 0.9], c = c0.slice(); if (c[0] > 0.4) c[4] = Math.max(c[4], 0.9);
+    // real cabin (v115): nothing is cut, the model's own interior is the cockpit (an empty box keeps the glass handling below)
+    const e0 = model.eye, c0 = model.spec.cabClip || model.swClip || (model.glbCab ? [0.01, 5, 5.1, 0, 0] : [0.8, e0.y - 0.65, e0.y + 0.5, 1.0, 0.9]), c = c0.slice(); if (c[0] > 0.4) c[4] = Math.max(c[4], 0.9);
     const e = model.eye, xh = c[0], y0 = c[1], y1 = c[2], zb = e.z - c[3], zf = e.z + c[4];
     const L = [[1, 0, 0, -xh], [-1, 0, 0, -xh], [0, 1, 0, -y1], [0, -1, 0, y0], [0, 0, 1, -zf], [0, 0, -1, zb]].map(a => new THREE.Plane(new THREE.Vector3(a[0], a[1], a[2]), a[3]));
     // inside the box every n.p + d is negative -> clipped when ALL planes cut (clipIntersection)
@@ -1860,7 +1861,8 @@ function setInterior(on, tcam) {
   if (model.cockHalo) model.cockHalo.visible = on;
   if (model.aero) { model.aero.visible = !on; model.aero.material.opacity = 0.38; }
   if (model.cockAero) model.cockAero.visible = on;
-  if (model.glbInt) for (const h of model.glbInt) h.visible = !model.interior.visible;
+  if (model.glbInt) for (const h of model.glbInt) h.visible = !!model.glbCab || !model.interior.visible;
+  if (model.glbOwnSw) for (const h of model.glbOwnSw) h.visible = !on;
   // window glass: almost clear from the cockpit (own cloned materials only), tinted from outside
   if (model.cabClip && model.glb && model._glassOn !== on) { model._glassOn = on; model.glb.traverse(o => { if (!o.isMesh) return; for (const m of (Array.isArray(o.material) ? o.material : [o.material])) if (m.userData && m.userData.isGlass) { const inC = on && !['f1', 'f1h', 'indy', 'fe'].includes(model.spec.body); m.opacity = inC ? 0.045 : m.userData.hiOp; m.envMapIntensity = inC ? 0.12 : 0.45; } }); }
   // the scanned cars carry their own steering column / dash in an INTERIOR node: hide it in the cockpit (the procedural wheel replaces it)
