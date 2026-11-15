@@ -1308,6 +1308,7 @@ function sessionStep(dt) {
     const lamps = $('lights').children;
     for (let i = 0; i < 5; i++) { lamps[i].classList.toggle('on', i < n); world.lightMats[i].color.setHex(i < n ? 0xff1a10 : 0x2a0606); }
     car.rpm = lerp(car.rpm, car.P.red * (0.15 + 0.55 * INPUT.throttle), clamp(dt * 6, 0, 1));
+    holdSteer(dt);
     const out = R.mode === 'multi' ? (NET.startPerf > 0 && performance.now() >= NET.startPerf) : R.lightsT >= R.outAt;
     if (out) {
       R.state = 'run'; R.goT = R.t; R.lapStart = R.t; R.prevS = car.q.s;
@@ -1329,6 +1330,7 @@ function sessionStep(dt) {
   _prev.x = car.x; _prev.y = car.y; _prev.z = car.z; _prev.h = car.h;
   if (pe.pitHold) {
     car.rpm = lerp(car.rpm, car.P.red * (0.15 + 0.5 * INPUT.throttle), clamp(dt * 6, 0, 1));
+    holdSteer(dt);
     const others = R.entries.filter(e => !e.isPlayer && !e.left);
     if ((others.length && others.every(e => e.progress > pitExitS())) || R.t - R.goT > 30) { pe.pitHold = false; world.pitLightMat.color.setHex(0x18c040); toast('¡Semáforo verde! Sal de boxes', 2.5); }
   } else if (pe.fin && pe.ai) {
@@ -1626,6 +1628,37 @@ function spinVis(m, r) {
   u.wv = (u.wv + clamp(d, -WHEEL_STEP, WHEEL_STEP)) % (2 * Math.PI);
   for (const w of m.wheels) spinWheel(w, u.wv);
 }
+// held on the grid / in the pit box the physics does not step, but the driver can still turn the wheel (front wheels follow)
+function holdSteer(dt) { car.delta += clamp(clamp(INPUT.steer, -1, 1) * car.maxSteer(0, env) - car.delta, -3.2 * dt, 3.2 * dt); }
+// steering wheel angle on screen (v114): follows the front wheels' real angle (rate-limited by the physics, so it moves smoothly)
+// with a progressive ratio: small corrections at speed stay small, full lock at walking pace is 80 deg of wheel (52 in single-seaters). Before v114 it
+// was the raw input x 1.9 rad, so every key press threw the wheel (and a forearm) to 109 deg at any speed.
+let WHEEL_VIS_LOCK = 1.4;
+// single-seaters and prototypes sit the wheel close under the eye: a grip past ~50 deg would put a glove and forearm in front of the road
+const WHEEL_VIS_OPEN = 0.9;
+function wheelTurn(V, steer, body) {
+  const L = ['f1', 'f1h', 'indy', 'fe', 'lmp'].includes(body) ? WHEEL_VIS_OPEN : WHEEL_VIS_LOCK, lock = V.P && V.P.lock;
+  if (!lock || V.delta == null) return clamp(steer, -1, 1) * L;
+  const k = clamp(V.delta / lock, -1, 1);
+  return Math.sign(k) * Math.pow(Math.abs(k), 0.8) * L;
+}
+// arms (v114): shoulders from the driver's eye (19 cm out, 27 cm down, 8 cm back), not from the wheel, so they sit under and
+// beside the camera and the elbow stays low; forearm roll follows the back of the glove
+const ARM_SH = new THREE.Vector3(0.19, -0.27, -0.08), _armQ = new THREE.Quaternion(), _armQi = new THREE.Quaternion(), _armB = new THREE.Vector3();
+function poseArms(m) {
+  const I = m.interior;
+  if (!m._armSh) {
+    m.root.updateMatrixWorld(true);
+    const e = I.worldToLocal(m.body.localToWorld(m.eye.clone())), sp = m.spec || {};
+    m._armSh = m.arms.map(A => new THREE.Vector3(e.x + (A.sx || 1) * ARM_SH.x, e.y + ARM_SH.y + (sp.armDy || 0), e.z + ARM_SH.z + (sp.armDz || 0)));
+  }
+  I.getWorldQuaternion(_armQi).invert();
+  m.arms.forEach((A, i) => {
+    A.hand.getWorldPosition(_va); I.worldToLocal(_va);
+    A.H.root.getWorldQuaternion(_armQ); _armB.set(0, 0, 1).applyQuaternion(_armQ).applyQuaternion(_armQi);
+    solveArm(A.arm, m._armSh[i], _va, _armB);
+  });
+}
 function poseModel(m, V, steer, braking, dt) {
   const r = m.root;
   r.position.set(V.x, V.y, V.z);
@@ -1647,8 +1680,8 @@ function poseModel(m, V, steer, braking, dt) {
   if (lm < 1) m.body.position.y *= lm;
   spinVis(m, V.wheelRot);
   { const sv = m.spec.body === 'lmp' ? 0.5 : 1, lim = m.spec.body === 'lmp' ? 0.16 : 9; for (const p of m.steerPivots) p.rotation.y = clamp(V.delta * 1.2 * sv, -lim, lim); }
-  if (m.steeringWheel) m.steeringWheel.rotation.z = -steer * 1.9 + (V.kerbA || 0) * 0.035 * jit();
-  if (m.arms && m.interior.visible) for (const A of m.arms) { A.hand.getWorldPosition(_va); m.interior.worldToLocal(_va); solveArm(A.arm, A.sh, _va, 0.0); }
+  if (m.steeringWheel) m.steeringWheel.rotation.z = -wheelTurn(V, steer, m.spec && m.spec.body) + (V.kerbA || 0) * 0.035 * jit();
+  if (m.arms && m.interior.visible) poseArms(m);
   if (m.dv) dvPose(m, V, dt);
   if (m.setBrake) m.setBrake(braking);
 }
@@ -2507,7 +2540,7 @@ function nanScan() {
   for (let i = 0; i < buf.length; i++) { const e = (buf[i] >> 10) & 31; if (e === 31) { if (buf[i] & 1023) nan++; else inf++; if (!first) first = [(i >> 2) % sz.x, sz.y - 1 - Math.floor((i >> 2) / sz.x)]; } else if (e >= 29) big++; }
   return { nan, inf, big, first, w: sz.x, h: sz.y };
 }
-window.__spa = { S, roadLayers, trackIds: () => Object.keys(TRACK_DEFS), tyreLife: () => ({ cache: Object.fromEntries(TYRE_LIFE.cache), job: TYRE_LIFE.job && { key: TYRE_LIFE.job.key, c: TYRE_LIFE.job.c, n: TYRE_LIFE.job.st && TYRE_LIFE.job.st.n, t: TYRE_LIFE.job.st && +TYRE_LIFE.job.st.t.toFixed(1) } }), menuStep(k, anim) { setMenuStep(k, { instant: !anim }); return MENU_UI.step; }, sheet(full) { MENU_UI.sheet.set(MENU_UI.det[full ? 0 : 1]); sheetSettled(); return MENU_UI.det; }, menuUI: MENU_UI, nanScan, freeze(on) { FREEZE = on ? { draw: false } : null; return 'ok'; }, redraw() { if (FREEZE) FREEZE.draw = true; return 'ok'; }, lod(on) { if (on != null) LOD_ON = on !== false; return { on: LOD_ON, jobs: LOD_JOBS.length, ms: Math.round(LOD_MS) }; }, async lodFlush() { for (let k = 0; k < 600 && (LOD_JOBS.length || (LOD_W && LOD_W.pend.size)); k++) await new Promise(r => setTimeout(r, 100)); return { worker: !!LOD_W, left: LOD_JOBS.length, ms: Math.round(LOD_MS) }; }, get INPUT() { return INPUT; }, switchTrack, post: () => POST.ready, get TRACK() { return TRACK; }, audioLab: { CarAudio, EngineVoice, engineProfile, engineWave }, get car() { return car; }, get model() { return model; }, get race() { return SES; }, get world() { return world; }, get skids() { return skids; }, get camera() { return camera; }, get T() { return T; }, get DFX() { return DFX; }, get coach() { return COACH_ST; }, setLineMode, crashTest, startSession, rewind, get RW() { return RW; }, get BW() { return BW; }, barrelsReset, BARREL_TYPES, BAR, selectCar, cycleCam, net: () => ({ code: NET.code, host: NET.host, mode: NET.mode, via: NET.room && NET.room.via, rtt: netMyRtt(), avail: NET.avail, err: NET.err, joining: NET.joining, closed: NET.closed, room: netRoomState().ps.map(p => ({ peer: p.peer, me: p.sameTab, name: pres(p).name, car: pres(p).car, c1: pres(p).c1, host: pres(p).host, rdy: pres(p).rdy, trk: pres(p).trk, ph: pres(p).ph })), canStart: !!netRoomState().canStart, remotes: SES && SES.mode === 'multi' ? SES.entries.filter(e => e.isRemote).map(e => ({ name: e.name, x: e.x, z: e.z, s: e.s, mode: e.mode, age: e.age, rt: e.rt, off: e.off, jit: e.jit, gap: e.gap, left: e.left, vis: !!(e.model && e.model.root.visible), tag: !!(e.tag && !e.tag.hidden) })) : null, startText: $('startLbl').textContent, startHint: $('startHint').textContent, disabled: $('startBtn').disabled, toast: $('netToast').hidden ? '' : $('netToast').textContent, notices: (netNotify.log || []).slice(), note: $('lobbyNote').hidden ? '' : $('lobbyNote').textContent }), get netRoom() { return NET.room; }, netStress, netLatestTs, get netLab() { return { netSampleAt, normCode, codeValid, netClock, netDelay, netRenderTime, netPredict, netPoseStep, trackPoint, newQ }; }, netJoin, lobbyPrimary, openLobby, netReady, netHostSettings, netNotify, netDbg: () => ({ code: NET.code, host: NET.host, off: NET.offset, seen: NET.cfgSeen, peers: NET.peers.map(p => [p.peer, p.sameTab, pres(p).code, pres(p).host, pres(p).ph, pres(p).cfg && pres(p).cfg.seq, pres(p).cfg && pres(p).cfg.startAt - Date.now()]) }), setAuto(k) { AUTO = k != null ? { k } : null; }, renderer: () => renderer, menu: MENU, setWeather, WXS, TYRES, tyreRequestCycle, startFromMenu, endQuali,
+window.__spa = { armCfg: { ARM_SH, ARM_POLE, get lock() { return WHEEL_VIS_LOCK; }, set lock(v) { WHEEL_VIS_LOCK = v; }, reset() { if (model) model._armSh = null; } }, S, roadLayers, trackIds: () => Object.keys(TRACK_DEFS), tyreLife: () => ({ cache: Object.fromEntries(TYRE_LIFE.cache), job: TYRE_LIFE.job && { key: TYRE_LIFE.job.key, c: TYRE_LIFE.job.c, n: TYRE_LIFE.job.st && TYRE_LIFE.job.st.n, t: TYRE_LIFE.job.st && +TYRE_LIFE.job.st.t.toFixed(1) } }), menuStep(k, anim) { setMenuStep(k, { instant: !anim }); return MENU_UI.step; }, sheet(full) { MENU_UI.sheet.set(MENU_UI.det[full ? 0 : 1]); sheetSettled(); return MENU_UI.det; }, menuUI: MENU_UI, nanScan, freeze(on) { FREEZE = on ? { draw: false } : null; return 'ok'; }, redraw() { if (FREEZE) FREEZE.draw = true; return 'ok'; }, lod(on) { if (on != null) LOD_ON = on !== false; return { on: LOD_ON, jobs: LOD_JOBS.length, ms: Math.round(LOD_MS) }; }, async lodFlush() { for (let k = 0; k < 600 && (LOD_JOBS.length || (LOD_W && LOD_W.pend.size)); k++) await new Promise(r => setTimeout(r, 100)); return { worker: !!LOD_W, left: LOD_JOBS.length, ms: Math.round(LOD_MS) }; }, get INPUT() { return INPUT; }, switchTrack, post: () => POST.ready, get TRACK() { return TRACK; }, audioLab: { CarAudio, EngineVoice, engineProfile, engineWave }, get car() { return car; }, get model() { return model; }, get race() { return SES; }, get world() { return world; }, get skids() { return skids; }, get camera() { return camera; }, get T() { return T; }, get DFX() { return DFX; }, get coach() { return COACH_ST; }, setLineMode, crashTest, startSession, rewind, get RW() { return RW; }, get BW() { return BW; }, barrelsReset, BARREL_TYPES, BAR, selectCar, cycleCam, net: () => ({ code: NET.code, host: NET.host, mode: NET.mode, via: NET.room && NET.room.via, rtt: netMyRtt(), avail: NET.avail, err: NET.err, joining: NET.joining, closed: NET.closed, room: netRoomState().ps.map(p => ({ peer: p.peer, me: p.sameTab, name: pres(p).name, car: pres(p).car, c1: pres(p).c1, host: pres(p).host, rdy: pres(p).rdy, trk: pres(p).trk, ph: pres(p).ph })), canStart: !!netRoomState().canStart, remotes: SES && SES.mode === 'multi' ? SES.entries.filter(e => e.isRemote).map(e => ({ name: e.name, x: e.x, z: e.z, s: e.s, mode: e.mode, age: e.age, rt: e.rt, off: e.off, jit: e.jit, gap: e.gap, left: e.left, vis: !!(e.model && e.model.root.visible), tag: !!(e.tag && !e.tag.hidden) })) : null, startText: $('startLbl').textContent, startHint: $('startHint').textContent, disabled: $('startBtn').disabled, toast: $('netToast').hidden ? '' : $('netToast').textContent, notices: (netNotify.log || []).slice(), note: $('lobbyNote').hidden ? '' : $('lobbyNote').textContent }), get netRoom() { return NET.room; }, netStress, netLatestTs, get netLab() { return { netSampleAt, normCode, codeValid, netClock, netDelay, netRenderTime, netPredict, netPoseStep, trackPoint, newQ }; }, netJoin, lobbyPrimary, openLobby, netReady, netHostSettings, netNotify, netDbg: () => ({ code: NET.code, host: NET.host, off: NET.offset, seen: NET.cfgSeen, peers: NET.peers.map(p => [p.peer, p.sameTab, pres(p).code, pres(p).host, pres(p).ph, pres(p).cfg && pres(p).cfg.seq, pres(p).cfg && pres(p).cfg.startAt - Date.now()]) }), setAuto(k) { AUTO = k != null ? { k } : null; }, renderer: () => renderer, menu: MENU, setWeather, WXS, TYRES, tyreRequestCycle, startFromMenu, endQuali,
   view(sN, d, h, back, lookD, fov) { $('menu').hidden = true; const s = ((sN + T.nom) % T.nom) * T.L / T.nom; const p = trackPoint(T, s - (back || 0), d), t = trackPoint(T, s, lookD != null ? lookD : d); DEBUGCAM = [p.x, p.e + h, p.z, t.x, t.e + 1, t.z, fov || 60]; return 'ok'; }, noview() { DEBUGCAM = null; }, cam(a, b, c, d, e, f, g) { $('menu').hidden = true; DEBUGCAM = [a, b, c, d, e, f, g || 60]; return 'ok'; },
   // test hooks (v105): pose the car and camera as one drawn frame would while frozen; wheelStep(1e9) = old unlimited spin
   pose(dt) { updateModelTransform(dt || 1 / 60); updateCamera(dt || 1 / 60); return 'ok'; }, wheelStep(v) { if (v != null) WHEEL_STEP = v; return WHEEL_STEP; },

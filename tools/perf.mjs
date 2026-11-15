@@ -6,7 +6,7 @@
 //   jsMs only compare builds on the same machine; calls and triangles are exact. LOD=1 waits for the car LODs (LOD=0: off).
 import { chromium } from 'playwright';
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path'; import url from 'node:url';
-const root = path.join(path.dirname(url.fileURLToPath(import.meta.url)), '..'), DIST = path.join(root, 'dist');
+const root = path.join(path.dirname(url.fileURLToPath(import.meta.url)), '..'), DIST = process.env.DIST || path.join(root, 'dist');
 const [trk = 'spa', car = 'amg_gt3', scn = 'race', q = 'medio', secs = '8', W = '1280'] = process.argv.slice(2);
 const MIME = { '.html': 'text/html; charset=utf-8', '.wasm': 'application/wasm', '.js': 'text/javascript' };
 const srv = http.createServer((rq, r) => { const f = path.join(DIST, decodeURIComponent(rq.url.split('?')[0]).replace(/^\/$/, '/spa.html'));

@@ -23,6 +23,7 @@ node tools/headless.js ailap monza amg_gt3,w17 5   # vueltas de la IA sola (pist
 node tools/headless.js tyres               # comprueba que las barreras de neumáticos quedan por fuera de la curva
 node tools/headless.js city                # Mónaco: ningún edificio ni tribuna dentro de los muros (exit 1 si falla)
 node tools/headless.js pits                # tribunas, boxes y postes no se pisan entre sí ni con la pista (exit 1 si falla)
+node tools/arm_shot.mjs <prefijo> monza sf26,amg_gt3   # cabina con volante recto/a tope: capturas y % de vista tapada por brazos
 node tools/headless.js pitstop             # tiempo de parada por categoría y daño
 node tools/headless.js pitwall [pistas] [coche]   # choques contra el muro de boxes y el de la vía de salida desde los dos lados: ninguno lo atraviesa (exit 1 si falla, ~10 min todas)
 node tools/headless.js barrels            # barriles: golpes a 8/80/150 km/h, torres, pirámide, bloque de agua, determinismo, coste, amortiguadores en los 10 trazados (exit 1 si falla)
@@ -94,6 +95,7 @@ Ejemplos de capturas:
 - **Menú (v81):** tres pasos en una hoja de cristal: Pista (tarjetas con el trazado, trazados de Tocancipá, clima) · Coche (lista + ficha a la derecha) · Sesión (modo, detalles, «Más opciones»). Escritorio: panel lateral; móvil (≤ 820 px): hoja inferior con dos posiciones que se arrastra por la cabecera. Movimiento con muelles propios (`Spring`: amortiguamiento + respuesta, parten del valor y la velocidad actuales), proyección del gesto y rebote en los bordes, según la guía de diseño de Apple que pasó Juanse. Los ids de los controles antiguos se conservan. La cámara del menú encuadra el coche en el hueco libre (`menuFrame`). Capturas del menú: `node tools/menu_shot.mjs <prefijo> "__spa.menuStep('coche')" [ancho] [alto] [móvil=1]`.
 
 ## Historial reciente y decisiones
+- **v114:** brazos en cabina: el volante sigue `V.delta` (`wheelTurn`, tope 80°, 52° en monoplazas/LMP), hombros desde el ojo (`poseArms`, `ARM_SH`), codo abajo/fuera (`ARM_POLE`), mangas con forma y tela (`suitTexture`). `node tools/arm_shot.mjs` mide cuánta vista tapan.
 - **v108:** Tesla Model 3 Performance (`model3_p`, `assets/tesla3.glb`, `tools/prep_tesla.mjs`): FBX girado 180°, escala por batalla y X ×0,945 (el asset venía ancho), ruedas rectas (0,00 mm), 0-100 3,44 s, límite 261 km/h.
 - **v113:** coches remotos fluidos: `netPoseStep` (muelle de segundo orden sobre posición y velocidad, `NET_SPRING` 9 rad/s; rumbo = dirección de movimiento − deriva). `net_test.mjs lab` mide fluidez (aceleración, tirones de velocidad y de giro) contra v112 con 60-300 ms de ping.
 - **v112:** sala de Claude (artefacto): ping medido por eco en la presencia (`pi`/`po`, `netRoomPing`) y usado en la predicción (antes 80 ms fijos); el paquete de barriles sale de la presencia cuando duermen; el indicador muestra «Sala de Claude (servidor) · ping · FPS». Las mejoras de red de v106-v107 solo aplican en la web (PeerJS): para carreras de varios se recomienda la web.

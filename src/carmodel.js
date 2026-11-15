@@ -675,7 +675,7 @@ function addWheelAndDash(out, eye, style, pos) {
   const cv = document.createElement('canvas'); cv.width = 512; cv.height = 160;
   const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
   out.dash = { cv, ctx: cv.getContext('2d'), tex, last: 0, style: 'race', W: 512, H: 160 };
-  wheelRig(out, { pos: p, tilt: 0.3, race: true, round: false, f1: open, tex, sleeve: open ? out.col2.clone().multiplyScalar(0.8) : out.col1.clone().multiplyScalar(0.6), glove: open ? out.col2.clone().lerp(new THREE.Color(1, 1, 1), 0.4) : null,
+  wheelRig(out, { pos: p, tilt: 0.3, race: true, round: false, f1: open, tex, sleeve: out.col1.clone(), glove: null,
     elbowX: open ? 0.3 : 0.28, elbowY: eye.y - (open ? 0.34 : 0.48), elbowZ: eye.z + (open ? 0.08 : 0.18), column: !open,
     shDrop: (out.spec && out.spec.shDrop) || (open ? 0.15 : 0), shDz: open && !(out.spec && out.spec.shDrop) ? 0.06 : 0, ...(out.spec && out.spec.suit ? { sleeve: new THREE.Color(out.spec.suit), glove: new THREE.Color(out.spec.gloveCol || '#d8d8d4'), gloveLight: true } : {}) });
 }

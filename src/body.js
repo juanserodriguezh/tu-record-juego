@@ -570,7 +570,7 @@ function wheelRig(out, o) {
   }
   // hands: articulated gloves (hands.js) wrapped round the grips / rim + two-bone arms solved every frame (main.poseModel)
   cabinAdd(wk, wg); cabinAdd(swk, sw);
-  const sleeveM = new THREE.MeshStandardMaterial({ color: (o.sleeve ? new THREE.Color(o.sleeve).multiplyScalar(0.4) : new THREE.Color('#1c2027')), roughness: 0.92, metalness: 0 });
+  const sleeveM = suitMaterial(o.sleeve ? new THREE.Color(o.sleeve).multiplyScalar(0.55) : null);
   const gloveC = o.glove || null, accC = (o.sleeve ? new THREE.Color(o.sleeve).multiplyScalar(1.0) : new THREE.Color('#8a8f96'));
   const ws = o.swScale || (o.f1 ? 0.95 : 0.85), Ev = o.pos.y, hs = 0.93;
   const shY = o.elbowY + 0.5 - 0.25 - (o.shDrop || 0), shZ = o.elbowZ - 0.2 - 0.05 - (o.shDrop || 0) * 0.4 + (o.shDz || 0);
@@ -584,8 +584,8 @@ function wheelRig(out, o) {
     placeHand(H, C, P, new THREE.Vector3(0, 0, 1), R, 0.004, hs);
     H.setPose({ R: R / hs, grip: 1, tAb: 0.5, tFl: 0.35 });
     sw.add(H.root);
-    const arm = buildArm(sx, sleeveM, H.mats.cuff); I.add(arm.group);
-    out.arms.push({ hand: H.wrist, H, arm, sh: new THREE.Vector3(o.pos.x + sx * 0.2, shY, shZ) });
+    const arm = buildArm(sx, sleeveM, H.mats.glove); I.add(arm.group);
+    out.arms.push({ hand: H.wrist, H, arm, sx, sh: new THREE.Vector3(o.pos.x + sx * 0.2, shY, shZ) });
   }
   out.steeringWheel = sw;
   return sw;
