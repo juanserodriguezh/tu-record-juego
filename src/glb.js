@@ -73,7 +73,9 @@ const GLB_FIX = {
   chiron(root) { const done = new Set(); root.traverse(o => { if (!o.isMesh) return; for (const m of (Array.isArray(o.material) ? o.material : [o.material])) { if (m && /^16 \(4\)/.test(m.name)) m.color.setRGB(0.13, 0.14, 0.17);   // light leather: the map is near white and burned out in the sun
       if (!m || done.has(m) || m.map || m.transparent || m.color.r + m.color.g + m.color.b < 2.9) continue; done.add(m);
     const n = m.name, hx = /^rgba([0-9a-f]{6})/.exec(n);
-    if (hx) m.color.set('#' + hx[1]); else if (/turquoise/.test(n)) m.color.set(0x2a6fd0); else if (/black|guma|grill|undercarr|flx|7 \(8\)/.test(n)) { m.color.set(0x0e0f11); m.roughness = Math.max(m.roughness, 0.6); m.metalness = Math.min(m.metalness, 0.2); } } }); },
+    if (hx) m.color.set('#' + hx[1]); else if (/turquoise/.test(n)) m.color.set(0x2a6fd0); else if (/black|guma|grill|undercarr|flx|7 \(8\)/.test(n)) { m.color.set(0x0e0f11); m.roughness = Math.max(m.roughness, 0.6); m.metalness = Math.min(m.metalness, 0.2); } } });
+    // the scan's dash is an open frame: through the binnacle you saw the nose from inside. Dark firewall behind it (hidden from outside)
+    const fw = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.5, 0.03), new THREE.MeshStandardMaterial({ color: 0x101114, roughness: 0.9, metalness: 0 })); fw.name = 'firewall'; fw.position.set(0, 0.58, 1.22); fw.userData.tag = 'int'; root.add(fw); },
   // Valkyrie LMH: the tub textures are mid grey and read as a white cockpit in the sun -> carbon
   valklm(root) { root.traverse(o => { if (!o.isMesh || !o.material || !/^INT_/.test(o.material.name)) return; const m = o.material; if (m.roughnessMap) { m.roughnessMap = m.metalnessMap = null; m.roughness = 0.7; m.metalness = 0; m.needsUpdate = true; }
     if (m.name === 'INT_CARBON') m.color.setScalar(0.1); else if (m.name === 'INT_COCKPIT_PARTS') m.color.setScalar(0.22); }); },   // their base maps are baked shading (light grey), the carbon colour came from the game shader

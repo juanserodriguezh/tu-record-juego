@@ -4,7 +4,7 @@
 //   handy: __spa.menuStep('pista'|'coche'|'sesion'), document.querySelector(...).click()
 import { chromium } from 'playwright';
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path'; import url from 'node:url';
-const root = path.join(path.dirname(url.fileURLToPath(import.meta.url)), '..'), DIST = path.join(root, 'dist');
+const root = path.join(path.dirname(url.fileURLToPath(import.meta.url)), '..'), DIST = process.env.DIST ? path.resolve(process.env.DIST) : path.join(root, 'dist');
 const [pre = 'menu', js = '1', W = '1280', H = '', mob = ''] = process.argv.slice(2);
 const MIME = { '.html': 'text/html; charset=utf-8', '.wasm': 'application/wasm', '.js': 'text/javascript' };
 const srv = http.createServer((q, r) => { const f = path.join(DIST, decodeURIComponent(q.url.split('?')[0]).replace(/^\/$/, '/spa.html'));
