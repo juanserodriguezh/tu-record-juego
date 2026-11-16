@@ -560,7 +560,7 @@
 - Verificado a tope izquierda/derecha, v114 → v115: SF-26 7,1/7,2 → 2,4/2,5 %; F1 2004 5,0/5,0 → 0,8/0,8; IndyCar 5,1/4,8 → 0,8/0,8; 919 0/0 → 0/0. Volante recto: 0. Sin errores de página. Capturas en `brazos-v115/`.
 - Precio: en horquillas el volante de un monoplaza se ve girar menos que el real.
 
-## v116 (15-nov-2026) — piezas que se transparentaban y cabina con el interior real del modelo
+## v116 (15-nov-2026) (publicada, id 1794797185-07ec) — piezas que se transparentaban y cabina con el interior real del modelo
 - Pedido de Juanse: al elegir carro hay detalles que se transparentan (sobre todo en el Fórmula E) y la cabina del Mercedes GT3 no se parece al modelo 3D que se ve desde afuera; usar el modelo 3D para los interiores.
 - Causa de las transparencias: los modelos traen materiales de una sola cara (`doubleSided: false`) sobre láminas abiertas (alerones, derivas, fondo plano, laterales del monocasco). Vistas por detrás, esas láminas no se dibujan y se ve a través. Medido con gltf-transform (porcentaje de aristas abiertas en mallas de una cara): Fórmula E, Bolide, Duster, GT3 Evo (parte), IndyCar, NASCAR, 919, Seagull y Model 3. Antes solo el 919 y los dos Valkyrie llevaban el arreglo a mano.
 - Arreglo (`loadGlbs` en `glb.js`): todo material opaco de una cara de cualquier coche escaneado pasa a dos caras (`DoubleSide`), con la sombra todavía por la cara frontal (`shadowSide = FrontSide`) para no meter acné de sombra. No toca los assets.
