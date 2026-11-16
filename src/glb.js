@@ -65,7 +65,7 @@ async function loadGlbs(progress) {
 // v115 real cabins: the cockpit view shows the model's own interior (spec.realCab + eyeAt + swAt). Where the model carries its own
 // steering wheel, its triangles are split into meshes tagged 'swown' (hidden in the cockpit: the shared wheel with the hands turns there).
 // [x, y, z of the wheel centre, radius, depth towards the driver, depth towards the dash, column tilt (rad)] in asset coordinates.
-const GLB_OWNSW = { rexy: [0.30, 0.70, 0.14, 0.20, 0.06, 0.10, 0], valklm: [0.17, 0.68, 0.46, 0.18, 0.06, 0.06, 0], duster: [0.36, 1.03, 0.47, 0.21, 0.07, 0.07, 0.4],
+const GLB_OWNSW = { nascar: [0.42, 0.77, 0.33, 0.08, 0.09, 0.08, 0], amg_one: [0.40, 0.615, 0.44, 0.17, 0.12, 0.12, 0], rexy: [0.30, 0.70, 0.14, 0.20, 0.06, 0.10, 0], valklm: [0.17, 0.68, 0.46, 0.18, 0.06, 0.06, 0], duster: [0.36, 1.03, 0.47, 0.21, 0.07, 0.07, 0.4],
   seagull: [0.40, 1.0, 0.415, 0.21, 0.07, 0.07, 0.45], tesla3: [0.38, 0.82, 0.57, 0.21, 0.07, 0.07, 0.37] };
 // asset defects fixed at load, by asset id
 const GLB_FIX = {

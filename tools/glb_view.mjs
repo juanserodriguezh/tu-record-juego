@@ -17,7 +17,7 @@ window.V = { THREE, S, g: g.scene, shot(c) { cam.position.set(c[0], c[1], c[2]);
 </script></body>`;
 const srv = http.createServer((q, s) => { const u = decodeURIComponent(q.url.split('?')[0]);
   if (u === '/') { s.writeHead(200, { 'content-type': 'text/html' }); return s.end(HTML); }
-  const f = u === '/asset.glb' ? path.join(root, 'assets', id + '.glb') : u.startsWith('/three/') ? path.join(TD, u.slice(7)) : null;
+  const f = u === '/asset.glb' ? (process.env.GLB || path.join(root, 'assets', id + '.glb')) : u.startsWith('/three/') ? path.join(TD, u.slice(7)) : null;
   if (!f || !fs.existsSync(f)) { s.writeHead(404); return s.end(); } s.writeHead(200, { 'content-type': f.endsWith('.js') ? 'text/javascript' : 'application/octet-stream' }); fs.createReadStream(f).pipe(s); }).listen(0);
 const b = await chromium.launch(), pg = await b.newPage({ viewport: { width: +(process.env.W || 900), height: +(process.env.H || 520) } }); pg.on('pageerror', e => console.log('ERR', String(e)));
 await pg.goto(`http://localhost:${srv.address().port}/`); await pg.waitForFunction(() => window.V, null, { timeout: 120000 });
